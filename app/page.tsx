@@ -177,6 +177,8 @@ type Reminder = {
   time: string;
   repeat: 'once' | 'daily' | 'weekly';
   done: boolean;
+  /** Set when a send failed, so a dropped reminder is visible not silent. */
+  failureReason?: string | null;
 };
 
 /** Stands in until the first workspace arrives from the server, so the shell
@@ -467,6 +469,7 @@ export default function Home() {
         setTasks(tasksRes.tasks.map(toUiTask) as Task[]);
         setCaptures(inboxRes.items.map(toUiCapture) as unknown as Capture[]);
         await refreshGroups();
+        await refreshReminders();
       } catch (error) {
         if (cancelled) return;
         setLoadError(
@@ -549,6 +552,7 @@ export default function Home() {
     ]);
     setTasks(tasksRes.tasks.map(toUiTask) as Task[]);
     setCaptures(inboxRes.items.map(toUiCapture) as unknown as Capture[]);
+    await refreshReminders();
   }
 
   // Live updates.
@@ -1259,50 +1263,65 @@ export default function Home() {
       setBusy(false);
     }
   }
-  function addEvidence(event: FormEvent<HTMLFormElement>) {
+  async function addEvidence(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedTask) return;
     if (!canEditTask(selectedTask))
       return setNotice('งานนี้ดูได้อย่างเดียว เพราะคุณไม่ใช่ผู้รับผิดชอบ');
-    const form = new FormData(event.currentTarget);
-    const label = String(form.get('label') || '').trim();
-    const url = String(form.get('url') || '').trim();
-    if (!/^https?:\/\//i.test(url)) {
-      setNotice('กรุณาวางลิงก์ http หรือ https');
-      return;
+    const url = String(new FormData(event.currentTarget).get('url') || '').trim();
+    setBusy(true);
+    try {
+      await api.updateTask(selectedTask.id, { evidenceUrl: url });
+      await refreshWorkspace(selectedTask.projectId);
+      setEvidenceOpen(false);
+      setSelectedTask(null);
+      setNotice('เพิ่มลิงก์แล้ว — ไม่มีการเก็บไฟล์');
+    } catch (error) {
+      reportError(error, 'เพิ่มลิงก์ไม่สำเร็จ');
+    } finally {
+      setBusy(false);
     }
-    const updated = {
-      ...selectedTask,
-      evidence: [
-        ...selectedTask.evidence,
-        { label: label || 'ลิงก์หลักฐาน', url },
-      ],
-      activity: [
-        ...selectedTask.activity,
-        { text: `เพิ่มหลักฐาน: ${label}`, time: 'เมื่อสักครู่' },
-      ],
-    };
-    setTasks((all) =>
-      all.map((item) => (item.id === updated.id ? updated : item)),
-    );
-    setSelectedTask(updated);
-    setEvidenceOpen(false);
-    setNotice('เพิ่มลิงก์แล้ว — ไม่มีการเก็บไฟล์');
   }
-  function updateNickname(event: FormEvent<HTMLFormElement>) {
+
+  /** Remove a task for everyone, not just from this screen. */
+  async function deleteTask(target: Task) {
+    setBusy(true);
+    try {
+      await api.deleteTask(target.id);
+      await refreshWorkspace(target.projectId);
+      setSelectedTask(null);
+      setNotice('ลบงานแล้ว');
+    } catch (error) {
+      reportError(error, 'ลบงานไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function updateNickname(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!nicknameMember) return;
     const nickname = String(
       new FormData(event.currentTarget).get('nickname') || '',
     ).trim();
     if (!nickname) return;
-    setProjects((all) =>
-      nicknameAcrossProjects(all, nicknameMember.lineName, nickname),
-    );
-    if (nicknameMember.lineName === account.lineName)
-      setAccount((current) => ({ ...current, displayName: nickname }));
-    setNicknameMember(null);
-    setNotice('บันทึกชื่อเล่นในทุกพื้นที่งานแล้ว');
+    setBusy(true);
+    try {
+      await api.renameMember(selectedProject.id, nicknameMember.id, nickname);
+      const members = await api.members(selectedProject.id);
+      setProjects((all) =>
+        all.map((project) =>
+          project.id === selectedProject.id
+            ? { ...project, members: members.members.map(toUiMember) }
+            : project,
+        ),
+      );
+      setNicknameMember(null);
+      setNotice('บันทึกชื่อเล่นแล้ว');
+    } catch (error) {
+      reportError(error, 'บันทึกชื่อเล่นไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
   }
   function createTeam(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1374,46 +1393,87 @@ export default function Home() {
     setNotice('สร้างเตือนแล้ว — ไม่เสียค่าใช้จ่ายเพิ่ม');
     event.currentTarget.reset();
   }
-  function createQuickReminder(event: FormEvent<HTMLFormElement>) {
+  async function createQuickReminder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const title = quickReminderTitle.trim();
     if (!title) return setNotice('พิมพ์เรื่องที่อยากให้เตือนก่อน');
-    setReminders((all) => [
-      {
-        id: `REM-${Date.now()}`,
-        title,
-        date: quickReminderDay === 'today' ? 'วันนี้' : 'พรุ่งนี้',
-        time: quickReminderTime,
-        repeat: 'once',
-        done: false,
-      },
-      ...all,
-    ]);
-    setQuickReminderTitle('');
-    setNotice(
-      `ตั้งเตือน${quickReminderDay === 'today' ? 'วันนี้' : 'พรุ่งนี้'} ${quickReminderTime} แล้ว`,
+    const dueAt = pickerDueAt(
+      quickReminderDay === 'today' ? 'today' : 'tomorrow',
+      undefined,
+      quickReminderTime,
     );
+    setBusy(true);
+    try {
+      const created = await api.createReminder(
+        { workspaceId: selectedProject.id, dueAt, leadMinutes: 0 },
+        newIdempotencyKey(),
+      );
+      await refreshReminders();
+      setQuickReminderTitle('');
+      // Quiet hours may have moved it, so report the time that will be used
+      // rather than the one that was asked for.
+      setNotice(
+        created.shifted === 'none'
+          ? `ตั้งเตือน ${formatDeadline(created.sendAt, { now })} แล้ว`
+          : `${created.reason} · จะเตือน ${formatDeadline(created.sendAt, { now })}`,
+      );
+    } catch (error) {
+      reportError(error, 'ตั้งเตือนไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
   }
-  function toggleReminder(id: string) {
-    setReminders((all) =>
-      all.map((item) =>
-        item.id === id ? { ...item, done: !item.done } : item,
-      ),
-    );
+
+  async function refreshReminders() {
+    try {
+      const res = await api.reminders(selectedProject.id);
+      setReminders(
+        res.reminders.map((r) => ({
+          id: r.id,
+          title: r.title ?? 'การเตือน',
+          date: formatDeadline(r.sendAt, { now }),
+          time: new Intl.DateTimeFormat('th-TH', {
+            timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', hour12: false,
+          }).format(new Date(r.sendAt)),
+          repeat: 'once' as const,
+          done: r.state === 'sent',
+          failureReason: r.failureReason,
+        })),
+      );
+    } catch {
+      // Non-fatal: the rest of the screen still works.
+    }
   }
-  function snoozeReminder(id: string) {
-    setReminders((all) =>
-      all.map((item) => {
-        if (item.id !== id) return item;
-        const [hour, minute] = item.time.split(':').map(Number);
-        const total = (hour * 60 + minute + 10) % (24 * 60);
-        return {
-          ...item,
-          time: `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`,
-        };
-      }),
-    );
-    setNotice('เลื่อนเตือนออกไป 10 นาทีแล้ว');
+  async function toggleReminder(id: string) {
+    const current = reminders.find((r) => r.id === id);
+    if (!current) return;
+    setBusy(true);
+    try {
+      await api.updateReminder(id, { done: !current.done });
+      await refreshReminders();
+    } catch (error) {
+      reportError(error, 'อัปเดตการเตือนไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function snoozeReminder(id: string) {
+    const current = reminders.find((r) => r.id === id);
+    if (!current) return;
+    setBusy(true);
+    try {
+      // Ten minutes from now, not from the old time, so snoozing a reminder
+      // that is already late actually moves it into the future.
+      await api.updateReminder(id, {
+        sendAt: new Date(now.getTime() + 10 * 60000).toISOString(),
+      });
+      await refreshReminders();
+      setNotice('เลื่อนเตือนออกไป 10 นาทีแล้ว');
+    } catch (error) {
+      reportError(error, 'เลื่อนเตือนไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
   }
   function delegateTask(task: Task) {
     if (!delegateTarget) return;

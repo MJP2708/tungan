@@ -5661,3 +5661,24 @@ html[data-motion='reduced'] *::after {
     padding-inline: 16px;
   }
 }
+
+/* Touch targets on tablets and any coarse pointer.
+   The 44px rule lived only inside the ≤760px block, so a 768px tablet — a
+   touch device — fell through to the 40px desktop sizes. Sizing by pointer
+   type rather than by width is the accurate test: a finger is the same size
+   whatever the screen. Appended last so it wins where it applies without
+   disturbing the existing cascade. */
+@media (min-width: 761px) and (max-width: 1024px), (pointer: coarse) {
+  .top-actions > button,
+  .bell-button,
+  .settings-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .task-row,
+  .member-list > button,
+  .connection-row > button,
+  .panel-heading button {
+    min-height: 48px;
+  }
+}

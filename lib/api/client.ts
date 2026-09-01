@@ -152,6 +152,51 @@ export const api = {
       body: JSON.stringify({ action, ...extra }),
     }),
 
+  updateTask: (
+    taskId: string,
+    patch: {
+      title?: string; note?: string; dueAt?: string | null;
+      assigneeUserId?: string | null; priority?: string; evidenceUrl?: string;
+    },
+  ) =>
+    request<{ ok: true }>(`/api/tasks/${encodeURIComponent(taskId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+
+  deleteTask: (taskId: string) =>
+    request<{ ok: true }>(`/api/tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' }),
+
+  reminders: (workspaceId: string) =>
+    request<{ reminders: Array<{ id: string; title: string | null; sendAt: string; state: string; failureReason: string | null }> }>(
+      `/api/reminders?workspaceId=${encodeURIComponent(workspaceId)}`,
+    ),
+
+  createReminder: (
+    input: { workspaceId: string; taskId?: string | null; dueAt: string; leadMinutes?: number },
+    idempotencyKey: string,
+  ) =>
+    request<{ id: string; sendAt: string; shifted: string; reason: string }>('/api/reminders', {
+      method: 'POST',
+      body: JSON.stringify(input),
+      idempotencyKey,
+    }),
+
+  updateReminder: (id: string, patch: { done?: boolean; sendAt?: string }) =>
+    request<{ ok: true }>(`/api/reminders/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+
+  deleteReminder: (id: string) =>
+    request<{ ok: true }>(`/api/reminders/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  renameMember: (workspaceId: string, userId: string, nickname: string) =>
+    request<{ ok: true }>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(userId)}`,
+      { method: 'PATCH', body: JSON.stringify({ nickname }) },
+    ),
+
   inbox: (workspaceId: string) =>
     request<{ items: ApiInboxItem[] }>(
       `/api/inbox?workspaceId=${encodeURIComponent(workspaceId)}`,
