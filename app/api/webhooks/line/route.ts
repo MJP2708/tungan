@@ -7,6 +7,7 @@ import {
   lineUser,
   lineGroup,
   groupWorkspace,
+  lineGroupMember,
   workspace,
   workspaceMember,
 } from '@/lib/db/schema.ts';
@@ -200,10 +201,41 @@ async function setFriendship(lineUserId: string | undefined, isFriend: boolean) 
 async function handleJoin(event: LineEventPayload) {
   const groupId = event.source?.groupId ?? event.source?.roomId;
   if (!groupId) return;
+  await ensureGroupKnown(groupId);
+}
+
+/** Returns our internal id for a LINE group, creating the row if needed. */
+async function ensureGroupKnown(lineGroupId: string): Promise<string> {
+  const existing = await db()
+    .select({ id: lineGroup.id })
+    .from(lineGroup)
+    .where(eq(lineGroup.lineGroupId, lineGroupId))
+    .limit(1);
+  if (existing[0]) return existing[0].id;
+  const id = crypto.randomUUID();
   await db()
     .insert(lineGroup)
-    .values({ id: crypto.randomUUID(), lineGroupId: groupId, name: '' })
+    .values({ id, lineGroupId, name: '' })
     .onConflictDoNothing();
+  const row = await db()
+    .select({ id: lineGroup.id })
+    .from(lineGroup)
+    .where(eq(lineGroup.lineGroupId, lineGroupId))
+    .limit(1);
+  return row[0]?.id ?? id;
+}
+
+/** Record that we have seen this person in this group. */
+async function noteGroupMember(lineGroupId: string, lineUserId: string) {
+  const groupRowId = await ensureGroupKnown(lineGroupId);
+  const userRowId = await ensureUserKnown(lineUserId);
+  await db()
+    .insert(lineGroupMember)
+    .values({ lineGroupId: groupRowId, userId: userRowId })
+    .onConflictDoUpdate({
+      target: [lineGroupMember.lineGroupId, lineGroupMember.userId],
+      set: { lastSeenAt: new Date() },
+    });
 }
 
 async function handleLeave(event: LineEventPayload) {
@@ -229,12 +261,8 @@ async function handleMemberJoined(event: LineEventPayload) {
   const groupId = event.source?.groupId ?? event.source?.roomId;
   const members = event.joined?.members ?? [];
   if (!groupId || !members.length) return;
-  await db()
-    .insert(lineGroup)
-    .values({ id: crypto.randomUUID(), lineGroupId: groupId, name: '' })
-    .onConflictDoNothing();
   for (const member of members) {
-    if (member.userId) await ensureUserKnown(member.userId);
+    if (member.userId) await noteGroupMember(groupId, member.userId);
   }
 }
 
@@ -275,11 +303,18 @@ async function handleMessage(event: LineEventPayload) {
   const text = event.message.text ?? '';
   const isGroup = event.source?.type === 'group' || event.source?.type === 'room';
 
+  const groupId = event.source?.groupId ?? event.source?.roomId;
   if (event.source?.userId) {
-    await ensureUserKnown(event.source.userId);
-    // A person who can message the OA in a 1:1 chat has added it, so this is
-    // a second, cheaper chance to get the flag right.
-    if (!isGroup) await setFriendship(event.source.userId, true);
+    if (isGroup && groupId) {
+      // Speaking is how most members become known, since the member-list
+      // endpoint needs a Verified or Premium account.
+      await noteGroupMember(groupId, event.source.userId);
+    } else {
+      await ensureUserKnown(event.source.userId);
+      // A person who can message the OA in a 1:1 chat has added it, so this
+      // is a second, cheaper chance to get the flag right.
+      await setFriendship(event.source.userId, true);
+    }
   }
 
   // Default is mention-only in groups. No auto-scan.

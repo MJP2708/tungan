@@ -16,6 +16,7 @@ export type UiMember = {
   role: string;
   /** False when they have not added the OA, so reminders cannot reach them. */
   canReceiveDirectMessages: boolean;
+  linkStatus: 'ok' | 'not_friend' | 'not_signed_in';
 };
 
 export type UiProject = {
@@ -42,6 +43,7 @@ export function toUiMember(m: ApiMember): UiMember {
     initials: initialsFor(nickname),
     role: m.role,
     canReceiveDirectMessages: m.canReceiveDirectMessages,
+    linkStatus: m.linkStatus ?? 'ok',
   };
 }
 

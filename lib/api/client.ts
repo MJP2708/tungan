@@ -20,6 +20,16 @@ export type ApiMember = {
   /** False when the member has not added the OA as a friend. The UI must show
    *  this as a warning: they cannot receive reminder DMs. */
   canReceiveDirectMessages: boolean;
+  /** ok | not_friend | not_signed_in — different problems, different fixes. */
+  linkStatus: 'ok' | 'not_friend' | 'not_signed_in';
+};
+
+export type ApiGroup = {
+  id: string;
+  name: string;
+  bound: boolean;
+  workspaceId: string | null;
+  workspaceName: string | null;
 };
 
 export type ApiTask = {
@@ -90,9 +100,23 @@ export const api = {
   workspaces: () => request<{ workspaces: ApiWorkspace[] }>('/api/workspaces'),
 
   members: (workspaceId: string) =>
-    request<{ members: ApiMember[]; completeness: string }>(
+    request<{ members: ApiMember[]; completeness: string; completenessNote: string }>(
       `/api/workspaces/${encodeURIComponent(workspaceId)}/members`,
     ),
+
+  /** LINE groups this user has been seen in. */
+  groups: () => request<{ groups: ApiGroup[] }>('/api/groups'),
+
+  bindGroup: (groupId: string, workspaceId: string) =>
+    request<{ ok: true }>(`/api/groups/${encodeURIComponent(groupId)}/bind`, {
+      method: 'POST',
+      body: JSON.stringify({ workspaceId }),
+    }),
+
+  unbindGroup: (groupId: string) =>
+    request<{ ok: true }>(`/api/groups/${encodeURIComponent(groupId)}/bind`, {
+      method: 'DELETE',
+    }),
 
   tasks: (workspaceId: string) =>
     request<{ tasks: ApiTask[] }>(

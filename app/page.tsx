@@ -116,6 +116,8 @@ type Member = {
   nickname: string;
   initials: string;
   role: string;
+  /** ok | not_friend (cannot receive DMs) | not_signed_in (never opened the app) */
+  linkStatus?: 'ok' | 'not_friend' | 'not_signed_in';
 };
 type Account = {
   loggedIn: boolean;
@@ -352,6 +354,9 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [lineGroups, setLineGroups] = useState<
+    { id: string; name: string; bound: boolean; workspaceName: string | null }[]
+  >([]);
   const [hydrated, setHydrated] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [taskDialog, setTaskDialog] = useState(false);
@@ -461,6 +466,7 @@ export default function Home() {
         if (cancelled) return;
         setTasks(tasksRes.tasks.map(toUiTask) as Task[]);
         setCaptures(inboxRes.items.map(toUiCapture) as unknown as Capture[]);
+        await refreshGroups();
       } catch (error) {
         if (cancelled) return;
         setLoadError(
@@ -543,6 +549,29 @@ export default function Home() {
     ]);
     setTasks(tasksRes.tasks.map(toUiTask) as Task[]);
     setCaptures(inboxRes.items.map(toUiCapture) as unknown as Capture[]);
+  }
+
+  async function refreshGroups() {
+    try {
+      const res = await api.groups();
+      setLineGroups(res.groups);
+    } catch {
+      // Not fatal: the rest of the screen still works without the list.
+    }
+  }
+
+  /** Connect a LINE group so its messages land in this workspace. */
+  async function connectGroup(groupId: string) {
+    setBusy(true);
+    try {
+      await api.bindGroup(groupId, selectedProject.id);
+      await refreshGroups();
+      setNotice('เชื่อมกลุ่มแล้ว · ข้อความที่ติด @ทันงาน จะเข้ามาที่นี่');
+    } catch (error) {
+      reportError(error, 'เชื่อมกลุ่มไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
   }
 
   function reportError(error: unknown, fallback: string) {
@@ -2304,8 +2333,29 @@ export default function Home() {
               <MessageCircle />
               LINE
             </span>
-            <Badge variant="outline">ยังไม่เชื่อมจริง</Badge>
+            <Badge variant="outline">
+              {account.lineConnected ? 'เชื่อมแล้ว' : 'ยังไม่ได้แอดบอท'}
+            </Badge>
           </div>
+          {lineGroups.map((group) => (
+            <div className="connection-row" key={group.id}>
+              <span>
+                <Users />
+                {group.name}
+              </span>
+              {group.bound ? (
+                <Badge variant="outline">เชื่อมกับ {group.workspaceName}</Badge>
+              ) : (
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => connectGroup(group.id)}
+                >
+                  เชื่อมกับพื้นที่งานนี้
+                </Button>
+              )}
+            </div>
+          ))}
           <div className="connection-row">
             <span>
               <Bot />
@@ -2313,7 +2363,11 @@ export default function Home() {
             </span>
             <Badge variant="outline">เร็ว ๆ นี้</Badge>
           </div>
-          <p className="connection-notice">การเตือนผ่าน LINE ยังไม่เปิดใช้</p>
+          <p className="connection-notice">
+            {lineGroups.length === 0
+              ? 'เชิญบอท @108ahzwq เข้ากลุ่ม LINE แล้วพิมพ์ในกลุ่มหนึ่งครั้ง กลุ่มจะขึ้นมาให้เชื่อมที่นี่ · กลุ่มหนึ่งมีบัญชีทางการได้บัญชีเดียว ถ้าเชิญไม่ได้ให้ทักหาบอทโดยตรงแทน ข้อความจะเข้ากล่องเดียวกัน'
+              : 'กลุ่มหนึ่งมีบัญชีทางการได้บัญชีเดียว ถ้าเชิญบอทเข้ากลุ่มไม่ได้ ให้ทักหาบอทโดยตรง ข้อความจะเข้ากล่องเดียวกัน'}
+          </p>
         </section>
       </div>
     </section>
@@ -2363,9 +2417,13 @@ export default function Home() {
                   </span>
                 </div>
                 <Badge variant="outline">
-                  {member.lineName === account.lineName
-                    ? 'คุณ · แก้ชื่อเล่น'
-                    : 'แก้ชื่อเล่น'}
+                  {member.linkStatus === 'not_friend'
+                    ? 'ยังไม่ได้แอดบอท · เตือนไม่ถึง'
+                    : member.linkStatus === 'not_signed_in'
+                      ? 'ยังไม่เคยเข้าแอป'
+                      : member.lineName === account.lineName
+                        ? 'คุณ · แก้ชื่อเล่น'
+                        : 'แก้ชื่อเล่น'}
                 </Badge>
                 <Pencil />
               </button>
@@ -2373,7 +2431,10 @@ export default function Home() {
           </div>
           <div className="info-strip">
             <Users />
-            <p>รายชื่ออ้างอิงจากสมาชิกในกลุ่ม LINE นี้ ส่วนชื่อเล่นแก้เฉพาะในทันงาน</p>
+            <p>
+              แสดงเฉพาะสมาชิกที่เคยพูดในกลุ่มหรือเข้าใช้แอปแล้ว ยังดึงรายชื่อทั้งกลุ่มไม่ได้
+              เพราะต้องใช้บัญชีที่ผ่านการยืนยันจาก LINE · คนที่ยังไม่ได้แอดบอทจะไม่ได้รับการเตือนทางแชท
+            </p>
           </div>
         </section>
       )}

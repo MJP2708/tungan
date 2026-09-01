@@ -85,9 +85,39 @@ export const groupWorkspace = pgTable(
   {
     lineGroupId: text('line_group_id').notNull().references(() => lineGroup.id, { onDelete: 'cascade' }),
     workspaceId: text('workspace_id').notNull().references(() => workspace.id, { onDelete: 'cascade' }),
+    /** Who connected this group. Binding decides where a group's messages
+     *  land, so it is an accountable action, not an anonymous one. */
+    boundByUserId: text('bound_by_user_id').references(() => lineUser.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.lineGroupId, t.workspaceId] })],
+  (t) => [
+    primaryKey({ columns: [t.lineGroupId, t.workspaceId] }),
+    // A group belongs to one workspace: two bindings would split its
+    // messages across workspaces with no way to tell which is right.
+    uniqueIndex('group_workspace_group_key').on(t.lineGroupId),
+  ],
+);
+
+/**
+ * Who we have actually seen in a LINE group.
+ *
+ * The full member list endpoint needs a Verified or Premium account, so until
+ * then this is the only member list that exists: people become known by
+ * joining or by speaking. The UI must say so rather than presenting it as
+ * complete.
+ */
+export const lineGroupMember = pgTable(
+  'line_group_member',
+  {
+    lineGroupId: text('line_group_id').notNull().references(() => lineGroup.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => lineUser.id, { onDelete: 'cascade' }),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.lineGroupId, t.userId] }),
+    index('line_group_member_user_idx').on(t.userId),
+  ],
 );
 
 export const task = pgTable(
