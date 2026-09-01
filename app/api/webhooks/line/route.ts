@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from 'next/server';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
 import {
   lineEvent,
@@ -10,6 +10,8 @@ import {
   lineGroupMember,
   workspace,
   workspaceMember,
+  task,
+  taskEvent,
 } from '@/lib/db/schema.ts';
 import { verifyLineSignature } from '@/lib/line/verify.ts';
 import { extractDraft, shouldProcessGroupMessage } from '@/lib/line/extract.ts';
@@ -282,10 +284,102 @@ async function ensureUserKnown(lineUserId: string) {
   return id;
 }
 
+/**
+ * Someone tapped a button on the confirmation.
+ *
+ * Two taps must produce one task. The guard is the inbox row's own state: the
+ * update to 'created' is conditional on it still being 'pending', so the
+ * second tap changes nothing and reports the existing task instead. The
+ * webhookEventId dedup upstream covers LINE retrying the same tap; this covers
+ * a person tapping twice, which is a different thing.
+ */
 async function handlePostback(event: LineEventPayload) {
-  // Confirmation postbacks are Task 3. Stored here so the event is not lost
-  // in the meantime.
-  return;
+  const params = new URLSearchParams(event.postback?.data ?? '');
+  const action = params.get('action');
+  const inboxId = params.get('inbox');
+  if (!action || !inboxId) return;
+
+  const rows = await db().select().from(inboxItem).where(eq(inboxItem.id, inboxId)).limit(1);
+  const item = rows[0];
+  if (!item) return;
+
+  // The tapper must be a member of the workspace the draft belongs to.
+  const actorLineUserId = event.source?.userId;
+  let actorUserId: string | null = null;
+  if (actorLineUserId) {
+    const who = await db()
+      .select({ userId: workspaceMember.userId })
+      .from(lineUser)
+      .innerJoin(workspaceMember, eq(workspaceMember.userId, lineUser.id))
+      .where(eq(lineUser.lineUserId, actorLineUserId))
+      .limit(1);
+    actorUserId = who[0]?.userId ?? null;
+  }
+
+  if (action === 'dismiss') {
+    await db()
+      .update(inboxItem)
+      .set({ state: 'dismissed', rawMessage: null })
+      .where(and(eq(inboxItem.id, inboxId), eq(inboxItem.state, 'pending')));
+    if (event.replyToken) {
+      await replyMessage(event.replyToken, [{ type: 'text', text: 'ปิดข้อความนี้แล้ว ไม่ได้สร้างงาน' }],
+        { workspaceId: item.workspaceId }).catch(() => {});
+    }
+    return;
+  }
+
+  if (action !== 'confirm') return;
+
+  if (item.state !== 'pending') {
+    if (event.replyToken) {
+      await replyMessage(event.replyToken, [{ type: 'text', text: 'ข้อความนี้ถูกยืนยันไปแล้ว ไม่ได้สร้างงานซ้ำ' }],
+        { workspaceId: item.workspaceId }).catch(() => {});
+    }
+    return;
+  }
+
+  // Claim the draft first. Only the tap that flips pending -> created goes on
+  // to insert a task, so a double tap cannot produce two.
+  const claimed = await db()
+    .update(inboxItem)
+    .set({ state: 'created', rawMessage: null })
+    .where(and(eq(inboxItem.id, inboxId), eq(inboxItem.state, 'pending')))
+    .returning({ id: inboxItem.id });
+  if (!claimed.length) return;
+
+  const taskId = crypto.randomUUID();
+  await db().insert(task).values({
+    id: taskId,
+    workspaceId: item.workspaceId,
+    title: item.suggestedTitle || 'งานจาก LINE',
+    note: '',
+    assigneeUserId: item.suggestedAssigneeUserId,
+    primaryAssigneeUserId: item.suggestedAssigneeUserId,
+    source: item.lineGroupId ? 'LINE · กลุ่ม' : 'LINE · DM',
+    dueAt: item.suggestedDueAt,
+    createdByUserId: actorUserId,
+  });
+  await db().insert(taskEvent).values({
+    id: crypto.randomUUID(),
+    taskId,
+    workspaceId: item.workspaceId,
+    actorUserId,
+    kind: 'created',
+    detail: 'ยืนยันจากข้อความใน LINE',
+  });
+
+  if (event.replyToken) {
+    await replyMessage(
+      event.replyToken,
+      [{
+        type: 'text',
+        text: `สร้างงานแล้ว: ${item.suggestedTitle}${
+          item.suggestedDueAt ? `\nกำหนดส่ง ${formatForReply(item.suggestedDueAt)}` : ''
+        }`,
+      }],
+      { workspaceId: item.workspaceId },
+    ).catch(() => {});
+  }
 }
 
 /** On unsend, the stored raw message must go. */
@@ -333,10 +427,11 @@ async function handleMessage(event: LineEventPayload) {
     isGroup,
   });
 
+  const draftId = crypto.randomUUID();
   await db()
     .insert(inboxItem)
     .values({
-      id: crypto.randomUUID(),
+      id: draftId,
       workspaceId: resolved.workspaceId,
       lineGroupId: sourceIdOf(event.source),
       senderLineUserId: event.source?.userId ?? null,
@@ -354,15 +449,43 @@ async function handleMessage(event: LineEventPayload) {
 
   // Confirmations go back as a REPLY, which is not counted against the plan
   // quota. A push here would be billed per recipient.
+  //
+  // The buttons carry the draft id, so the group can confirm without leaving
+  // LINE. Nothing is created until someone taps: the system never turns a
+  // message into a task by itself.
   if (event.replyToken) {
+    const assigneeName = draft.assigneeUserId
+      ? resolved.members.find((m) => m.userId === draft.assigneeUserId)?.names[0]
+      : null;
+    const lines = [
+      `รับเรื่องแล้ว: ${draft.title}`,
+      `ผู้รับผิดชอบ: ${assigneeName ?? 'ยังไม่ระบุ'}`,
+      `กำหนดส่ง: ${draft.dueAt ? formatForReply(draft.dueAt) : 'ยังไม่ระบุเวลา'}`,
+    ];
     await replyMessage(
       event.replyToken,
       [
         {
-          type: 'text',
-          text: draft.dueAt
-            ? `รับเรื่องแล้ว: ${draft.title}\nกำหนดส่งที่อ่านได้: ${formatForReply(draft.dueAt)}\nเปิดแอปเพื่อยืนยันก่อนสร้างงาน`
-            : `รับเรื่องแล้ว: ${draft.title}\nยังไม่ระบุกำหนดส่ง เปิดแอปเพื่อยืนยันก่อนสร้างงาน`,
+          type: 'template',
+          altText: lines.join(' · '),
+          template: {
+            type: 'buttons',
+            text: lines.join('\n').slice(0, 160),
+            actions: [
+              {
+                type: 'postback',
+                label: 'ยืนยันสร้างงาน',
+                data: `action=confirm&inbox=${draftId}`,
+                displayText: 'ยืนยันสร้างงาน',
+              },
+              {
+                type: 'postback',
+                label: 'ไม่ใช่งาน',
+                data: `action=dismiss&inbox=${draftId}`,
+                displayText: 'ไม่ใช่งาน',
+              },
+            ],
+          },
         },
       ],
       { workspaceId: resolved.workspaceId },
