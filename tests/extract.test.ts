@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractDraft, shouldProcessGroupMessage } from '../lib/line/extract.ts';
+import { extractDraft, shouldProcessGroupMessage, splitInstructions } from '../lib/line/extract.ts';
 
 const NOW = new Date('2026-09-01T03:00:00.000Z'); // Tue 1 Sep, 10:00 Bangkok
 const MEMBERS = [
@@ -87,4 +87,24 @@ test('no name match leaves the assignee empty for the human to fill', () => {
   });
   assert.equal(d.assigneeUserId, null);
   assert.equal(bkk(d.dueAt), '02/09, 17:00');
+});
+
+test('a message with two instructions offers two drafts', () => {
+  const two = splitInstructions('ส่งรายงานพรุ่งนี้ แล้วก็ โทรหาลูกค้าบ่าย 3');
+  assert.equal(two.length, 2);
+  assert.match(two[0], /ส่งรายงาน/);
+  assert.match(two[1], /โทรหาลูกค้า/);
+});
+
+test('an ordinary sentence is not split', () => {
+  // Over-splitting turns one task into two half-tasks, which is worse.
+  assert.deepEqual(splitInstructions('ส่งใบเสนอราคาให้ ABC ภายในวันนี้'), [
+    'ส่งใบเสนอราคาให้ ABC ภายในวันนี้',
+  ]);
+  assert.equal(splitInstructions('ส่งรายงาน / ok').length, 1);
+});
+
+test('newlines and bullets split, blank fragments do not survive', () => {
+  const r = splitInstructions('- ส่งรายงานพรุ่งนี้\n- โทรหาลูกค้าบ่าย 3\n\n');
+  assert.equal(r.length, 2);
 });

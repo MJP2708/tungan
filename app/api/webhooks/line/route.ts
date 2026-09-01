@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from 'next/server';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
 import {
   lineEvent,
@@ -12,9 +12,10 @@ import {
   workspaceMember,
   task,
   taskEvent,
+  nameCorrection,
 } from '@/lib/db/schema.ts';
 import { verifyLineSignature } from '@/lib/line/verify.ts';
-import { extractDraft, shouldProcessGroupMessage } from '@/lib/line/extract.ts';
+import { extractDraft, shouldProcessGroupMessage, splitInstructions } from '@/lib/line/extract.ts';
 import { fromZonedWallClock } from '@/lib/deadline.ts';
 import { isHelpRequest, helpMessage } from '@/lib/line/help.ts';
 import { confirmMessage, confirmBody, assigneePicker } from '@/lib/line/confirm-message.ts';
@@ -38,7 +39,7 @@ type LineEventPayload = {
   replyToken?: string;
   timestamp?: number;
   source?: LineSource;
-  message?: { id?: string; type?: string; text?: string };
+  message?: { id?: string; type?: string; text?: string; quotedMessageId?: string };
   unsend?: { messageId?: string };
   postback?: { data?: string; params?: { datetime?: string; date?: string; time?: string } };
   joined?: { members?: Array<{ userId?: string }> };
@@ -296,9 +297,41 @@ async function ensureUserKnown(lineUserId: string) {
  * webhookEventId dedup upstream covers LINE retrying the same tap; this covers
  * a person tapping twice, which is a different thing.
  */
+/** How long a freshly created task can be taken back from the chat. */
+const UNDO_WINDOW_MS = 30_000;
+
+async function handleUndo(event: LineEventPayload, params: URLSearchParams) {
+    // A short window to take it back, which is what people actually want
+  // straight after a mistap. Past that, it is an ordinary task and gets
+  // deleted through the app where the permission rules live.
+  const taskId = params.get('task');
+  if (!taskId) return;
+  const rows = await db().select().from(task).where(eq(task.id, taskId)).limit(1);
+  const t = rows[0];
+  if (!t) return;
+  const withinWindow = Date.now() - t.createdAt.getTime() <= UNDO_WINDOW_MS;
+  if (!withinWindow) {
+    if (event.replyToken) {
+      await replyMessage(event.replyToken,
+        [{ type: 'text', text: 'เลยเวลายกเลิกแล้ว ลบงานนี้ได้ในแอป' }],
+        { workspaceId: t.workspaceId }).catch(() => {});
+    }
+    return;
+  }
+  await db().delete(task).where(eq(task.id, taskId));
+  if (event.replyToken) {
+    await replyMessage(event.replyToken,
+      [{ type: 'text', text: 'ยกเลิกงานแล้ว' }],
+      { workspaceId: t.workspaceId }).catch(() => {});
+  }
+  return;
+}
+
 async function handlePostback(event: LineEventPayload) {
   const params = new URLSearchParams(event.postback?.data ?? '');
   const action = params.get('action');
+  // `undo` addresses a task, everything else addresses a draft.
+  if (action === 'undo') return handleUndo(event, params);
   const inboxId = params.get('inbox');
   if (!action || !inboxId) return;
 
@@ -355,6 +388,13 @@ async function handlePostback(event: LineEventPayload) {
     if (!userId) return;
     await db().update(inboxItem).set({ suggestedAssigneeUserId: userId })
       .where(and(eq(inboxItem.id, inboxId), eq(inboxItem.state, 'pending')));
+
+    // Remember the correction for this workspace, so the same phrase resolves
+    // to the right person next time. Only the phrase the parser actually got
+    // wrong is worth learning, and only here — never across workspaces.
+    if (item.rawMessage && item.suggestedAssigneeUserId !== userId) {
+      await rememberCorrection(item.workspaceId, item.rawMessage, userId);
+    }
     await replyDraft(event, inboxId, 'เปลี่ยนผู้รับผิดชอบแล้ว');
     return;
   }
@@ -412,13 +452,27 @@ async function handlePostback(event: LineEventPayload) {
   });
 
   if (event.replyToken) {
+    // One short message with the result and a way back, rather than a
+    // congratulation followed by a separate delete flow.
     await replyMessage(
       event.replyToken,
       [{
-        type: 'text',
-        text: `สร้างงานแล้ว: ${item.suggestedTitle}${
-          item.suggestedDueAt ? `\nกำหนดส่ง ${formatForReply(item.suggestedDueAt)}` : ''
-        }`,
+        type: 'template',
+        altText: `สร้างงานแล้ว: ${item.suggestedTitle}`,
+        template: {
+          type: 'buttons',
+          text: `สร้างงานแล้ว: ${item.suggestedTitle}${
+            item.suggestedDueAt ? `\nกำหนดส่ง ${formatForReply(item.suggestedDueAt)}` : ''
+          }`.slice(0, 160),
+          actions: [
+            {
+              type: 'postback',
+              label: 'ยกเลิกงานนี้',
+              data: `action=undo&task=${taskId}`,
+              displayText: 'ยกเลิกงานนี้',
+            },
+          ],
+        },
       }],
       { workspaceId: item.workspaceId },
     ).catch(() => {});
@@ -482,32 +536,73 @@ async function handleMessage(event: LineEventPayload) {
     return;
   }
 
-  const draft = extractDraft(text, {
-    members: resolved.members,
-    senderUserId: resolved.senderUserId,
-    cutoff: resolved.cutoff,
-    isGroup,
-  });
+  // Replying to an earlier message and tagging the bot means "make THAT a
+  // task". We can only honour it for messages we already hold: the no-auto-scan
+  // rule means an ordinary chat message was never stored, and LINE sends only
+  // the quoted id, never its text. Saying so is better than quietly making a
+  // task out of the one-word reply.
+  let sourceText = text;
+  const quotedId = event.message?.quotedMessageId;
+  if (quotedId) {
+    const quoted = await db()
+      .select({ rawMessage: inboxItem.rawMessage })
+      .from(inboxItem)
+      .where(eq(inboxItem.lineMessageId, quotedId))
+      .limit(1);
+    if (quoted[0]?.rawMessage) {
+      sourceText = `${quoted[0].rawMessage} ${text.replace(/@ทันงาน|@tungan/gi, '')}`.trim();
+    } else if (event.replyToken) {
+      await replyMessage(
+        event.replyToken,
+        [{
+          type: 'text',
+          text: 'ผมไม่ได้เก็บข้อความที่คุณตอบกลับไว้ เพราะอ่านเฉพาะข้อความที่ติด @ทันงาน\nพิมพ์งานมาในข้อความนี้ได้เลย',
+        }],
+        { workspaceId: resolved.workspaceId },
+      ).catch(() => {});
+      return;
+    }
+  }
 
-  const draftId = crypto.randomUUID();
-  await db()
-    .insert(inboxItem)
-    .values({
-      id: draftId,
-      workspaceId: resolved.workspaceId,
-      lineGroupId: sourceIdOf(event.source),
-      senderLineUserId: event.source?.userId ?? null,
-      senderName: resolved.senderName,
-      rawMessage: text,
-      lineMessageId: event.message.id ?? null,
-      suggestedTitle: draft.title,
-      suggestedAssigneeUserId: draft.assigneeUserId,
-      suggestedDueAt: draft.dueAt,
-      confidence: draft.confidence,
-      replyToken: event.replyToken ?? null,
-      state: 'pending',
-    })
-    .onConflictDoNothing();
+  // One message can contain more than one instruction.
+  const instructions = splitInstructions(sourceText);
+  const drafts = instructions.map((part) =>
+    extractDraft(part, {
+      members: resolved.members,
+      senderUserId: resolved.senderUserId,
+      cutoff: resolved.cutoff,
+      isGroup,
+    }),
+  );
+  const draft = drafts[0];
+
+  const draftIds: string[] = [];
+  for (const d of drafts) {
+    const rowId = crypto.randomUUID();
+    draftIds.push(rowId);
+    await db()
+      .insert(inboxItem)
+      .values({
+        id: rowId,
+        workspaceId: resolved.workspaceId,
+        lineGroupId: sourceIdOf(event.source),
+        senderLineUserId: event.source?.userId ?? null,
+        senderName: resolved.senderName,
+        rawMessage: text,
+        // Only the first row can carry the LINE message id: the column is
+        // unique, which is what makes a redelivered message a no-op.
+        lineMessageId: draftIds.length === 1 ? (event.message?.id ?? null) : null,
+        suggestedTitle: d.title,
+        suggestedAssigneeUserId: d.assigneeUserId,
+        suggestedDueAt: d.dueAt,
+        confidence: d.confidence,
+        replyToken: event.replyToken ?? null,
+        state: 'pending',
+      })
+      .onConflictDoNothing();
+  }
+  const draftId = draftIds[0];
+
 
   // Confirmations go back as a REPLY, which is not counted against the plan
   // quota. A push here would be billed per recipient.
@@ -515,24 +610,55 @@ async function handleMessage(event: LineEventPayload) {
   // The card shows what was read next to the words it was read from, and the
   // two things most often wrong are correctable without leaving the chat.
   if (event.replyToken) {
-    const assigneeName = draft.assigneeUserId
-      ? (resolved.members.find((m) => m.userId === draft.assigneeUserId)?.names[0] ?? null)
-      : null;
+    const nameOf = (userId: string | null) =>
+      userId ? (resolved.members.find((m) => m.userId === userId)?.names[0] ?? null) : null;
+    // One reply call carries every card. A reply is free whatever it holds,
+    // so two instructions cost the same as one.
     await replyMessage(
       event.replyToken,
-      [
+      drafts.slice(0, 5).map((d, i) =>
         confirmMessage({
-          id: draftId,
-          title: draft.title,
-          dueAt: draft.dueAt,
-          dueSource: draft.dueSource,
-          assigneeName,
-          assigneeSource: draft.assigneeSource,
+          id: draftIds[i],
+          title: d.title,
+          dueAt: d.dueAt,
+          dueSource: d.dueSource,
+          assigneeName: nameOf(d.assigneeUserId),
+          assigneeSource: d.assigneeSource,
         }),
-      ],
+      ),
       { workspaceId: resolved.workspaceId },
     ).catch((error) => console.error('[webhook][processing-error] reply failed', error));
   }
+}
+
+/**
+ * Learn that a phrase in this workspace means this person.
+ *
+ * Stores the @mention or bare name from the message rather than the whole
+ * sentence, since that is the part that will recur.
+ */
+async function rememberCorrection(workspaceId: string, rawMessage: string, userId: string) {
+  const candidates = [
+    ...(rawMessage.match(/@[^\s@]{2,20}/g) ?? []),
+  ].map((c) => c.replace(/^@/, '').toLowerCase()).filter((c) => !/ทันงาน|tungan/i.test(c));
+  const phrase = candidates[0];
+  if (!phrase) return;
+  await db()
+    .insert(nameCorrection)
+    .values({ workspaceId, phrase, userId })
+    .onConflictDoUpdate({
+      target: [nameCorrection.workspaceId, nameCorrection.phrase],
+      set: { userId, timesUsed: sql`${nameCorrection.timesUsed} + 1`, updatedAt: new Date() },
+    });
+}
+
+/** Corrections this workspace has taught us, folded into the member list. */
+async function learnedNames(workspaceId: string) {
+  const rows = await db()
+    .select({ phrase: nameCorrection.phrase, userId: nameCorrection.userId })
+    .from(nameCorrection)
+    .where(eq(nameCorrection.workspaceId, workspaceId));
+  return rows;
 }
 
 /** People we know in this workspace, for the assignee picker. */
@@ -636,6 +762,10 @@ async function resolveWorkspace(event: LineEventPayload) {
 
   const sender = members.find((m) => m.lineUserId === senderLineUserId);
 
+  // Fold in anything this workspace has corrected before, so a name the
+  // parser once got wrong resolves on its own next time.
+  const learned = await learnedNames(workspaceId);
+
   return {
     workspaceId,
     cutoff,
@@ -643,7 +773,11 @@ async function resolveWorkspace(event: LineEventPayload) {
     senderName: sender?.nickname || sender?.displayName || '',
     members: members.map((m) => ({
       userId: m.userId,
-      names: [m.nickname, m.displayName].filter(Boolean),
+      names: [
+        m.nickname,
+        m.displayName,
+        ...learned.filter((l) => l.userId === m.userId).map((l) => l.phrase),
+      ].filter(Boolean),
     })),
   };
 }

@@ -325,6 +325,28 @@ export const session = pgTable(
   (t) => [index('session_user_idx').on(t.userId)],
 );
 
+/**
+ * What a workspace has corrected before.
+ *
+ * When someone fixes an assignee the parser got wrong, the same phrase should
+ * resolve correctly next time. Scoped to one workspace and never shared: two
+ * companies can use the same nickname for different people, and carrying a
+ * mapping across them would assign work to a stranger. This is learning with
+ * no model involved — it is a lookup table people fill in by correcting.
+ */
+export const nameCorrection = pgTable(
+  'name_correction',
+  {
+    workspaceId: text('workspace_id').notNull().references(() => workspace.id, { onDelete: 'cascade' }),
+    /** The phrase as written, lower-cased. */
+    phrase: text('phrase').notNull(),
+    userId: text('user_id').notNull().references(() => lineUser.id, { onDelete: 'cascade' }),
+    timesUsed: integer('times_used').notNull().default(1),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.workspaceId, t.phrase] })],
+);
+
 /** Makes every mutating route safe to retry. */
 export const idempotencyKey = pgTable(
   'idempotency_key',

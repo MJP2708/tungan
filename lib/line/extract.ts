@@ -143,3 +143,30 @@ export function shouldProcessGroupMessage(
   if (mode === 'all') return true;
   return BOT_MENTION.test(text ?? '');
 }
+
+
+/**
+ * Split a message that contains more than one instruction.
+ *
+ * People write "ส่งรายงานพรุ่งนี้ แล้วก็โทรหาลูกค้าบ่าย 3" and mean two things.
+ * Folding that into one task loses the second half silently, which is worse
+ * than offering two drafts and letting someone dismiss one.
+ *
+ * Deliberately conservative: it only splits on explicit conjunctions, and only
+ * when both halves still look like instructions. Over-splitting turns one task
+ * into two half-tasks, which is more annoying than under-splitting.
+ */
+const SPLIT_PATTERN = /\s*(?:แล้วก็|และก็|\bกับอีก\b|\s\/\s|;|\n[-•]\s*|\n)\s*/;
+
+export function splitInstructions(text: string): string[] {
+  const value = (text ?? '').trim();
+  if (!value) return [];
+  const parts = value
+    .split(SPLIT_PATTERN)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return [value];
+  // A fragment with no verb-like content is a continuation, not a task.
+  const meaningful = parts.filter((p) => p.replace(/@\S+/g, '').trim().length >= 4);
+  return meaningful.length >= 2 ? meaningful.slice(0, 3) : [value];
+}

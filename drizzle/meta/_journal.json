@@ -36,6 +36,13 @@
       "when": 1788282252100,
       "tag": "0004_lying_namora",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788282858324,
+      "tag": "0005_bored_shockwave",
+      "breakpoints": true
     }
   ]
 }
