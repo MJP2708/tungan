@@ -551,6 +551,44 @@ export default function Home() {
     setCaptures(inboxRes.items.map(toUiCapture) as unknown as Capture[]);
   }
 
+  // Live updates.
+  //
+  // Vercel runs this app as short-lived serverless functions, so a held-open
+  // WebSocket or SSE stream is not something we can rely on. Instead the
+  // client asks a cheap probe whether anything changed and only re-fetches
+  // when it did, which is a few hundred bytes per poll rather than the whole
+  // workspace. Polling stops while the tab is hidden, so a phone left open in
+  // LINE does not sit and drain battery.
+  useEffect(() => {
+    if (!hydrated || !selectedProjectId) return;
+    let version = '';
+    let stopped = false;
+
+    async function probe() {
+      if (stopped || document.visibilityState !== 'visible') return;
+      try {
+        const res = await api.changes(selectedProjectId);
+        if (stopped) return;
+        if (version && res.version !== version) {
+          await refreshWorkspace(selectedProjectId);
+        }
+        version = res.version;
+      } catch {
+        // A failed probe is not worth showing: the next one usually works.
+      }
+    }
+
+    void probe();
+    const id = window.setInterval(probe, 12000);
+    const onVisible = () => void probe();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [hydrated, selectedProjectId]);
+
   async function refreshGroups() {
     try {
       const res = await api.groups();

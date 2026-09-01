@@ -4,6 +4,7 @@ import { db } from '@/lib/db/index.ts';
 import { lineGroup, lineGroupMember, groupWorkspace } from '@/lib/db/schema.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
+import { grantWorkspaceToGroup } from '@/lib/auth/membership.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -57,7 +58,11 @@ export async function POST(
       boundByUserId: membership.userId,
     });
 
-    return NextResponse.json({ ok: true }, { status: 201 });
+    // Everyone already known in the group gets access now, rather than
+    // waiting until their next sign-in to see their own team's work.
+    const granted = await grantWorkspaceToGroup(id, workspaceId);
+
+    return NextResponse.json({ ok: true, membersGranted: granted }, { status: 201 });
   } catch (error) {
     return errorResponse(error);
   }

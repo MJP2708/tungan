@@ -5,6 +5,7 @@ import { db } from '@/lib/db/index.ts';
 import { lineUser, workspace, workspaceMember } from '@/lib/db/schema.ts';
 import { exchangeCode, verifyLineIdToken } from '@/lib/line/verify.ts';
 import { createSession } from '@/lib/auth/session.ts';
+import { syncGroupMemberships } from '@/lib/auth/membership.ts';
 import { callbackUrl } from '../start/route.ts';
 
 export const runtime = 'nodejs';
@@ -117,5 +118,8 @@ async function upsertUserAndSession(identity: {
       })
       .where(eq(lineUser.id, userId));
   }
+  // A group may have been connected while this person was away; joining the
+  // LINE group is what grants access, so reconcile it at every sign-in.
+  await syncGroupMemberships(userId);
   await createSession(userId);
 }

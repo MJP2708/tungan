@@ -172,6 +172,12 @@ export const api = {
       method: 'POST',
     }),
 
+  /** Cheap change probe for live updates. */
+  changes: (workspaceId: string) =>
+    request<{ version: string; pendingInbox: number }>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/changes`,
+    ),
+
   usage: (workspaceId: string) =>
     request<{ month: string; used: number; cap: number; remaining: number }>(
       `/api/usage?workspaceId=${encodeURIComponent(workspaceId)}`,

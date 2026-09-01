@@ -4,6 +4,7 @@ import { db } from '@/lib/db/index.ts';
 import { lineUser, workspace, workspaceMember } from '@/lib/db/schema.ts';
 import { verifyLineIdToken } from '@/lib/line/verify.ts';
 import { createSession } from '@/lib/auth/session.ts';
+import { syncGroupMemberships } from '@/lib/auth/membership.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -64,6 +65,7 @@ export async function POST(req: NextRequest) {
       .where(eq(lineUser.id, userId));
   }
 
+  await syncGroupMemberships(userId);
   await createSession(userId);
   return NextResponse.json({ ok: true });
 }
