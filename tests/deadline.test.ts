@@ -6,6 +6,7 @@ import {
   formatDeadline,
   fromZonedWallClock,
   zonedDateParts,
+  quickDayDate,
 } from '../lib/deadline.ts';
 
 // A fixed reference: Tue 1 Sep 2026, 10:00 Bangkok (03:00 UTC).
@@ -129,4 +130,35 @@ test('wall-clock conversion survives a month boundary', () => {
     now: new Date('2026-09-30T12:00:00.000Z'),
   });
   assert.equal(bangkok(r.at), '2026-10-01 09:00');
+});
+
+test('quick day buttons resolve to the dates they claim', () => {
+  const at = (y: number, m: number, d: number, h = 9) => fromZonedWallClock(y, m, d, h, 0);
+  const fmt = (r: { year: number; month: number; day: number }) =>
+    `${r.year}-${String(r.month).padStart(2, '0')}-${String(r.day).padStart(2, '0')}`;
+
+  // Tue 1 Sep 2026
+  const tue = at(2026, 9, 1);
+  assert.equal(fmt(quickDayDate('today', { now: tue })), '2026-09-01');
+  assert.equal(fmt(quickDayDate('tomorrow', { now: tue })), '2026-09-02');
+  assert.equal(fmt(quickDayDate('nextweek', { now: tue })), '2026-09-08');
+  // Mon–Thu: this week's Friday.
+  assert.equal(fmt(quickDayDate('friday', { now: tue })), '2026-09-04');
+});
+
+test('"ศุกร์" on a Friday means today, but next Friday after hours', () => {
+  const fmt = (r: { year: number; month: number; day: number }) =>
+    `${r.year}-${String(r.month).padStart(2, '0')}-${String(r.day).padStart(2, '0')}`;
+  const fridayMorning = fromZonedWallClock(2026, 9, 4, 9, 0);
+  const fridayNight = fromZonedWallClock(2026, 9, 4, 21, 0);
+  assert.equal(fmt(quickDayDate('friday', { now: fridayMorning, endOfDay: '18:00' })), '2026-09-04');
+  // The week's Friday has effectively gone by then.
+  assert.equal(fmt(quickDayDate('friday', { now: fridayNight, endOfDay: '18:00' })), '2026-09-11');
+});
+
+test('"ศุกร์" at the weekend means the coming Friday', () => {
+  const fmt = (r: { year: number; month: number; day: number }) =>
+    `${r.year}-${String(r.month).padStart(2, '0')}-${String(r.day).padStart(2, '0')}`;
+  const saturday = fromZonedWallClock(2026, 9, 5, 12, 0);
+  assert.equal(fmt(quickDayDate('friday', { now: saturday })), '2026-09-11');
 });

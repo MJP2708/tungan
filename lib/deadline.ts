@@ -84,6 +84,9 @@ export type ResolvedDeadline = {
   confidence: DeadlineConfidence;
   /** What the parser recognised, for the confirmation screen. */
   matched: { day: string | null; time: string | null };
+  /** The exact words the reading came from, so a person can check it
+   *  rather than trust it. */
+  sourcePhrase: string | null;
 };
 
 const HOUR_WORDS: Array<[RegExp, (n: number) => number]> = [
@@ -115,19 +118,22 @@ export function resolveDeadline(
   const today = zonedDateParts(now, timeZone);
   let dayOffset = 0;
   let matchedDay: string | null = null;
+  const phrases: string[] = [];
 
-  if (/มะรืน/.test(value)) {
-    dayOffset = 2;
-    matchedDay = 'มะรืนนี้';
-  } else if (/พรุ่งนี้/.test(value)) {
-    dayOffset = 1;
-    matchedDay = 'พรุ่งนี้';
-  } else if (/วันนี้|ภายในวันนี้|ก่อนเลิกงาน/.test(value)) {
-    dayOffset = 0;
-    matchedDay = 'วันนี้';
-  } else if (/ศุกร์/.test(value)) {
-    dayOffset = (5 - today.weekday + 7) % 7 || 7;
-    matchedDay = 'วันศุกร์';
+  const dayRules: Array<[RegExp, number, string]> = [
+    [/มะรืน(นี้)?/, 2, 'มะรืนนี้'],
+    [/พรุ่งนี้/, 1, 'พรุ่งนี้'],
+    [/ภายในวันนี้|ก่อนเลิกงาน|วันนี้/, 0, 'วันนี้'],
+    [/(วัน)?ศุกร์/, (5 - today.weekday + 7) % 7 || 7, 'วันศุกร์'],
+  ];
+  for (const [pattern, offset, label] of dayRules) {
+    const found = value.match(pattern);
+    if (found) {
+      dayOffset = offset;
+      matchedDay = label;
+      phrases.push(found[0]);
+      break;
+    }
   }
 
   let hour: number | null = null;
@@ -142,6 +148,7 @@ export function resolveDeadline(
       hour = h;
       minute = m;
       matchedTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      phrases.push(explicit[0]);
     }
   }
 
@@ -153,6 +160,7 @@ export function resolveDeadline(
         if (candidate >= 0 && candidate <= 23) {
           hour = candidate;
           matchedTime = `${String(candidate).padStart(2, '0')}:00`;
+          phrases.push(found[0]);
         }
         break;
       }
@@ -168,6 +176,7 @@ export function resolveDeadline(
       if (candidate >= 0 && candidate <= 23) {
         hour = candidate;
         matchedTime = `${String(candidate).padStart(2, '0')}:00`;
+        phrases.push(bare[0]);
       }
     }
   }
@@ -211,7 +220,55 @@ export function resolveDeadline(
     timeZone,
   );
 
-  return { at, confidence, matched: { day: matchedDay, time: matchedTime } };
+  return {
+    at,
+    confidence,
+    matched: { day: matchedDay, time: matchedTime },
+    sourcePhrase: phrases.length ? phrases.join(' ').trim() : null,
+  };
+}
+
+export type QuickDay = 'today' | 'tomorrow' | 'friday' | 'nextweek';
+
+/**
+ * The dates behind the quick buttons, so each one can show what it resolves
+ * to. A button labelled only "ศุกร์" is ambiguous exactly when it matters.
+ *
+ * The ศุกร์ rule, stated rather than left to be discovered:
+ *  - Monday to Thursday → this week's Friday.
+ *  - On Friday, before the working day ends → today. Someone typing "ศุกร์"
+ *    on a Friday morning means today, not eight days away.
+ *  - On Friday after hours, and at the weekend → next Friday, because this
+ *    week's has effectively gone.
+ */
+export function quickDayDate(
+  which: QuickDay,
+  options: { now?: Date; endOfDay?: string; timeZone?: string } = {},
+): { year: number; month: number; day: number } {
+  const now = options.now ?? new Date();
+  const timeZone = options.timeZone ?? PRODUCT_TIME_ZONE;
+  const today = zonedDateParts(now, timeZone);
+  const shift = (days: number) => {
+    const at = fromZonedWallClock(today.year, today.month, today.day + days, 12, 0, timeZone);
+    const p = zonedDateParts(at, timeZone);
+    return { year: p.year, month: p.month, day: p.day };
+  };
+
+  if (which === 'today') return shift(0);
+  if (which === 'tomorrow') return shift(1);
+  if (which === 'nextweek') return shift(7);
+
+  const [endH, endM] = (options.endOfDay ?? '18:00').split(':').map(Number);
+  const nowMinutes = Number(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone, hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(now).replace(':', ''),
+  );
+  const endMinutes = (Number.isFinite(endH) ? endH : 18) * 100 + (Number.isFinite(endM) ? endM : 0);
+
+  if (today.weekday === 5) return nowMinutes < endMinutes ? shift(0) : shift(7);
+  const until = (5 - today.weekday + 7) % 7;
+  return shift(until === 0 ? 7 : until);
 }
 
 export type DayBucket = 'today' | 'tomorrow' | 'friday' | 'later' | 'none';

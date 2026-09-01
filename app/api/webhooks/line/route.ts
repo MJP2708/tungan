@@ -15,7 +15,9 @@ import {
 } from '@/lib/db/schema.ts';
 import { verifyLineSignature } from '@/lib/line/verify.ts';
 import { extractDraft, shouldProcessGroupMessage } from '@/lib/line/extract.ts';
+import { fromZonedWallClock } from '@/lib/deadline.ts';
 import { isHelpRequest, helpMessage } from '@/lib/line/help.ts';
+import { confirmMessage, confirmBody, assigneePicker } from '@/lib/line/confirm-message.ts';
 import { replyMessage, isFriendOfOa } from '@/lib/line/messaging.ts';
 
 // Signature verification needs node crypto's timingSafeEqual.
@@ -38,7 +40,7 @@ type LineEventPayload = {
   source?: LineSource;
   message?: { id?: string; type?: string; text?: string };
   unsend?: { messageId?: string };
-  postback?: { data?: string };
+  postback?: { data?: string; params?: { datetime?: string; date?: string; time?: string } };
   joined?: { members?: Array<{ userId?: string }> };
   left?: { members?: Array<{ userId?: string }> };
 };
@@ -317,6 +319,46 @@ async function handlePostback(event: LineEventPayload) {
     actorUserId = who[0]?.userId ?? null;
   }
 
+  // Editing the draft in place. Each of these is idempotent: they set a value
+  // rather than accumulating one, so two taps land on the same result.
+  if (action === 'setdue') {
+    if (item.state !== 'pending') return;
+    const picked = event.postback?.params?.datetime;
+    if (!picked) return;
+    // LINE returns local wall clock; store the instant it means in Bangkok.
+    const [datePart, timePart] = picked.split('T');
+    const [y, mo, d] = datePart.split('-').map(Number);
+    const [h, mi] = (timePart ?? '00:00').split(':').map(Number);
+    const at = fromZonedWallClock(y, mo, d, h, mi);
+    await db().update(inboxItem).set({ suggestedDueAt: at, confidence: 'explicit' })
+      .where(and(eq(inboxItem.id, inboxId), eq(inboxItem.state, 'pending')));
+    await replyDraft(event, inboxId, 'แก้กำหนดส่งแล้ว');
+    return;
+  }
+
+  if (action === 'pickassignee') {
+    if (item.state !== 'pending') return;
+    const members = await knownMembers(item.workspaceId);
+    if (event.replyToken) {
+      await replyMessage(
+        event.replyToken,
+        [assigneePicker(inboxId, members, (process.env.APP_BASE_URL ?? '').replace(/\/$/, ''))],
+        { workspaceId: item.workspaceId },
+      ).catch(() => {});
+    }
+    return;
+  }
+
+  if (action === 'setassignee') {
+    if (item.state !== 'pending') return;
+    const userId = params.get('user');
+    if (!userId) return;
+    await db().update(inboxItem).set({ suggestedAssigneeUserId: userId })
+      .where(and(eq(inboxItem.id, inboxId), eq(inboxItem.state, 'pending')));
+    await replyDraft(event, inboxId, 'เปลี่ยนผู้รับผิดชอบแล้ว');
+    return;
+  }
+
   if (action === 'dismiss') {
     await db()
       .update(inboxItem)
@@ -470,47 +512,67 @@ async function handleMessage(event: LineEventPayload) {
   // Confirmations go back as a REPLY, which is not counted against the plan
   // quota. A push here would be billed per recipient.
   //
-  // The buttons carry the draft id, so the group can confirm without leaving
-  // LINE. Nothing is created until someone taps: the system never turns a
-  // message into a task by itself.
+  // The card shows what was read next to the words it was read from, and the
+  // two things most often wrong are correctable without leaving the chat.
   if (event.replyToken) {
     const assigneeName = draft.assigneeUserId
-      ? resolved.members.find((m) => m.userId === draft.assigneeUserId)?.names[0]
+      ? (resolved.members.find((m) => m.userId === draft.assigneeUserId)?.names[0] ?? null)
       : null;
-    const lines = [
-      `รับเรื่องแล้ว: ${draft.title}`,
-      `ผู้รับผิดชอบ: ${assigneeName ?? 'ยังไม่ระบุ'}`,
-      `กำหนดส่ง: ${draft.dueAt ? formatForReply(draft.dueAt) : 'ยังไม่ระบุเวลา'}`,
-    ];
     await replyMessage(
       event.replyToken,
       [
-        {
-          type: 'template',
-          altText: lines.join(' · '),
-          template: {
-            type: 'buttons',
-            text: lines.join('\n').slice(0, 160),
-            actions: [
-              {
-                type: 'postback',
-                label: 'ยืนยันสร้างงาน',
-                data: `action=confirm&inbox=${draftId}`,
-                displayText: 'ยืนยันสร้างงาน',
-              },
-              {
-                type: 'postback',
-                label: 'ไม่ใช่งาน',
-                data: `action=dismiss&inbox=${draftId}`,
-                displayText: 'ไม่ใช่งาน',
-              },
-            ],
-          },
-        },
+        confirmMessage({
+          id: draftId,
+          title: draft.title,
+          dueAt: draft.dueAt,
+          dueSource: draft.dueSource,
+          assigneeName,
+          assigneeSource: draft.assigneeSource,
+        }),
       ],
       { workspaceId: resolved.workspaceId },
     ).catch((error) => console.error('[webhook][processing-error] reply failed', error));
   }
+}
+
+/** People we know in this workspace, for the assignee picker. */
+async function knownMembers(workspaceId: string) {
+  const rows = await db()
+    .select({
+      userId: lineUser.id,
+      displayName: lineUser.displayName,
+      nickname: workspaceMember.nickname,
+    })
+    .from(workspaceMember)
+    .innerJoin(lineUser, eq(lineUser.id, workspaceMember.userId))
+    .where(eq(workspaceMember.workspaceId, workspaceId));
+  return rows.map((r) => ({ userId: r.userId, name: r.nickname || r.displayName || 'ไม่ทราบชื่อ' }));
+}
+
+/** Re-show the card after an edit, so the person sees the corrected reading. */
+async function replyDraft(event: LineEventPayload, inboxId: string, notice: string) {
+  if (!event.replyToken) return;
+  const rows = await db().select().from(inboxItem).where(eq(inboxItem.id, inboxId)).limit(1);
+  const item = rows[0];
+  if (!item) return;
+  const members = await knownMembers(item.workspaceId);
+  const assigneeName =
+    members.find((m) => m.userId === item.suggestedAssigneeUserId)?.name ?? null;
+  await replyMessage(
+    event.replyToken,
+    [
+      confirmMessage({
+        id: inboxId,
+        title: `${notice} · ${item.suggestedTitle}`,
+        dueAt: item.suggestedDueAt,
+        // The reading now came from a picker, not from the text.
+        dueSource: null,
+        assigneeName,
+        assigneeSource: null,
+      }),
+    ],
+    { workspaceId: item.workspaceId },
+  ).catch(() => {});
 }
 
 function formatForReply(at: Date) {

@@ -89,6 +89,7 @@ import {
   dayBucket,
   fromZonedWallClock,
   zonedDateParts,
+  quickDayDate,
   type DayBucket,
 } from '@/lib/deadline';
 import { th } from 'date-fns/locale';
@@ -390,7 +391,7 @@ export default function Home() {
   const [taskAssignee, setTaskAssignee] = useState('');
   const [taskPriority, setTaskPriority] = useState<Priority>('normal');
   const [taskDueDay, setTaskDueDay] =
-    useState<'today' | 'tomorrow' | 'friday' | 'later'>('today');
+    useState<'today' | 'tomorrow' | 'friday' | 'nextweek' | 'later'>('today');
   const [taskTime, setTaskTime] = useState('17:00');
   const [taskDate, setTaskDate] = useState<Date | undefined>();
   const [projectSource, setProjectSource] = useState<ProjectSource>('manual');
@@ -828,7 +829,7 @@ export default function Home() {
   }
   // Preset day + themed time select -> one real instant in Asia/Bangkok.
   function pickerDueAt(
-    dueDay: 'today' | 'tomorrow' | 'friday' | 'later',
+    dueDay: 'today' | 'tomorrow' | 'friday' | 'nextweek' | 'later',
     customDate: Date | undefined,
     time: string,
   ): string {
@@ -843,19 +844,13 @@ export default function Home() {
         minute,
       ).toISOString();
     }
-    const offset =
-      dueDay === 'tomorrow'
-        ? 1
-        : dueDay === 'friday'
-          ? (5 - today.weekday + 7) % 7 || 7
-          : 0;
-    return fromZonedWallClock(
-      today.year,
-      today.month,
-      today.day + offset,
-      hour,
-      minute,
-    ).toISOString();
+    // One rule for what these buttons mean, shared with the label so the
+    // button cannot promise a date the save then ignores.
+    const d = quickDayDate(dueDay as 'today' | 'tomorrow' | 'friday' | 'nextweek', {
+      now,
+      endOfDay: settings.cutoff,
+    });
+    return fromZonedWallClock(d.year, d.month, d.day, hour, minute).toISOString();
   }
   function taskDueLabel() {
     if (taskDueDay === 'later' && taskDate)
@@ -869,7 +864,9 @@ export default function Home() {
         ? 'พรุ่งนี้'
         : taskDueDay === 'friday'
           ? 'วันศุกร์'
-          : 'เลือกวัน';
+          : taskDueDay === 'nextweek'
+            ? 'สัปดาห์หน้า'
+            : 'เลือกวัน';
   }
   function forwardDueLabel() {
     if (forwardDueDay === 'later' && forwardDate)
@@ -3142,17 +3139,35 @@ export default function Home() {
                           { key: 'today', label: 'วันนี้' },
                           { key: 'tomorrow', label: 'พรุ่งนี้' },
                           { key: 'friday', label: 'ศุกร์' },
+                          { key: 'nextweek', label: 'สัปดาห์หน้า' },
                         ] as const
-                      ).map((item) => (
-                        <button
-                          type="button"
-                          key={item.key}
-                          className={taskDueDay === item.key ? 'active' : ''}
-                          onClick={() => setTaskDueDay(item.key)}
-                        >
-                          {item.label}
-                        </button>
-                      ))}
+                      ).map((item) => {
+                        // Showing the date each button resolves to removes the
+                        // ambiguity that matters most: "ศุกร์" on a Friday.
+                        const d = quickDayDate(item.key, {
+                          now,
+                          endOfDay: settings.cutoff,
+                        });
+                        return (
+                          <button
+                            type="button"
+                            key={item.key}
+                            className={taskDueDay === item.key ? 'active' : ''}
+                            onClick={() => setTaskDueDay(item.key)}
+                          >
+                            {item.label}
+                            <small>
+                              {new Intl.DateTimeFormat('th-TH', {
+                                timeZone: 'Asia/Bangkok',
+                                day: 'numeric',
+                                month: 'short',
+                              }).format(
+                                new Date(Date.UTC(d.year, d.month - 1, d.day, 5)),
+                              )}
+                            </small>
+                          </button>
+                        );
+                      })}
                       <button
                         type="button"
                         className={taskDueDay === 'later' ? 'active' : ''}

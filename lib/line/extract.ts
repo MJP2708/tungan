@@ -20,6 +20,11 @@ export type Extraction = {
   dueAt: Date | null;
   confidence: DeadlineConfidence;
   matchedNames: string[];
+  /** What the reading came from, so the confirmation can show its working:
+   *  "พรุ่งนี้ 10 โมง → 2 ก.ย. 10:00". People trust a parser they can see,
+   *  and they learn to write in the way that works. */
+  dueSource: string | null;
+  assigneeSource: string | null;
   isCommand: boolean;
   /** True when the bot was addressed. Group messages without this are ignored. */
   mentionsBot: boolean;
@@ -85,12 +90,19 @@ export function extractDraft(
     }
   }
   let assigneeUserId: string | null = null;
+  let assigneeSource: string | null = null;
   const distinct = [...hits.keys()];
-  if (distinct.length === 1) assigneeUserId = distinct[0];
+  if (distinct.length === 1) {
+    assigneeUserId = distinct[0];
+    assigneeSource = matchedNames[0] ?? null;
+  }
 
   // "เตือนฉัน" assigns to the sender regardless of any other name present.
   const isSelfReminder = /เตือนฉัน/.test(raw);
-  if (isSelfReminder && context.senderUserId) assigneeUserId = context.senderUserId;
+  if (isSelfReminder && context.senderUserId) {
+    assigneeUserId = context.senderUserId;
+    assigneeSource = 'เตือนฉัน';
+  }
 
   const isCommand = isSelfReminder || /มอบหมายให้/.test(raw);
 
@@ -110,6 +122,8 @@ export function extractDraft(
     dueAt: namedATime ? deadline.at : null,
     confidence: deadline.confidence,
     matchedNames,
+    dueSource: namedATime ? deadline.sourcePhrase : null,
+    assigneeSource,
     isCommand,
     mentionsBot,
   };
