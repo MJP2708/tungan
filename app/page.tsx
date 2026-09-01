@@ -998,10 +998,15 @@ export default function Home() {
             {mobile && <span className="workspace-kicker">พื้นที่งาน</span>}
             <strong>{selectedProject.name}</strong>
             <small>
+              {/* The member count belongs here: it is how someone confirms
+                  they are switched into the right team before assigning work
+                  to it. */}
               {mobile
-                ? selectedProject.source === 'line'
-                  ? 'กลุ่ม LINE'
-                  : 'พื้นที่ของฉัน'
+                ? `${selectedProject.source === 'line' ? 'กลุ่ม LINE' : 'พื้นที่ของฉัน'}${
+                    selectedProject.members.length
+                      ? ` · ${selectedProject.members.length} คน`
+                      : ''
+                  }`
                 : selectedProject.groupLabel}
             </small>
           </div>
@@ -1581,22 +1586,6 @@ export default function Home() {
           สร้างงาน
         </Button>
       </section>
-      <section className="daily-brief deadline-glow">
-        <div className="brief-metrics">
-          <span>
-            <b>{counts.due}</b>ส่งวันนี้
-          </span>
-          <span>
-            <b>{dailyBrief.overdue}</b>เกินกำหนด
-          </span>
-          <span>
-            <b>{dailyBrief.waiting}</b>รอตรวจ
-          </span>
-          <span>
-            <b>{dailyBrief.blocked}</b>ติดปัญหา
-          </span>
-        </div>
-      </section>
       <section className="home-shortcuts">
         <button
           className="line-attention-card"
@@ -1660,6 +1649,22 @@ export default function Home() {
             )}
           </div>
         </section>
+      <section className="daily-brief deadline-glow">
+        <div className="brief-metrics">
+          <span>
+            <b>{counts.due}</b>ส่งวันนี้
+          </span>
+          <span>
+            <b>{dailyBrief.overdue}</b>เกินกำหนด
+          </span>
+          <span>
+            <b>{dailyBrief.waiting}</b>รอตรวจ
+          </span>
+          <span>
+            <b>{dailyBrief.blocked}</b>ติดปัญหา
+          </span>
+        </div>
+      </section>
         <section className="panel focus-panel">
           <div className="panel-heading">
             <div>
