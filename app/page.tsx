@@ -356,6 +356,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [usage, setUsage] = useState<{ used: number; cap: number; remaining: number } | null>(null);
   const [blockedItems, setBlockedItems] = useState<
     { id: string; title: string; assigneeName: string | null; needs: string }[]
   >([]);
@@ -477,6 +478,7 @@ export default function Home() {
         await refreshGroups();
         await refreshReminders();
         await refreshBlocked();
+        await refreshUsage();
       } catch (error) {
         if (cancelled) return;
         setLoadError(
@@ -576,6 +578,7 @@ export default function Home() {
     setCaptures(inboxRes.items.map(toUiCapture) as unknown as Capture[]);
     await refreshReminders();
     await refreshBlocked();
+    await refreshUsage();
   }
 
   // Live updates.
@@ -615,6 +618,15 @@ export default function Home() {
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [hydrated, selectedProjectId]);
+
+  async function refreshUsage() {
+    if (!selectedProject.id) return;
+    try {
+      setUsage(await api.usage(selectedProject.id));
+    } catch {
+      // Non-fatal.
+    }
+  }
 
   async function refreshBlocked() {
     if (!selectedProject.id) return;
@@ -2175,12 +2187,16 @@ export default function Home() {
                   </div>
                   <div className="next-reminder-copy">
                     <strong>{nextReminder.title}</strong>
+                    {/* A reminder that could not be delivered must never look
+                        the same as one that was. */}
                     <p>
-                      {nextReminder.repeat === 'daily'
-                        ? 'เตือนซ้ำทุกวัน'
-                        : nextReminder.repeat === 'weekly'
-                          ? 'เตือนซ้ำทุกสัปดาห์'
-                          : 'เตือนครั้งเดียว'}
+                      {nextReminder.failureReason
+                        ? `ส่งไม่สำเร็จ · ${nextReminder.failureReason}`
+                        : nextReminder.repeat === 'daily'
+                          ? 'เตือนซ้ำทุกวัน'
+                          : nextReminder.repeat === 'weekly'
+                            ? 'เตือนซ้ำทุกสัปดาห์'
+                            : 'เตือนครั้งเดียว'}
                     </p>
                   </div>
                 </div>
@@ -2290,6 +2306,17 @@ export default function Home() {
             <Sparkles />
           </span>
           <h3>เร็ว ๆ นี้</h3>
+          {usage && (
+            <div className="connection-row">
+              <span>
+                <Bell />
+                โควตาข้อความเดือนนี้
+              </span>
+              <Badge variant="outline">
+                {usage.used}/{usage.cap} · เหลือ {usage.remaining}
+              </Badge>
+            </div>
+          )}
           <p className="connection-notice">ยังไม่ส่งข้อความหรือเรียกใช้ AI</p>
           <div className="ai-suggestions">
             <button disabled>สรุปงานที่ต้องทำวันนี้</button>
@@ -2474,6 +2501,17 @@ export default function Home() {
             </span>
             <Badge variant="outline">เร็ว ๆ นี้</Badge>
           </div>
+          {usage && (
+            <div className="connection-row">
+              <span>
+                <Bell />
+                โควตาข้อความเดือนนี้
+              </span>
+              <Badge variant="outline">
+                {usage.used}/{usage.cap} · เหลือ {usage.remaining}
+              </Badge>
+            </div>
+          )}
           <p className="connection-notice">
             {lineGroups.length === 0
               ? 'เชิญบอท @108ahzwq เข้ากลุ่ม LINE แล้วพิมพ์ในกลุ่มหนึ่งครั้ง กลุ่มจะขึ้นมาให้เชื่อมที่นี่ · กลุ่มหนึ่งมีบัญชีทางการได้บัญชีเดียว ถ้าเชิญไม่ได้ให้ทักหาบอทโดยตรงแทน ข้อความจะเข้ากล่องเดียวกัน'

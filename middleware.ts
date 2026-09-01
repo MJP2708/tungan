@@ -20,7 +20,10 @@ export function middleware(req: NextRequest) {
     pathname.startsWith('/api/webhooks/') ||
     // Reports presence booleans only, so it is safe unauthenticated and can
     // still diagnose a login that fails before a session exists.
-    pathname === '/api/health';
+    pathname === '/api/health' ||
+    // The scheduler is not a person and has no session. It authenticates with
+    // CRON_SECRET inside the route itself.
+    pathname.startsWith('/api/cron/');
 
   if (isPublic) return NextResponse.next();
 
