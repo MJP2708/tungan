@@ -117,6 +117,30 @@ export async function pushToUser(
   return { ok: true, counted: 1 };
 }
 
+/**
+ * Ask LINE whether this user can receive a DM from the OA.
+ *
+ * 200 means they have added the OA and a push will be delivered; 404 means
+ * they have not, or have blocked it. This is the authoritative answer, unlike
+ * a follow event that can be missed.
+ */
+export async function isFriendOfOa(
+  lineUserId: string,
+  options: { fetchImpl?: typeof fetch } = {},
+): Promise<boolean> {
+  const doFetch = options.fetchImpl ?? fetch;
+  try {
+    const res = await doFetch(
+      `https://api.line.me/v2/bot/profile/${encodeURIComponent(lineUserId)}`,
+      { headers: { authorization: `Bearer ${accessToken()}` } },
+    );
+    return res.ok;
+  } catch {
+    // A network failure is not proof of anything; leave the flag as it was.
+    return false;
+  }
+}
+
 /** Counted messages used this month, by recipient count rather than calls. */
 export async function usedThisMonth(workspaceId: string, month = billingMonth()) {
   const rows = await db()

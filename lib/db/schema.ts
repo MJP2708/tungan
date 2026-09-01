@@ -199,10 +199,24 @@ export const lineEvent = pgTable(
   {
     webhookEventId: text('webhook_event_id').primaryKey(),
     type: text('type').notNull(),
+    /** user | group | room — decides which fallback path applies. */
+    sourceType: text('source_type'),
+    /** The group/room/user id the event came from. */
+    sourceId: text('source_id'),
+    /** Present on most events; absent when LINE cannot disclose the sender. */
+    senderUserId: text('sender_user_id'),
     isRedelivery: boolean('is_redelivery').notNull().default(false),
+    /** Set once the work behind the event finished, so a truncated run is
+     *  visible instead of looking identical to a successful one. */
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+    processingError: text('processing_error'),
     payload: jsonb('payload'),
     receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
   },
+  (t) => [
+    index('line_event_source_idx').on(t.sourceType, t.sourceId),
+    index('line_event_received_idx').on(t.receivedAt),
+  ],
 );
 
 /** Metered by actual recipient count, not API call count. */
