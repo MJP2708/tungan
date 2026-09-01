@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, type ComponentProps } from 'react';
 import { DialogContent } from '@/components/ui/dialog';
-import { visibleFormViewport } from '@/lib/task-entry';
+import { visibleFormViewport } from '@tungan/shared/task-entry';
 
 // One fixed shell, one scrolling field area, and an in-flow action bar.
 // iOS keyboards shrink the visual viewport, not necessarily 100dvh.

@@ -1,20 +1,15 @@
 # dependencies
-/node_modules
+node_modules
 /.pnp
 .pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
 
 # testing
 /coverage
 
 # next.js
-/.next/
-/.vinext/
+.next/
 /out/
+*.tsbuildinfo
 
 # misc
 .DS_Store
@@ -26,13 +21,16 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# local environment
+# local environment — real secrets never enter the repo
 .env*
+!.env.example
+.dev.vars
+.dev.vars.*
 
 # deployment and generated files
 .vercel
 next-env.d.ts
 /dist/
-/.wrangler/
+.wrangler/
 /outputs/
 /work/

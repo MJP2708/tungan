@@ -1,0 +1,19 @@
+{
+  "name": "@tungan/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./task-entry": "./src/task-entry.ts",
+    "./deadline": "./src/deadline.ts",
+    "./task": "./src/task.ts"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.19",
+    "typescript": "5.9.3"
+  }
+}

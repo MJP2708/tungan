@@ -81,7 +81,7 @@ import {
   nextTaskId,
   validateTaskEntry,
   type EntryError,
-} from '@/lib/task-entry';
+} from '@tungan/shared/task-entry';
 import { th } from 'date-fns/locale';
 import {
   appNavigation,
