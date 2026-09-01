@@ -1307,6 +1307,11 @@ export default function Home() {
     setBusy(true);
     try {
       await api.renameMember(selectedProject.id, nicknameMember.id, nickname);
+      // Close as soon as the write lands. Waiting for the member list to come
+      // back too meant about three seconds of a dialog that looked frozen,
+      // which reads as a broken button rather than a slow one.
+      setNicknameMember(null);
+      setNotice('บันทึกชื่อเล่นแล้ว');
       const members = await api.members(selectedProject.id);
       setProjects((all) =>
         all.map((project) =>
@@ -1315,8 +1320,6 @@ export default function Home() {
             : project,
         ),
       );
-      setNicknameMember(null);
-      setNotice('บันทึกชื่อเล่นแล้ว');
     } catch (error) {
       reportError(error, 'บันทึกชื่อเล่นไม่สำเร็จ');
     } finally {
@@ -1425,6 +1428,7 @@ export default function Home() {
   }
 
   async function refreshReminders() {
+    if (!selectedProject.id) return;
     try {
       const res = await api.reminders(selectedProject.id);
       setReminders(
@@ -2327,7 +2331,9 @@ export default function Home() {
               />
             </label>
             <div className="account-actions">
-              <Button type="submit">บันทึกชื่อ</Button>
+              <Button type="submit" disabled={busy}>
+                {busy ? 'กำลังบันทึก…' : 'บันทึกชื่อ'}
+              </Button>
               <Button type="button" variant="outline" onClick={logout}>
                 <LogOut />
                 ออกจากระบบ
@@ -3726,7 +3732,7 @@ export default function Home() {
         open={!!nicknameMember}
         onOpenChange={(open) => !open && setNicknameMember(null)}
       >
-        <DialogContent key={nicknameMember?.id || 'nickname'}>
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>ชื่อเล่น</DialogTitle>
             <DialogDescription className="sr-only">
@@ -3737,7 +3743,12 @@ export default function Home() {
           <form onSubmit={updateNickname} className="stack-form">
             <label>
               <span>ชื่อเล่น</span>
+              {/* Keyed on the member so switching people resets the field.
+                  This key used to sit on DialogContent, where it changed at
+                  the same moment `open` went false and orphaned the closing
+                  dialog in the DOM, leaving cancel, X and Escape all dead. */}
               <Input
+                key={nicknameMember?.id || 'nickname'}
                 name="nickname"
                 defaultValue={nicknameMember?.nickname}
                 required
@@ -3751,7 +3762,9 @@ export default function Home() {
               >
                 ยกเลิก
               </Button>
-              <Button type="submit">บันทึกชื่อ</Button>
+              <Button type="submit" disabled={busy}>
+                {busy ? 'กำลังบันทึก…' : 'บันทึกชื่อ'}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
