@@ -151,7 +151,7 @@ export const api = {
   moveTask: (
     taskId: string,
     action: 'accept' | 'info' | 'blocked' | 'handoff' | 'submit' | 'approve' | 'revision',
-    extra: { assigneeUserId?: string; evidenceUrl?: string } = {},
+    extra: { assigneeUserId?: string; evidenceUrl?: string; note?: string } = {},
   ) =>
     request<{ ok: true }>(`/api/tasks/${encodeURIComponent(taskId)}/status`, {
       method: 'POST',
@@ -222,6 +222,19 @@ export const api = {
     request<{ ok: true }>(`/api/inbox/${encodeURIComponent(id)}/dismiss`, {
       method: 'POST',
     }),
+
+  /** Tasks waiting on something, with what they need. */
+  blocked: (workspaceId: string) =>
+    request<{ items: Array<{ id: string; title: string; assigneeName: string | null; needs: string; since: string | null }> }>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/blocked`,
+    ),
+
+  /** One task with its full history. */
+  task: (taskId: string) =>
+    request<{
+      task: Record<string, unknown>;
+      history: Array<{ id: string; kind: string; detail: string; at: string; actorName: string | null }>;
+    }>(`/api/tasks/${encodeURIComponent(taskId)}`),
 
   /** Cheap change probe for live updates. */
   changes: (workspaceId: string) =>

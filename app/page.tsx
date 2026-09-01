@@ -356,6 +356,12 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [blockedItems, setBlockedItems] = useState<
+    { id: string; title: string; assigneeName: string | null; needs: string }[]
+  >([]);
+  const [history, setHistory] = useState<
+    { id: string; kind: string; detail: string; at: string; actorName: string | null }[]
+  >([]);
   const [lineGroups, setLineGroups] = useState<
     { id: string; name: string; bound: boolean; workspaceName: string | null }[]
   >([]);
@@ -470,6 +476,7 @@ export default function Home() {
         setCaptures(inboxRes.items.map(toUiCapture) as unknown as Capture[]);
         await refreshGroups();
         await refreshReminders();
+        await refreshBlocked();
       } catch (error) {
         if (cancelled) return;
         setLoadError(
@@ -515,10 +522,25 @@ export default function Home() {
     }
   }, [taskDialog, taskProject.id, settings.cutoff]);
   useEffect(() => {
-    if (selectedTask)
-      setDelegateTarget(
-        `${selectedTask.assigneeType}:${selectedTask.assigneeId}`,
-      );
+    if (!selectedTask) {
+      setHistory([]);
+      return;
+    }
+    setDelegateTarget(`${selectedTask.assigneeType}:${selectedTask.assigneeId}`);
+    // The activity log lives on the server, so it shows what everyone did,
+    // not only what this browser happened to do.
+    let cancelled = false;
+    api
+      .task(selectedTask.id)
+      .then((res) => {
+        if (!cancelled) setHistory(res.history);
+      })
+      .catch(() => {
+        if (!cancelled) setHistory([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedTask?.id]);
   useEffect(() => {
     if (reminderDialog) {
@@ -553,6 +575,7 @@ export default function Home() {
     setTasks(tasksRes.tasks.map(toUiTask) as Task[]);
     setCaptures(inboxRes.items.map(toUiCapture) as unknown as Capture[]);
     await refreshReminders();
+    await refreshBlocked();
   }
 
   // Live updates.
@@ -593,6 +616,16 @@ export default function Home() {
     };
   }, [hydrated, selectedProjectId]);
 
+  async function refreshBlocked() {
+    if (!selectedProject.id) return;
+    try {
+      const res = await api.blocked(selectedProject.id);
+      setBlockedItems(res.items);
+    } catch {
+      // Non-fatal.
+    }
+  }
+
   async function refreshGroups() {
     try {
       const res = await api.groups();
@@ -614,6 +647,11 @@ export default function Home() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function openTaskById(id: string) {
+    const found = tasks.find((t) => t.id === id);
+    if (found) setSelectedTask(found);
   }
 
   function reportError(error: unknown, fallback: string) {
@@ -1043,7 +1081,7 @@ export default function Home() {
     action:
       | 'accept' | 'info' | 'blocked' | 'handoff' | 'submit'
       | 'approve' | 'revision',
-    extra: { assigneeUserId?: string; evidenceUrl?: string } = {},
+    extra: { assigneeUserId?: string; evidenceUrl?: string; note?: string } = {},
     successText = 'อัปเดตแล้ว',
   ) {
     if (!canEditTask(task))
@@ -1062,7 +1100,11 @@ export default function Home() {
   }
 
   function updateStatus(task: Task, status: Status) {
-    if (status === 'blocked') return moveTask(task, 'blocked', {}, 'แจ้งว่าติดปัญหาแล้ว');
+    if (status === 'blocked') {
+      const note = window.prompt('ติดตรงไหน');
+      if (!note?.trim()) return;
+      return moveTask(task, 'blocked', { note: note.trim() }, 'แจ้งว่าติดปัญหาแล้ว');
+    }
     return moveTask(task, 'accept', {}, 'อัปเดตสถานะเรียบร้อย');
   }
 
@@ -1071,7 +1113,11 @@ export default function Home() {
     return moveTask(task, 'accept', {}, 'รับงานแล้ว · ทีมเห็นเจ้าของงานชัดเจนแล้ว');
   }
   function requestMoreInfo(task: Task) {
-    return moveTask(task, 'info', {}, 'แจ้งว่ารอข้อมูลเพิ่มแล้ว');
+    // The server requires a note: "stuck" without saying what is needed
+    // cannot be acted on by anyone reading the team view.
+    const note = window.prompt('ต้องการข้อมูลอะไรเพิ่ม');
+    if (!note?.trim()) return;
+    return moveTask(task, 'info', { note: note.trim() }, 'แจ้งว่ารอข้อมูลเพิ่มแล้ว');
   }
   function submitForReview(task: Task) {
     const evidenceUrl = task.evidence[0]?.url;
@@ -2494,6 +2540,29 @@ export default function Home() {
               </button>
             ))}
           </div>
+          {blockedItems.length > 0 && (
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <h3>ต้องช่วยตรงไหน</h3>
+                </div>
+              </div>
+              <div className="member-list">
+                {blockedItems.map((item) => (
+                  <button key={item.id} onClick={() => openTaskById(item.id)}>
+                    <div>
+                      <strong>{item.title}</strong>
+                      <span>
+                        {item.needs}
+                        {item.assigneeName ? ` · ${item.assigneeName}` : ''}
+                      </span>
+                    </div>
+                    <ChevronRight />
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
           <div className="info-strip">
             <Users />
             <p>
@@ -3561,11 +3630,20 @@ export default function Home() {
               </section>
               <section className="detail-section">
                 <h3>กิจกรรม</h3>
-                {selectedTask.activity.map((activity, index) => (
-                  <div className="activity-row" key={index}>
+                {history.length === 0 && (
+                  <div className="activity-row">
                     <i />
-                    <span>{activity.text}</span>
-                    <small>{activity.time}</small>
+                    <span>ยังไม่มีความเคลื่อนไหว</span>
+                  </div>
+                )}
+                {history.map((entry) => (
+                  <div className="activity-row" key={entry.id}>
+                    <i />
+                    <span>
+                      {entry.detail}
+                      {entry.actorName ? ` · ${entry.actorName}` : ''}
+                    </span>
+                    <small>{formatDeadline(entry.at, { now })}</small>
                   </div>
                 ))}
               </section>

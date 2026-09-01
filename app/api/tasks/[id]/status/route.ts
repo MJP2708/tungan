@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
-import { task, taskEvent } from '@/lib/db/schema.ts';
+import { task, taskEvent, reminder, lineUser } from '@/lib/db/schema.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
 
@@ -63,6 +63,17 @@ export async function POST(
       }
     }
 
+    // ขอข้อมูล and ติดปัญหา carry a short note saying what is needed. Without
+    // it the team view can only say someone is stuck, not what would unstick
+    // them.
+    const note = String(body.note ?? '').trim().slice(0, 300);
+    if ((action === 'info' || action === 'blocked') && !note) {
+      return NextResponse.json(
+        { error: 'บอกสั้น ๆ ว่าติดตรงไหน หรือต้องการข้อมูลอะไร' },
+        { status: 400 },
+      );
+    }
+
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     if (move.status) patch.status = move.status;
     if (move.reviewState) patch.reviewState = move.reviewState;
@@ -70,6 +81,9 @@ export async function POST(
     if (action === 'handoff') {
       const to = body.assigneeUserId ? String(body.assigneeUserId) : null;
       if (!to) return NextResponse.json({ error: 'ต้องระบุผู้รับงานต่อ' }, { status: 400 });
+      if (to === found.assigneeUserId) {
+        return NextResponse.json({ error: 'งานนี้อยู่กับผู้รับคนนี้แล้ว' }, { status: 400 });
+      }
       patch.assigneeUserId = to;
       if (!found.primaryAssigneeUserId) patch.primaryAssigneeUserId = found.assigneeUserId;
     }
@@ -88,13 +102,50 @@ export async function POST(
     }
 
     await db().update(task).set(patch).where(eq(task.id, id));
+
+    // Handing over moves the reminders too. Leaving them behind would keep
+    // nagging someone who is no longer responsible, which is the fastest way
+    // to teach a team to ignore the bot.
+    if (action === 'handoff' && found.assigneeUserId) {
+      await db()
+        .delete(reminder)
+        .where(
+          and(
+            eq(reminder.taskId, id),
+            eq(reminder.recipientUserId, found.assigneeUserId),
+            eq(reminder.state, 'pending'),
+          ),
+        );
+    }
+
+    // Closing a task cancels anything still queued for it.
+    if (action === 'approve') {
+      await db()
+        .delete(reminder)
+        .where(and(eq(reminder.taskId, id), eq(reminder.state, 'pending')));
+    }
+
+    const names = await db()
+      .select({ id: lineUser.id, name: lineUser.displayName })
+      .from(lineUser)
+      .where(inArray(lineUser.id, [found.assigneeUserId, patch.assigneeUserId as string].filter(Boolean) as string[]));
+    const nameOf = (id: string | null) =>
+      names.find((n) => n.id === id)?.name || 'ไม่ทราบชื่อ';
+
     await db().insert(taskEvent).values({
       id: crypto.randomUUID(),
       taskId: id,
       workspaceId: found.workspaceId,
       actorUserId: membership.userId,
       kind: move.kind,
-      detail: move.detail,
+      // Handing over records both people, so the history answers "who had
+      // this and when" without guessing.
+      detail:
+        action === 'handoff'
+          ? `ส่งต่อจาก ${nameOf(found.assigneeUserId)} ให้ ${nameOf(patch.assigneeUserId as string)}`
+          : note
+            ? `${move.detail}: ${note}`
+            : move.detail,
     });
 
     return NextResponse.json({ ok: true });
