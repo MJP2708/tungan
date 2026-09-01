@@ -142,6 +142,17 @@ export const task = pgTable(
     priority: text('priority').notNull().default('normal'),
     reviewState: text('review_state').notNull().default('working'),
     acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    /** A handoff waits here until the receiver accepts. Until then the task
+     *  is still the sender's: an unaccepted handoff that silently moved
+     *  responsibility is how work falls between two people. */
+    pendingAssigneeUserId: text('pending_assignee_user_id').references(() => lineUser.id, { onDelete: 'set null' }),
+    handoffOfferedAt: timestamp('handoff_offered_at', { withTimezone: true }),
+    /** รอลูกค้า | รอของ | รอคนอื่น | อื่นๆ — a preset, so "blocked" is
+     *  sortable and countable rather than only free text. */
+    blockedReason: text('blocked_reason'),
+    /** When the status last changed, so time-in-state can be shown. Time
+     *  stuck is more actionable than a count of overdue tasks. */
+    statusChangedAt: timestamp('status_changed_at', { withTimezone: true }).notNull().defaultNow(),
     evidenceUrl: text('evidence_url'),
     createdByUserId: text('created_by_user_id').references(() => lineUser.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

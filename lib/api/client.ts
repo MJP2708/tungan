@@ -47,6 +47,9 @@ export type ApiTask = {
   reviewState: string;
   acceptedAt: string | null;
   evidenceUrl: string | null;
+  pendingAssigneeUserId?: string | null;
+  blockedReason?: string | null;
+  statusChangedAt?: string;
 };
 
 export type ApiInboxItem = {
@@ -150,8 +153,10 @@ export const api = {
   /** The five mobile transitions. */
   moveTask: (
     taskId: string,
-    action: 'accept' | 'info' | 'blocked' | 'handoff' | 'submit' | 'approve' | 'revision',
-    extra: { assigneeUserId?: string; evidenceUrl?: string; note?: string } = {},
+    action:
+      | 'accept' | 'info' | 'blocked' | 'handoff' | 'submit' | 'approve' | 'revision'
+      | 'accept_handoff' | 'decline_handoff',
+    extra: { assigneeUserId?: string; evidenceUrl?: string; note?: string; reason?: string } = {},
   ) =>
     request<{ ok: true }>(`/api/tasks/${encodeURIComponent(taskId)}/status`, {
       method: 'POST',
@@ -239,6 +244,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ answer }),
     }),
+
+  /** What has not moved today, with how long it has been stuck. */
+  sweep: (workspaceId: string) =>
+    request<{ items: Array<{ id: string; title: string; status: string; blockedReason: string | null; daysInState: number; assigneeName: string | null; awaitingHandoff: boolean }> }>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/sweep`,
+    ),
 
   /** Tasks waiting on something, with what they need. */
   blocked: (workspaceId: string) =>

@@ -154,6 +154,9 @@ type Task = {
   evidence: Evidence[];
   acceptedAt?: string;
   reviewState?: ReviewState;
+  /** Set while a handoff is waiting for this person to accept. */
+  pendingAssigneeId?: string | null;
+  blockedReason?: string | null;
 };
 type Capture = {
   id: string;
@@ -1124,8 +1127,11 @@ export default function Home() {
     task: Task,
     action:
       | 'accept' | 'info' | 'blocked' | 'handoff' | 'submit'
-      | 'approve' | 'revision',
-    extra: { assigneeUserId?: string; evidenceUrl?: string; note?: string } = {},
+      | 'approve' | 'revision'
+      | 'accept_handoff' | 'decline_handoff',
+    extra: {
+      assigneeUserId?: string; evidenceUrl?: string; note?: string; reason?: string;
+    } = {},
     successText = 'อัปเดตแล้ว',
   ) {
     if (!canEditTask(task))
@@ -1145,9 +1151,18 @@ export default function Home() {
 
   function updateStatus(task: Task, status: Status) {
     if (status === 'blocked') {
-      const note = window.prompt('ติดตรงไหน');
-      if (!note?.trim()) return;
-      return moveTask(task, 'blocked', { note: note.trim() }, 'แจ้งว่าติดปัญหาแล้ว');
+      // A preset, so blocked work is countable. Free text stays optional:
+      // a required prose field becomes "-" and stops meaning anything.
+      const reasons = ['รอลูกค้า', 'รอของ', 'รอคนอื่น', 'อื่นๆ'];
+      const pick = window.prompt(
+        `ติดเพราะอะไร\n${reasons.map((r, i) => `${i + 1}. ${r}`).join('\n')}`,
+      );
+      const reason = reasons[Number(pick) - 1];
+      if (!reason) return;
+      const note = window.prompt('เพิ่มรายละเอียด (ไม่ใส่ก็ได้)') ?? '';
+      return moveTask(
+        task, 'blocked', { reason, note: note.trim() }, 'แจ้งว่าติดปัญหาแล้ว',
+      );
     }
     return moveTask(task, 'accept', {}, 'อัปเดตสถานะเรียบร้อย');
   }
@@ -3785,6 +3800,24 @@ export default function Home() {
                   </div>
                 ))}
               </section>
+              {selectedTask.pendingAssigneeId === meUserId && (
+                <div className="status-actions accountable-actions">
+                  <Button
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => moveTask(selectedTask, 'decline_handoff', {}, 'ส่งกลับให้คนเดิมแล้ว')}
+                  >
+                    ปฏิเสธ
+                  </Button>
+                  <Button
+                    disabled={busy}
+                    onClick={() => moveTask(selectedTask, 'accept_handoff', {}, 'รับงานที่ส่งต่อมาแล้ว')}
+                  >
+                    <Check />
+                    รับงานที่ส่งต่อมา
+                  </Button>
+                </div>
+              )}
               {canEditTask(selectedTask) && (
                 <div className="status-actions accountable-actions">
                   {!selectedTask.acceptedAt &&

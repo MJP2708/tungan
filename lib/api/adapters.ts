@@ -77,6 +77,9 @@ export type UiTask = {
   evidence: { label: string; url: string }[];
   acceptedAt?: string;
   reviewState?: 'working' | 'review' | 'approved' | 'revision';
+  /** Set while a handoff is waiting for this person to accept. */
+  pendingAssigneeId?: string | null;
+  blockedReason?: string | null;
 };
 
 export function toUiTask(t: ApiTask): UiTask {
@@ -97,6 +100,8 @@ export function toUiTask(t: ApiTask): UiTask {
     evidence: t.evidenceUrl ? [{ label: 'ลิงก์หลักฐาน', url: t.evidenceUrl }] : [],
     acceptedAt: t.acceptedAt ?? undefined,
     reviewState: (t.reviewState as UiTask['reviewState']) ?? 'working',
+    pendingAssigneeId: t.pendingAssigneeUserId ?? null,
+    blockedReason: t.blockedReason ?? null,
   };
 }
 
