@@ -7,6 +7,7 @@ import { errorResponse } from '@/lib/api/handler.ts';
 import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { pushToUser } from '@/lib/line/messaging.ts';
 import { noteActivity } from '@/lib/reminders/schedule-learning.ts';
+import { checkEvidenceLink } from '@/lib/evidence/check-link.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -95,6 +96,7 @@ export async function POST(
     const BLOCKED_REASONS = ['รอลูกค้า', 'รอของ', 'รอคนอื่น', 'อื่นๆ'] as const;
     const note = String(body.note ?? '').trim().slice(0, 300);
     const reason = String(body.reason ?? '').trim();
+    let linkWarning: string | null = null;
     if (action === 'blocked') {
       if (!BLOCKED_REASONS.includes(reason as (typeof BLOCKED_REASONS)[number])) {
         return NextResponse.json(
@@ -150,6 +152,25 @@ export async function POST(
       patch.handoffOfferedAt = null;
     }
 
+    if (action === 'revision') {
+      // Reopening on the old deadline means the task is born overdue, which
+      // makes every "เกินกำหนด" number in the product untrustworthy.
+      if (!note) {
+        return NextResponse.json({ error: 'บอกด้วยว่าต้องแก้อะไร' }, { status: 400 });
+      }
+      const newDue = body.dueAt ? new Date(String(body.dueAt)) : null;
+      if (!newDue || !Number.isFinite(newDue.getTime())) {
+        return NextResponse.json(
+          { error: 'ตั้งกำหนดส่งใหม่ด้วย ไม่งั้นงานจะเกิดมาพร้อมสถานะเลยกำหนด' },
+          { status: 400 },
+        );
+      }
+      if (newDue.getTime() <= Date.now()) {
+        return NextResponse.json({ error: 'กำหนดส่งใหม่ต้องเป็นเวลาในอนาคต' }, { status: 400 });
+      }
+      patch.dueAt = newDue;
+    }
+
     if (action === 'blocked') patch.blockedReason = reason;
     else if (move.status && move.status !== 'blocked') patch.blockedReason = null;
     if (move.status && move.status !== found.status) patch.statusChangedAt = new Date();
@@ -165,6 +186,9 @@ export async function POST(
         return NextResponse.json({ error: 'ใส่ลิงก์ http:// หรือ https:// ที่ถูกต้อง' }, { status: 400 });
       }
       patch.evidenceUrl = evidenceUrl;
+      // Checked now, while the submitter is still on the screen, rather than
+      // when the reviewer is already blocked by it.
+      linkWarning = (await checkEvidenceLink(evidenceUrl)).warning;
     }
 
     await db().update(task).set(patch).where(eq(task.id, id));
@@ -247,7 +271,7 @@ export async function POST(
     // The answer to "who should be reminded, and when" just changed.
     await planRemindersForTask(id);
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, warning: linkWarning });
   } catch (error) {
     return errorResponse(error);
   }

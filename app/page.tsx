@@ -1169,10 +1169,12 @@ export default function Home() {
       return setNotice('งานนี้ดูได้อย่างเดียว เพราะคุณไม่ใช่ผู้รับผิดชอบ');
     setBusy(true);
     try {
-      await api.moveTask(task.id, action, extra);
+      const res = await api.moveTask(task.id, action, extra);
       await refreshWorkspace(task.projectId);
       setSelectedTask(null);
-      setNotice(successText);
+      // A link the reviewer will not be able to open is worth saying now,
+      // while the submitter is still here to fix it.
+      setNotice((res as { warning?: string | null }).warning ?? successText);
     } catch (error) {
       reportError(error, 'อัปเดตสถานะไม่สำเร็จ');
     } finally {
@@ -1248,9 +1250,34 @@ export default function Home() {
     );
   }
   function requestRevision(task: Task, client = false) {
-    return moveTask(task, 'revision', {}, 'ส่งกลับให้แก้ไขแล้ว').then(() =>
-      setClientApprovalOpen(false),
-    );
+    const note = window.prompt('ต้องแก้อะไร');
+    if (!note?.trim()) return;
+    // A new deadline is required: reopening on the old one means the task is
+    // born overdue, which makes every "เกินกำหนด" number untrustworthy.
+    const days = window.prompt('ให้เวลาแก้กี่วัน', '2');
+    const n = Number(days);
+    if (!Number.isFinite(n) || n <= 0) return setNotice('ใส่จำนวนวันเป็นตัวเลข');
+    const dueAt = new Date(now.getTime() + n * 86400000).toISOString();
+    return moveTask(
+      task, 'revision', { note: note.trim(), dueAt } as never, 'ส่งกลับพร้อมกำหนดใหม่แล้ว',
+    ).then(() => setClientApprovalOpen(false));
+  }
+
+  /** Completed work with its links, ready to paste to a client. */
+  async function shareSummary() {
+    setBusy(true);
+    try {
+      const s = await api.summary(selectedProject.id, 30);
+      if (navigator.share) await navigator.share({ title: 'สรุปงานที่เสร็จแล้ว', text: s.text });
+      else {
+        await navigator.clipboard.writeText(s.text);
+        setNotice(`คัดลอกสรุป ${s.count} งานแล้ว`);
+      }
+    } catch (error) {
+      reportError(error, 'สร้างสรุปไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
   }
   function showEntryError(form: HTMLFormElement, error: EntryError) {
     const field = form.elements.namedItem(error.field);
@@ -2176,7 +2203,7 @@ export default function Home() {
               <small>#ชีวิตคนทำงาน #งานกอง</small>
             </div>
           </div>
-          <Button className="share-button" onClick={shareReport}>
+          <Button className="share-button" disabled={busy} onClick={shareSummary}>
             <Share2 />
             แชร์ Work Story
           </Button>

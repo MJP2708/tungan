@@ -156,12 +156,15 @@ export const api = {
     action:
       | 'accept' | 'info' | 'blocked' | 'handoff' | 'submit' | 'approve' | 'revision'
       | 'accept_handoff' | 'decline_handoff',
-    extra: { assigneeUserId?: string; evidenceUrl?: string; note?: string; reason?: string } = {},
+    extra: {
+      assigneeUserId?: string; evidenceUrl?: string; note?: string;
+      reason?: string; dueAt?: string;
+    } = {},
   ) =>
-    request<{ ok: true }>(`/api/tasks/${encodeURIComponent(taskId)}/status`, {
-      method: 'POST',
-      body: JSON.stringify({ action, ...extra }),
-    }),
+    request<{ ok: true; warning?: string | null }>(
+      `/api/tasks/${encodeURIComponent(taskId)}/status`,
+      { method: 'POST', body: JSON.stringify({ action, ...extra }) },
+    ),
 
   updateTask: (
     taskId: string,
@@ -244,6 +247,22 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ answer }),
     }),
+
+  /** Everything a reviewer needs, assembled server-side. */
+  review: (taskId: string) =>
+    request<{
+      task: Record<string, unknown>;
+      history: Array<{ kind: string; detail: string; at: string; actorName: string | null }>;
+      questions: Array<{ question: string; answer: string | null; askedOfName: string | null }>;
+      origin: string | null;
+      canReview: boolean;
+    }>(`/api/tasks/${encodeURIComponent(taskId)}/review`),
+
+  /** Completed work with evidence links, for sending on to a client. */
+  summary: (workspaceId: string, days = 30) =>
+    request<{ days: number; count: number; text: string }>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/summary?days=${days}`,
+    ),
 
   /** Your own working hours in this workspace. */
   schedule: (workspaceId: string) =>
