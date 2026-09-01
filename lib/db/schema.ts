@@ -45,6 +45,12 @@ export const workspace = pgTable('workspace', {
   cutoff: text('cutoff').notNull().default('17:00'),
   quietHoursStart: text('quiet_hours_start').notNull().default('21:00'),
   quietHoursEnd: text('quiet_hours_end').notNull().default('08:00'),
+  /** When this team is actually at work. A nudge outside these hours is
+   *  buried by the time anyone reads it. */
+  workingHoursStart: text('working_hours_start').notNull().default('09:00'),
+  workingHoursEnd: text('working_hours_end').notNull().default('18:00'),
+  /** Time of day a deadline picked as a bare date resolves to. */
+  defaultDueTime: text('default_due_time').notNull().default('18:00'),
   /** Counted LINE messages allowed per calendar month for this workspace. */
   monthlyMessageCap: integer('monthly_message_cap').notNull().default(300),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -205,6 +211,8 @@ export const reminder = pgTable(
     /** The un-shifted time, kept so a quiet-hours shift cannot cause a second
      *  reminder to be scheduled for the same underlying deadline. */
     originalSendAt: timestamp('original_send_at', { withTimezone: true }).notNull(),
+    /** task_due = the single pre-deadline nudge to the assignee.
+     *  owner_overdue = the single escalation to whoever asked for the work. */
     kind: text('kind').notNull().default('task_due'),
     state: text('state').notNull().default('pending'), // pending|sent|failed|skipped
     failureReason: text('failure_reason'),

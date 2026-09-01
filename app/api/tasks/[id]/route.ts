@@ -3,6 +3,7 @@ import { eq, asc } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
 import { task, taskEvent, lineUser } from '@/lib/db/schema.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
+import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
 
 export const runtime = 'nodejs';
@@ -111,6 +112,7 @@ export async function PATCH(
       detail: `แก้ไข: ${changed.join(', ') || 'ไม่มีการเปลี่ยนแปลง'}`,
     });
 
+    await planRemindersForTask(id);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return errorResponse(error);

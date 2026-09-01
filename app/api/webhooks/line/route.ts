@@ -15,6 +15,7 @@ import {
 } from '@/lib/db/schema.ts';
 import { verifyLineSignature } from '@/lib/line/verify.ts';
 import { extractDraft, shouldProcessGroupMessage } from '@/lib/line/extract.ts';
+import { isHelpRequest, helpMessage } from '@/lib/line/help.ts';
 import { replyMessage, isFriendOfOa } from '@/lib/line/messaging.ts';
 
 // Signature verification needs node crypto's timingSafeEqual.
@@ -415,6 +416,25 @@ async function handleMessage(event: LineEventPayload) {
   if (isGroup && !shouldProcessGroupMessage(text)) return;
 
   const resolved = await resolveWorkspace(event);
+
+  // "How do I use this?" is answered with the reply token, so it costs
+  // nothing against the quota however often it is asked. Answered even when
+  // the group is not connected yet — that is exactly when someone needs it.
+  if (event.replyToken && isHelpRequest(text, /@ทันงาน|@tungan/i.test(text))) {
+    await replyMessage(
+      event.replyToken,
+      [{
+        type: 'text',
+        text: helpMessage({
+          isGroup,
+          bound: Boolean(resolved),
+          appUrl: (process.env.APP_BASE_URL ?? '').replace(/\/$/, ''),
+        }),
+      }],
+      { workspaceId: resolved?.workspaceId },
+    ).catch((error) => console.error('[webhook][processing-error] help reply failed', error));
+    return;
+  }
   if (!resolved) {
     console.warn('[webhook] message from an unbound source', event.source?.type);
     return;

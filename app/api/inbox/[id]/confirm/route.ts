@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
 import { inboxItem, task, taskEvent } from '@/lib/db/schema.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
+import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { errorResponse, withIdempotency } from '@/lib/api/handler.ts';
 
 export const runtime = 'nodejs';
@@ -74,6 +75,7 @@ export async function POST(
           .update(inboxItem)
           .set({ state: 'created', rawMessage: null })
           .where(eq(inboxItem.id, id));
+        await planRemindersForTask(taskId);
         return { id: taskId };
       },
     );

@@ -3,6 +3,7 @@ import { and, eq, desc } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
 import { task, taskEvent } from '@/lib/db/schema.ts';
 import { requireMembership } from '@/lib/auth/session.ts';
+import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { errorResponse, withIdempotency } from '@/lib/api/handler.ts';
 
 export const runtime = 'nodejs';
@@ -68,6 +69,7 @@ export async function POST(req: Request) {
           kind: 'created',
           detail: title,
         });
+        await planRemindersForTask(id);
         return { id };
       },
     );

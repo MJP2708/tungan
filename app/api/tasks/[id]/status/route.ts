@@ -4,6 +4,7 @@ import { db } from '@/lib/db/index.ts';
 import { task, taskEvent, reminder, lineUser } from '@/lib/db/schema.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
+import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -147,6 +148,9 @@ export async function POST(
             ? `${move.detail}: ${note}`
             : move.detail,
     });
+
+    // The answer to "who should be reminded, and when" just changed.
+    await planRemindersForTask(id);
 
     return NextResponse.json({ ok: true });
   } catch (error) {
