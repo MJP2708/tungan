@@ -245,6 +245,18 @@ export const api = {
       body: JSON.stringify({ answer }),
     }),
 
+  /** Your own working hours in this workspace. */
+  schedule: (workspaceId: string) =>
+    request<{ startsAt: string; endsAt: string; source: string; note: string }>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/schedule`,
+    ),
+
+  setSchedule: (workspaceId: string, startsAt: string, endsAt: string) =>
+    request<{ ok: true }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/schedule`, {
+      method: 'PUT',
+      body: JSON.stringify({ startsAt, endsAt }),
+    }),
+
   /** What has not moved today, with how long it has been stuck. */
   sweep: (workspaceId: string) =>
     request<{ items: Array<{ id: string; title: string; status: string; blockedReason: string | null; daysInState: number; assigneeName: string | null; awaitingHandoff: boolean }> }>(

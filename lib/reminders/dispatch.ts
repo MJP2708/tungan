@@ -73,6 +73,28 @@ export async function dispatchDueReminders(
   };
   if (!claimed.length) return result;
 
+  // How close the workspace is to its cap decides whether the message says
+  // anything about being trimmed. Sending less without saying so is a bug
+  // from the reader's side: they conclude the bot forgot.
+  const capNotices = new Map<string, string>();
+  for (const workspaceId of new Set(claimed.map((c) => c.workspace_id))) {
+    const [ws] = await db()
+      .select({ cap: workspace.monthlyMessageCap })
+      .from(workspace)
+      .where(eq(workspace.id, workspaceId))
+      .limit(1);
+    const cap = ws?.cap ?? 300;
+    const used = await usedThisMonth(workspaceId);
+    if (used >= cap) {
+      capNotices.set(workspaceId, 'ใช้โควตาข้อความเดือนนี้ครบแล้ว จึงยังส่งไม่ได้');
+    } else if (cap - used <= Math.max(10, Math.ceil(cap * 0.1))) {
+      capNotices.set(
+        workspaceId,
+        `เหลือโควตาข้อความเดือนนี้ ${cap - used} ข้อความ · รวมการเตือนเป็นฉบับเดียวเพื่อประหยัด`,
+      );
+    }
+  }
+
   // One message per person per workspace.
   const groups = new Map<string, typeof claimed>();
   for (const row of claimed) {
@@ -93,10 +115,14 @@ export async function dispatchDueReminders(
       const when = t?.dueAt ? ` · ${formatDeadline(t.dueAt, { now })}` : '';
       return `• ${t?.title ?? 'งานที่ต้องทำ'}${when}`;
     });
+    const notice = capNotices.get(workspaceId);
     const text =
-      rows.length === 1
+      (rows.length === 1
         ? `เตือนงาน\n${lines[0]}`
-        : `เตือนงาน ${rows.length} รายการ\n${lines.join('\n')}`;
+        : `เตือนงาน ${rows.length} รายการ\n${lines.join('\n')}`) +
+      // Say it in the message itself. A quieter bot with no explanation reads
+      // as a broken bot.
+      (notice ? `\n\n(${notice})` : '');
 
     const outcome = await pushToUser(
       { workspaceId, recipientUserId, messages: [{ type: 'text', text }], taskId: rows[0].task_id ?? undefined },

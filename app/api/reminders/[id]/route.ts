@@ -8,6 +8,9 @@ import { errorResponse } from '@/lib/api/handler.ts';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+/** How many times one reminder may be pushed back. */
+const MAX_SNOOZES = 3;
+
 async function load(id: string) {
   const rows = await db().select().from(reminder).where(eq(reminder.id, id)).limit(1);
   if (!rows[0]) throw new HttpError(404, 'ไม่พบการเตือนนี้');
@@ -36,9 +39,21 @@ export async function PATCH(
       if (!Number.isFinite(at.getTime())) {
         return NextResponse.json({ error: 'เวลาไม่ถูกต้อง' }, { status: 400 });
       }
+      // Snoozing is capped. Unlimited deferral is indistinguishable from
+      // ignoring, and it hides the fact that nothing is moving — the point of
+      // a limit is to make people defer honestly or deal with it.
+      if (found.snoozeCount >= MAX_SNOOZES) {
+        return NextResponse.json(
+          {
+            error: `เลื่อนได้สูงสุด ${MAX_SNOOZES} ครั้งแล้ว · จัดการงานนี้หรือเปลี่ยนกำหนดส่งแทน`,
+          },
+          { status: 409 },
+        );
+      }
       // originalSendAt is deliberately left alone: it is the dedup key, and
       // moving it would let the same reminder be scheduled twice.
       patch.sendAt = at;
+      patch.snoozeCount = found.snoozeCount + 1;
     }
     await db().update(reminder).set(patch).where(eq(reminder.id, id));
     return NextResponse.json({ ok: true });

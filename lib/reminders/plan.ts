@@ -8,6 +8,7 @@ import {
   type WorkingHours,
 } from './policy.ts';
 import { inQuietHours, scheduleReminder } from './schedule.ts';
+import { workingHoursFor } from './schedule-learning.ts';
 
 /**
  * Put a task's reminders in place, replacing whatever was there.
@@ -48,12 +49,15 @@ export async function planRemindersForTask(taskId: string, now = new Date()) {
   // A finished task reminds nobody.
   if (!t.dueAt || t.status === 'done') return { assignee: null, owner: null };
 
-  const hours: WorkingHours = { startsAt: t.workStart, endsAt: t.workEnd };
+  const workspaceHours: WorkingHours = { startsAt: t.workStart, endsAt: t.workEnd };
   const quiet = { start: t.quietStart, end: t.quietEnd };
   const planned: { assignee: Date | null; owner: Date | null } = { assignee: null, owner: null };
 
   // One nudge to the person doing it, before the deadline.
   if (t.assigneeUserId) {
+    // This person's own hours, learned or set, so the nudge lands at the start
+    // of *their* day rather than a single time chosen for everyone.
+    const hours = await workingHoursFor(t.workspaceId, t.assigneeUserId, workspaceHours);
     const nudge = planAssigneeNudge({
       dueAt: t.dueAt,
       now,
@@ -72,7 +76,8 @@ export async function planRemindersForTask(taskId: string, now = new Date()) {
   // One escalation to whoever asked for it, after — and only to them. An
   // overdue message in the group is public blame and is billed per member.
   if (t.createdByUserId && t.createdByUserId !== t.assigneeUserId) {
-    const at = planOwnerEscalation({ dueAt: t.dueAt, now, hours });
+    const ownerHours = await workingHoursFor(t.workspaceId, t.createdByUserId, workspaceHours);
+    const at = planOwnerEscalation({ dueAt: t.dueAt, now, hours: ownerHours });
     await insertPending(t.id, t.workspaceId, t.createdByUserId, at, at, 'owner_overdue');
     planned.owner = at;
   }

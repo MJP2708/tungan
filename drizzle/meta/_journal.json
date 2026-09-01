@@ -50,6 +50,13 @@
       "when": 1788288339701,
       "tag": "0006_wet_sabra",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788288904245,
+      "tag": "0007_right_blue_blade",
+      "breakpoints": true
     }
   ]
 }

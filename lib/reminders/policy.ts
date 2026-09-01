@@ -1,3 +1,4 @@
+export { PRODUCT_TIME_ZONE };
 import {
   fromZonedWallClock,
   zonedDateParts,

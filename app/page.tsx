@@ -361,6 +361,7 @@ export default function Home() {
   const [loadError, setLoadError] = useState('');
   const [busy, setBusy] = useState(false);
   const [usage, setUsage] = useState<{ used: number; cap: number; remaining: number } | null>(null);
+  const [schedule, setSchedule] = useState<{ startsAt: string; endsAt: string; note: string } | null>(null);
   const [blockedItems, setBlockedItems] = useState<
     { id: string; title: string; assigneeName: string | null; needs: string }[]
   >([]);
@@ -486,6 +487,7 @@ export default function Home() {
         await refreshReminders();
         await refreshBlocked();
         await refreshUsage();
+        await refreshSchedule();
       } catch (error) {
         if (cancelled) return;
         setLoadError(
@@ -594,6 +596,7 @@ export default function Home() {
     await refreshReminders();
     await refreshBlocked();
     await refreshUsage();
+    await refreshSchedule();
   }
 
   // Live updates.
@@ -640,6 +643,34 @@ export default function Home() {
       setUsage(await api.usage(selectedProject.id));
     } catch {
       // Non-fatal.
+    }
+  }
+
+  async function refreshSchedule() {
+    if (!selectedProject.id) return;
+    try {
+      setSchedule(await api.schedule(selectedProject.id));
+    } catch {
+      // Non-fatal.
+    }
+  }
+
+  /** Your own hours only — a schedule you cannot see or change is surveillance. */
+  async function editSchedule() {
+    if (!schedule) return;
+    const startsAt = window.prompt('เริ่มทำงานกี่โมง (HH:MM)', schedule.startsAt);
+    if (!startsAt) return;
+    const endsAt = window.prompt('เลิกงานกี่โมง (HH:MM)', schedule.endsAt);
+    if (!endsAt) return;
+    setBusy(true);
+    try {
+      await api.setSchedule(selectedProject.id, startsAt, endsAt);
+      await refreshSchedule();
+      setNotice('บันทึกเวลาทำงานแล้ว · การเตือนจะใช้เวลานี้');
+    } catch (error) {
+      reportError(error, 'บันทึกเวลาทำงานไม่สำเร็จ');
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -2376,6 +2407,17 @@ export default function Home() {
             <Sparkles />
           </span>
           <h3>เร็ว ๆ นี้</h3>
+          {schedule && (
+            <div className="connection-row">
+              <span>
+                <Clock3 />
+                เวลาทำงานของคุณ
+              </span>
+              <Button variant="outline" disabled={busy} onClick={editSchedule}>
+                {schedule.startsAt}–{schedule.endsAt} · แก้
+              </Button>
+            </div>
+          )}
           {usage && (
             <div className="connection-row">
               <span>
@@ -2571,6 +2613,17 @@ export default function Home() {
             </span>
             <Badge variant="outline">เร็ว ๆ นี้</Badge>
           </div>
+          {schedule && (
+            <div className="connection-row">
+              <span>
+                <Clock3 />
+                เวลาทำงานของคุณ
+              </span>
+              <Button variant="outline" disabled={busy} onClick={editSchedule}>
+                {schedule.startsAt}–{schedule.endsAt} · แก้
+              </Button>
+            </div>
+          )}
           {usage && (
             <div className="connection-row">
               <span>

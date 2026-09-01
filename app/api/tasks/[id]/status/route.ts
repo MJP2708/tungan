@@ -6,6 +6,7 @@ import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
 import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { pushToUser } from '@/lib/line/messaging.ts';
+import { noteActivity } from '@/lib/reminders/schedule-learning.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -239,6 +240,9 @@ export async function POST(
         }],
       }).catch((error) => console.error('[handoff] notify failed', error));
     }
+
+    // Acting on a task is evidence of when this person is at work.
+    await noteActivity(found.workspaceId, membership.userId);
 
     // The answer to "who should be reminded, and when" just changed.
     await planRemindersForTask(id);

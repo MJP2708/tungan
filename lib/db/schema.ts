@@ -260,6 +260,9 @@ export const reminder = pgTable(
     failureReason: text('failure_reason'),
     sentAt: timestamp('sent_at', { withTimezone: true }),
     attempts: integer('attempts').notNull().default(0),
+    /** Snoozing is capped: unlimited deferral is indistinguishable from
+     *  ignoring, and it hides the fact that nothing is moving. */
+    snoozeCount: integer('snooze_count').notNull().default(0),
     /** Lease for the future scheduler, so two runners cannot both claim it. */
     claimedUntil: timestamp('claimed_until', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -270,6 +273,33 @@ export const reminder = pgTable(
     // what stops a quiet-hours shift or a retry creating a duplicate.
     uniqueIndex('reminder_dedup_key').on(t.taskId, t.recipientUserId, t.originalSendAt),
   ],
+);
+
+/**
+ * When a person is actually at work, per workspace.
+ *
+ * Learned from when they respond rather than assumed: a fixed 09:00 for
+ * everyone sends the morning nudge to a night-shift installer while they
+ * sleep, and a reminder read six hours late is a reminder that did nothing.
+ * Always visible and always overridable — a schedule inferred about someone
+ * that they cannot see or correct is surveillance, not a feature.
+ */
+export const memberSchedule = pgTable(
+  'member_schedule',
+  {
+    workspaceId: text('workspace_id').notNull().references(() => workspace.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => lineUser.id, { onDelete: 'cascade' }),
+    startsAt: text('starts_at').notNull().default('09:00'),
+    endsAt: text('ends_at').notNull().default('18:00'),
+    /** True once a person edits it, after which observation stops overwriting. */
+    isManual: boolean('is_manual').notNull().default(false),
+    /** How many observations the learned value rests on. */
+    samples: integer('samples').notNull().default(0),
+    /** Earliest hour seen, as minutes past midnight, averaged. */
+    observedStartMinutes: integer('observed_start_minutes'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.workspaceId, t.userId] })],
 );
 
 /** Webhook dedup. LINE retries slow endpoints, and that is exactly how
