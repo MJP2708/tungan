@@ -223,6 +223,23 @@ export const api = {
       method: 'POST',
     }),
 
+  questions: (taskId: string) =>
+    request<{ questions: Array<{ id: string; question: string; answer: string | null; answeredAt: string | null; askedOfUserId: string; askedOfName: string | null }> }>(
+      `/api/tasks/${encodeURIComponent(taskId)}/questions`,
+    ),
+
+  askQuestion: (taskId: string, askedOfUserId: string, question: string) =>
+    request<{ id: string }>(`/api/tasks/${encodeURIComponent(taskId)}/questions`, {
+      method: 'POST',
+      body: JSON.stringify({ askedOfUserId, question }),
+    }),
+
+  answerQuestion: (questionId: string, answer: string) =>
+    request<{ ok: true }>(`/api/questions/${encodeURIComponent(questionId)}/answer`, {
+      method: 'POST',
+      body: JSON.stringify({ answer }),
+    }),
+
   /** Tasks waiting on something, with what they need. */
   blocked: (workspaceId: string) =>
     request<{ items: Array<{ id: string; title: string; assigneeName: string | null; needs: string; since: string | null }> }>(

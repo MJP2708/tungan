@@ -29,6 +29,13 @@
       "when": 1788281236498,
       "tag": "0003_brown_scourge",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788282252100,
+      "tag": "0004_lying_namora",
+      "breakpoints": true
     }
   ]
 }

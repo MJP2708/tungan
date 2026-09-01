@@ -361,6 +361,9 @@ export default function Home() {
   const [blockedItems, setBlockedItems] = useState<
     { id: string; title: string; assigneeName: string | null; needs: string }[]
   >([]);
+  const [questions, setQuestions] = useState<
+    { id: string; question: string; answer: string | null; answeredAt: string | null; askedOfUserId: string; askedOfName: string | null }[]
+  >([]);
   const [history, setHistory] = useState<
     { id: string; kind: string; detail: string; at: string; actorName: string | null }[]
   >([]);
@@ -541,6 +544,14 @@ export default function Home() {
       .catch(() => {
         if (!cancelled) setHistory([]);
       });
+    api
+      .questions(selectedTask.id)
+      .then((res) => {
+        if (!cancelled) setQuestions(res.questions);
+      })
+      .catch(() => {
+        if (!cancelled) setQuestions([]);
+      });
     return () => {
       cancelled = true;
     };
@@ -657,6 +668,25 @@ export default function Home() {
       setNotice('เชื่อมกลุ่มแล้ว · ข้อความที่ติด @ทันงาน จะเข้ามาที่นี่');
     } catch (error) {
       reportError(error, 'เชื่อมกลุ่มไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function answerQuestion(questionId: string) {
+    const answer = window.prompt('ตอบว่าอะไร');
+    if (!answer?.trim()) return;
+    setBusy(true);
+    try {
+      await api.answerQuestion(questionId, answer.trim());
+      if (selectedTask) {
+        const res = await api.questions(selectedTask.id);
+        setQuestions(res.questions);
+        await refreshWorkspace(selectedTask.projectId);
+      }
+      setNotice('ตอบแล้ว · งานกลับไปที่ผู้รับผิดชอบ');
+    } catch (error) {
+      reportError(error, 'ตอบไม่สำเร็จ');
     } finally {
       setBusy(false);
     }
@@ -1126,12 +1156,35 @@ export default function Home() {
     if (task.acceptedAt) return setNotice('รับงานนี้แล้ว');
     return moveTask(task, 'accept', {}, 'รับงานแล้ว · ทีมเห็นเจ้าของงานชัดเจนแล้ว');
   }
-  function requestMoreInfo(task: Task) {
-    // The server requires a note: "stuck" without saying what is needed
-    // cannot be acted on by anyone reading the team view.
-    const note = window.prompt('ต้องการข้อมูลอะไรเพิ่ม');
-    if (!note?.trim()) return;
-    return moveTask(task, 'info', { note: note.trim() }, 'แจ้งว่ารอข้อมูลเพิ่มแล้ว');
+  /**
+   * ขอข้อมูล is a request to a named person, not a status.
+   *
+   * Without a name it is the old behaviour: a label that reaches nobody, and
+   * the delay reads as the assignee's fault.
+   */
+  async function requestMoreInfo(task: Task) {
+    const others = selectedProject.members.filter((m) => m.id !== meUserId);
+    if (!others.length) {
+      return setNotice('ยังไม่รู้จักใครในพื้นที่งานนี้ ให้เขาพิมพ์ในกลุ่มหรือเข้าแอปก่อน');
+    }
+    const list = others.map((m, i) => `${i + 1}. ${m.nickname}`).join('\n');
+    const pick = window.prompt(`ถามใคร\n${list}`);
+    const index = Number(pick) - 1;
+    const target = others[index];
+    if (!target) return;
+    const question = window.prompt(`ถาม ${target.nickname} ว่าอะไร`);
+    if (!question?.trim()) return;
+    setBusy(true);
+    try {
+      await api.askQuestion(task.id, target.id, question.trim());
+      await refreshWorkspace(task.projectId);
+      setSelectedTask(null);
+      setNotice(`ส่งคำถามถึง ${target.nickname} แล้ว · งานนี้รอเขาอยู่`);
+    } catch (error) {
+      reportError(error, 'ส่งคำถามไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
   }
   function submitForReview(task: Task) {
     const evidenceUrl = task.evidence[0]?.url;
@@ -3686,6 +3739,33 @@ export default function Home() {
                   </button>
                 )}
               </section>
+              {questions.filter((q) => !q.answeredAt).length > 0 && (
+                <section className="detail-section">
+                  <h3>รอคำตอบ</h3>
+                  {questions
+                    .filter((q) => !q.answeredAt)
+                    .map((q) => (
+                      <div className="activity-row" key={q.id}>
+                        <i />
+                        <span>
+                          {q.question}
+                          {/* Naming who it waits on is what stops this
+                              reading as the assignee being slow. */}
+                          {q.askedOfName ? ` · รอ ${q.askedOfName}` : ''}
+                        </span>
+                        {q.askedOfUserId === meUserId && (
+                          <Button
+                            variant="outline"
+                            disabled={busy}
+                            onClick={() => answerQuestion(q.id)}
+                          >
+                            ตอบ
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                </section>
+              )}
               <section className="detail-section">
                 <h3>กิจกรรม</h3>
                 {history.length === 0 && (

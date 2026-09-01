@@ -197,6 +197,37 @@ export const inboxItem = pgTable(
   ],
 );
 
+/**
+ * A question attached to a task, addressed to a named person.
+ *
+ * ขอข้อมูล used to be only a status: the label changed and nothing reached
+ * anyone. Naming who is being asked is what turns "this task is late" into
+ * "this task is waiting on Somchai", which is the difference between the tool
+ * helping and the tool blaming.
+ */
+export const taskQuestion = pgTable(
+  'task_question',
+  {
+    id: text('id').primaryKey(),
+    taskId: text('task_id').notNull().references(() => task.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id').notNull().references(() => workspace.id, { onDelete: 'cascade' }),
+    askedByUserId: text('asked_by_user_id').references(() => lineUser.id, { onDelete: 'set null' }),
+    /** Who is being asked. The task waits on them, not on the assignee. */
+    askedOfUserId: text('asked_of_user_id').notNull().references(() => lineUser.id, { onDelete: 'cascade' }),
+    question: text('question').notNull(),
+    answer: text('answer'),
+    answeredAt: timestamp('answered_at', { withTimezone: true }),
+    /** When an unanswered question should surface to the owner. */
+    escalateAt: timestamp('escalate_at', { withTimezone: true }),
+    escalatedAt: timestamp('escalated_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('task_question_task_idx').on(t.taskId),
+    index('task_question_open_idx').on(t.askedOfUserId, t.answeredAt),
+  ],
+);
+
 export const reminder = pgTable(
   'reminder',
   {
