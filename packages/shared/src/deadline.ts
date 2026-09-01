@@ -214,6 +214,36 @@ export function resolveDeadline(
   return { at, confidence, matched: { day: matchedDay, time: matchedTime } };
 }
 
+export type DayBucket = 'today' | 'tomorrow' | 'friday' | 'later' | 'none';
+
+/**
+ * Which column of the deadline view an instant belongs to.
+ *
+ * Derived on read from the stored instant and the current time, so a task
+ * cannot sit in "today" because that is where it was filed yesterday.
+ */
+export function dayBucket(
+  dueAt: Date | string | null,
+  now: Date = new Date(),
+  timeZone: string = PRODUCT_TIME_ZONE,
+): DayBucket {
+  if (!dueAt) return 'none';
+  const at = typeof dueAt === 'string' ? new Date(dueAt) : dueAt;
+  if (!Number.isFinite(at.getTime())) return 'none';
+  const target = zonedDateParts(at, timeZone);
+  const today = zonedDateParts(now, timeZone);
+  const days = Math.round(
+    (Date.UTC(target.year, target.month - 1, target.day) -
+      Date.UTC(today.year, today.month - 1, today.day)) /
+      86400000,
+  );
+  if (days <= 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  const untilFriday = (5 - today.weekday + 7) % 7 || 7;
+  if (days === untilFriday) return 'friday';
+  return 'later';
+}
+
 /** A deadline is late when its instant has passed. No string matching. */
 export function isOverdue(dueAt: Date | string, now: Date = new Date()): boolean {
   const at = typeof dueAt === 'string' ? new Date(dueAt) : dueAt;

@@ -82,6 +82,15 @@ import {
   validateTaskEntry,
   type EntryError,
 } from '@tungan/shared/task-entry';
+import {
+  resolveDeadline,
+  formatDeadline,
+  isOverdue,
+  dayBucket,
+  fromZonedWallClock,
+  zonedDateParts,
+  type DayBucket,
+} from '@tungan/shared/deadline';
 import { th } from 'date-fns/locale';
 import {
   appNavigation,
@@ -130,8 +139,9 @@ type Task = {
   primaryAssigneeType?: 'member' | 'team';
   primaryAssigneeId?: string;
   source: string;
-  due: string;
-  day: 'today' | 'tomorrow' | 'friday' | 'later';
+  /** Real instant, resolved in Asia/Bangkok when the task was created.
+   *  null means no deadline was ever set — never a status word. */
+  dueAt: string | null;
   status: Status;
   priority: Priority;
   note: string;
@@ -149,7 +159,8 @@ type Capture = {
   title: string;
   assigneeType: 'member' | 'team';
   assigneeId: string;
-  due: string;
+  /** What the sender wrote, shown for confirmation. */
+  dueText: string;
   state: 'pending' | 'created' | 'dismissed';
 };
 type Reminder = {
@@ -178,6 +189,23 @@ const navigationIcons = {
   manage: Users,
   settings: Settings2,
 };
+
+/** Demo fixtures resolve to real instants relative to today. */
+function seedAt(dayOffset: number, time: string): string {
+  const today = zonedDateParts(new Date());
+  const [hour, minute] = time.split(':').map(Number);
+  return fromZonedWallClock(
+    today.year,
+    today.month,
+    today.day + dayOffset,
+    hour,
+    minute,
+  ).toISOString();
+}
+/** For the seeded task that is deliberately late. */
+function seedHoursAgo(hours: number): string {
+  return new Date(Date.now() - hours * 3600000).toISOString();
+}
 
 const initialProjects: Project[] = [
   {
@@ -291,8 +319,7 @@ const initialTasks: Task[] = [
     assigneeType: 'member',
     assigneeId: 'may',
     source: 'LINE · ทีม Operations',
-    due: 'วันนี้ 16:00',
-    day: 'today',
+    dueAt: seedAt(0, '16:00'),
     status: 'todo',
     priority: 'urgent',
     note: 'ตรวจส่วนลดแพ็กเกจรายปี และแนบ media plan เวอร์ชันล่าสุด',
@@ -311,8 +338,7 @@ const initialTasks: Task[] = [
     assigneeType: 'team',
     assigneeId: 'field',
     source: 'LINE · ทีม Operations',
-    due: 'พรุ่งนี้ 10:00',
-    day: 'tomorrow',
+    dueAt: seedAt(1, '10:00'),
     status: 'todo',
     priority: 'high',
     note: 'ขอจำนวน standee และจุดติดตั้งที่ยืนยันแล้ว',
@@ -326,8 +352,7 @@ const initialTasks: Task[] = [
     assigneeType: 'member',
     assigneeId: 'poom',
     source: 'LINE · Project Nami',
-    due: 'วันนี้ 18:00',
-    day: 'today',
+    dueAt: seedAt(0, '18:00'),
     status: 'progress',
     priority: 'urgent',
     note: 'แก้ headline และเพิ่ม legal line ตามข้อความต้นทาง',
@@ -348,8 +373,7 @@ const initialTasks: Task[] = [
     assigneeType: 'member',
     assigneeId: 'pim-nami',
     source: 'Weekly operation',
-    due: 'ศ. 28 ส.ค. 15:00',
-    day: 'friday',
+    dueAt: seedAt(3, '15:00'),
     status: 'progress',
     priority: 'normal',
     note: 'สรุป KPI, insight และ next action ในหน้าเดียว',
@@ -363,8 +387,7 @@ const initialTasks: Task[] = [
     assigneeType: 'member',
     assigneeId: 'pim',
     source: 'LINE · ทีม Operations',
-    due: 'เกินกำหนด 2 ชม.',
-    day: 'today',
+    dueAt: seedHoursAgo(2),
     status: 'blocked',
     priority: 'urgent',
     note: 'ส่ง reminder แล้ว 1 ครั้ง รอการยืนยัน scene 4–6',
@@ -385,8 +408,7 @@ const initialTasks: Task[] = [
     assigneeType: 'team',
     assigneeId: 'field',
     source: 'LINE · ทีม Operations',
-    due: 'เสร็จ 11:24',
-    day: 'today',
+    dueAt: seedAt(0, '11:24'),
     status: 'done',
     priority: 'normal',
     note: 'รูปทั้งหมดผ่านการตรวจและประกาศกลับเข้ากลุ่มแล้ว',
@@ -408,7 +430,7 @@ const initialCaptures: Capture[] = [
     title: 'ส่งเอกสาร สวล. ให้ลูกค้า',
     assigneeType: 'member',
     assigneeId: 'may',
-    due: 'วันนี้ 17:00',
+    dueText: 'ภายในวันนี้',
     state: 'pending',
   },
   {
@@ -420,7 +442,7 @@ const initialCaptures: Capture[] = [
     title: 'เช็กของเข้าคลัง',
     assigneeType: 'team',
     assigneeId: 'field',
-    due: 'พรุ่งนี้ 09:00',
+    dueText: 'พรุ่งนี้เช้า',
     state: 'pending',
   },
   {
@@ -432,7 +454,7 @@ const initialCaptures: Capture[] = [
     title: 'ปรับ headline ตามคอมเมนต์ล่าสุด',
     assigneeType: 'member',
     assigneeId: 'poom',
-    due: 'วันนี้ 15:00',
+    dueText: 'ก่อนบ่าย 3',
     state: 'pending',
   },
 ];
@@ -527,11 +549,13 @@ function parseNaturalDeadline(text: string, cutoff: string) {
   return `${tomorrow ? 'พรุ่งนี้' : value.includes('วันนี้') ? 'วันนี้' : 'เวลาที่อ่านได้'} · ${time}`;
 }
 
+// Sorting is a comparison of instants. The prototype ranked by reading a
+// Thai label with a regex, so a genuinely late task sorted as on-time
+// unless someone had typed the word "เกินกำหนด" into it.
 function deadlineRank(task: Task) {
-  const dayRank = { today: 0, tomorrow: 1, friday: 2, later: 3 }[task.day];
-  const time = task.due.match(/(\d{1,2}):(\d{2})/);
-  const minutes = time ? Number(time[1]) * 60 + Number(time[2]) : 24 * 60;
-  return (task.due.includes('เกินกำหนด') ? -1 : dayRank) * 2000 + minutes;
+  if (!task.dueAt) return Number.MAX_SAFE_INTEGER;
+  const at = new Date(task.dueAt).getTime();
+  return Number.isFinite(at) ? at : Number.MAX_SAFE_INTEGER;
 }
 
 function initialsFor(name: string) {
@@ -577,7 +601,18 @@ function normalizeTask(task: Task): Task {
   };
 }
 
+/** Current time, refreshed every minute so day boundaries are honoured. */
+function useNow() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
 export default function Home() {
+  const now = useNow();
   const [page, setPage] = useState<Page>('home');
   const [projects, setProjects] = useState(initialProjects);
   const [selectedProjectId, setSelectedProjectId] = useState('mine');
@@ -606,7 +641,7 @@ export default function Home() {
   const [nicknameMember, setNicknameMember] = useState<Member | null>(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | Status>('all');
-  const [calendarDay, setCalendarDay] = useState<Task['day']>('today');
+  const [calendarDay, setCalendarDay] = useState<DayBucket>('today');
   const [manageTab, setManageTab] = useState<ManageTab>('members');
   const [deadlineMode, setDeadlineMode] = useState<'picker' | 'natural'>(
     'picker',
@@ -615,7 +650,8 @@ export default function Home() {
   const [notice, setNotice] = useState('');
   const [taskAssignee, setTaskAssignee] = useState('');
   const [taskPriority, setTaskPriority] = useState<Priority>('normal');
-  const [taskDueDay, setTaskDueDay] = useState<Task['day']>('today');
+  const [taskDueDay, setTaskDueDay] =
+    useState<'today' | 'tomorrow' | 'friday' | 'later'>('today');
   const [taskTime, setTaskTime] = useState('17:00');
   const [taskDate, setTaskDate] = useState<Date | undefined>();
   const [projectSource, setProjectSource] = useState<ProjectSource>('manual');
@@ -805,7 +841,8 @@ export default function Home() {
     () => ({
       open: projectTasks.filter((task) => task.status !== 'done').length,
       due: projectTasks.filter(
-        (task) => task.day === 'today' && task.status !== 'done',
+        (task) =>
+          dayBucket(task.dueAt, now) === 'today' && task.status !== 'done',
       ).length,
       blocked: projectTasks.filter((task) => task.status === 'blocked').length,
       done: projectTasks.filter((task) => task.status === 'done').length,
@@ -815,7 +852,7 @@ export default function Home() {
   const dailyBrief = useMemo(
     () => ({
       overdue: projectTasks.filter(
-        (task) => task.status !== 'done' && task.due.includes('เกินกำหนด'),
+        (task) => task.status !== 'done' && isOverdue(task.dueAt ?? '', now),
       ).length,
       waiting: projectTasks.filter((task) => task.reviewState === 'review')
         .length,
@@ -864,7 +901,7 @@ export default function Home() {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
-    }).formatToParts(new Date());
+    }).formatToParts(now);
     const value = (type: Intl.DateTimeFormatPartTypes) =>
       Number(bangkokParts.find((part) => part.type === type)?.value || 0);
     const base = new Date(
@@ -881,7 +918,7 @@ export default function Home() {
       tomorrow: number(tomorrow),
       friday: number(friday),
     };
-  }, []);
+  }, [now]);
   function getAssignee(
     task: Pick<Task, 'projectId' | 'assigneeType' | 'assigneeId'>,
   ) {
@@ -913,6 +950,37 @@ export default function Home() {
       assignmentIsMine(task.projectId, task.assigneeType, task.assigneeId) ||
       assignmentIsMine(task.projectId, primaryType, primaryId)
     );
+  }
+  // Preset day + themed time select -> one real instant in Asia/Bangkok.
+  function pickerDueAt(
+    dueDay: 'today' | 'tomorrow' | 'friday' | 'later',
+    customDate: Date | undefined,
+    time: string,
+  ): string {
+    const [hour, minute] = time.split(':').map(Number);
+    const today = zonedDateParts(now);
+    if (dueDay === 'later' && customDate) {
+      return fromZonedWallClock(
+        customDate.getFullYear(),
+        customDate.getMonth() + 1,
+        customDate.getDate(),
+        hour,
+        minute,
+      ).toISOString();
+    }
+    const offset =
+      dueDay === 'tomorrow'
+        ? 1
+        : dueDay === 'friday'
+          ? (5 - today.weekday + 7) % 7 || 7
+          : 0;
+    return fromZonedWallClock(
+      today.year,
+      today.month,
+      today.day + offset,
+      hour,
+      minute,
+    ).toISOString();
   }
   function taskDueLabel() {
     if (taskDueDay === 'later' && taskDate)
@@ -1157,7 +1225,6 @@ export default function Home() {
     const updated = {
       ...task,
       status,
-      due: status === 'done' ? 'เสร็จเมื่อสักครู่' : task.due,
       activity: [
         ...task.activity,
         { text: `เปลี่ยนสถานะเป็น ${statusMeta[status].label}`, time: 'เมื่อสักครู่' },
@@ -1224,13 +1291,19 @@ export default function Home() {
       'ส่งตรวจแล้ว',
     );
   }
+  // Approval closes a task and is the one transition a customer sees, so it
+  // was the one place with no permission check at all — not even the
+  // client-side one every other mutation here performs. The client review
+  // screen called straight through. Until a tokenised review link exists,
+  // approval follows the same rule as every other edit.
   function approveTask(task: Task, client = false) {
+    if (!canEditTask(task))
+      return setNotice('อนุมัติงานได้เฉพาะผู้รับผิดชอบงานนี้');
     saveTaskUpdate(
       {
         ...task,
         status: 'done',
         reviewState: 'approved',
-        due: 'อนุมัติเมื่อสักครู่',
         activity: [
           ...task.activity,
           {
@@ -1244,6 +1317,8 @@ export default function Home() {
     setClientApprovalOpen(false);
   }
   function requestRevision(task: Task, client = false) {
+    if (!canEditTask(task))
+      return setNotice('ขอแก้ไขงานได้เฉพาะผู้รับผิดชอบงานนี้');
     saveTaskUpdate(
       {
         ...task,
@@ -1301,8 +1376,7 @@ export default function Home() {
       primaryAssigneeType: assigneeType,
       primaryAssigneeId: assigneeId,
       source: `DM บอท · ${forwardProject.name}`,
-      due: `${forwardDueLabel()} · ${forwardTime}`,
-      day: forwardDueDay,
+      dueAt: pickerDueAt(forwardDueDay, forwardDate, forwardTime),
       status: 'todo',
       priority: 'normal',
       note: `ส่งต่อจาก LINE: “${message}”`,
@@ -1331,8 +1405,10 @@ export default function Home() {
         primaryAssigneeType: capture.assigneeType,
         primaryAssigneeId: capture.assigneeId,
         source: getProject(capture.projectId).groupLabel,
-        due: capture.due,
-        day: capture.due.includes('พรุ่งนี้') ? 'tomorrow' : 'today',
+        dueAt: resolveDeadline(capture.dueText, {
+          now,
+          cutoff: settings.cutoff,
+        }).at.toISOString(),
         status: 'todo',
         priority: 'normal',
         note: `สร้างจากข้อความ “${capture.message}”`,
@@ -1362,16 +1438,13 @@ export default function Home() {
     const assignee = (
       taskAssignee || `member:${taskProject.members[0].id}`
     ).split(':');
-    const parsedDay: Task['day'] =
+    const dueAt =
       deadlineMode === 'natural'
-        ? naturalDeadline.includes('พรุ่งนี้')
-          ? 'tomorrow'
-          : 'today'
-        : taskDueDay;
-    const due =
-      deadlineMode === 'natural'
-        ? parseNaturalDeadline(naturalDeadline, settings.cutoff)
-        : `${taskDueLabel()} · ${taskTime}`;
+        ? resolveDeadline(naturalDeadline, {
+            now,
+            cutoff: settings.cutoff,
+          }).at.toISOString()
+        : pickerDueAt(taskDueDay, taskDate, taskTime);
     const task: Task = {
       id: nextTaskId(tasks),
       projectId: taskProject.id,
@@ -1381,8 +1454,7 @@ export default function Home() {
       primaryAssigneeType: assignee[0] as 'member' | 'team',
       primaryAssigneeId: assignee[1],
       source: taskProject.groupLabel,
-      due,
-      day: parsedDay,
+      dueAt,
       status: 'todo',
       priority: taskPriority,
       note: String(form.get('note') || ''),
@@ -1628,7 +1700,7 @@ export default function Home() {
         </div>
         <div className="task-due">
           <Clock3 />
-          {task.due}
+          {task.dueAt ? formatDeadline(task.dueAt, { now }) : 'ไม่มีกำหนด'}
         </div>
         <StatusChip status={task.status} />
         <ChevronRight className="task-chevron" />
@@ -1854,7 +1926,7 @@ export default function Home() {
                     <dt>กำหนดส่ง</dt>
                     <dd>
                       <Clock3 />
-                      {capture.due}
+                      {capture.dueText}
                     </dd>
                   </div>
                 </dl>
@@ -2000,7 +2072,12 @@ export default function Home() {
             <span>{item.label}</span>
             <strong>{item.number}</strong>
             <small>
-              {projectTasks.filter((task) => task.day === item.key).length} งาน
+              {
+                projectTasks.filter(
+                  (task) => dayBucket(task.dueAt, now) === item.key,
+                ).length
+              }{' '}
+              งาน
             </small>
           </button>
         ))}
@@ -2019,11 +2096,12 @@ export default function Home() {
         </div>
         <div className="task-list">
           {projectTasks
-            .filter((task) => task.day === calendarDay)
+            .filter((task) => dayBucket(task.dueAt, now) === calendarDay)
             .map((task) => (
               <TaskRow key={task.id} task={task} />
             ))}
-          {projectTasks.filter((task) => task.day === calendarDay).length ===
+          {projectTasks.filter((task) => dayBucket(task.dueAt, now) === calendarDay)
+            .length ===
             0 && (
             <EmptyState
               title="ไม่มีงานในวันนี้"
@@ -2886,7 +2964,11 @@ export default function Home() {
                       <span className="notification-copy">
                         <strong>มีงานใกล้ถึงกำหนดส่ง</strong>
                         <small>{priorityTasks[0].title}</small>
-                        <em>{priorityTasks[0].due}</em>
+                        <em>
+                          {priorityTasks[0].dueAt
+                            ? formatDeadline(priorityTasks[0].dueAt, { now })
+                            : 'ไม่มีกำหนด'}
+                        </em>
                       </span>
                       {!notificationsSeen && <i />}
                     </button>
@@ -3461,7 +3543,11 @@ export default function Home() {
                   <Clock3 />
                   กำหนดส่ง
                 </span>
-                <strong>{selectedTask.due}</strong>
+                <strong>
+                  {selectedTask.dueAt
+                    ? formatDeadline(selectedTask.dueAt, { now })
+                    : 'ไม่มีกำหนด'}
+                </strong>
               </section>
               {!canEditTask(selectedTask) && (
                 <section className="read-only-banner">
