@@ -12,6 +12,12 @@ const geistMono = Geist_Mono({
   subsets: ['latin'],
 });
 
+// Deadlines are resolved against the current time, so this route must not be
+// frozen into static HTML at build time — a prerendered "วันนี้" is wrong the
+// next day. The app runs inside the LINE WebView behind a login and needs no
+// SEO, so there is nothing to lose here.
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: 'ทันงาน — งานจาก LINE ไม่หล่น',
   description:

@@ -6,7 +6,7 @@ import {
   formatDeadline,
   fromZonedWallClock,
   zonedDateParts,
-} from '../src/deadline.ts';
+} from '../lib/deadline.ts';
 
 // A fixed reference: Tue 1 Sep 2026, 10:00 Bangkok (03:00 UTC).
 const NOW = new Date('2026-09-01T03:00:00.000Z');

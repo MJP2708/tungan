@@ -81,7 +81,7 @@ import {
   nextTaskId,
   validateTaskEntry,
   type EntryError,
-} from '@tungan/shared/task-entry';
+} from '@/lib/task-entry';
 import {
   resolveDeadline,
   formatDeadline,
@@ -90,7 +90,7 @@ import {
   fromZonedWallClock,
   zonedDateParts,
   type DayBucket,
-} from '@tungan/shared/deadline';
+} from '@/lib/deadline';
 import { th } from 'date-fns/locale';
 import {
   appNavigation,
@@ -529,29 +529,6 @@ function EmptyState({ title, body }: { title: string; body: string }) {
     </div>
   );
 }
-function parseNaturalDeadline(text: string, cutoff: string) {
-  const value = text.trim();
-  if (!value) return 'ลองพิมพ์ “พรุ่งนี้ 9 โมง” หรือ “ภายในวันนี้”';
-  const tomorrow = value.includes('พรุ่งนี้');
-  let time = tomorrow && value.includes('เช้า') ? '09:00' : cutoff;
-  const exact = value.match(/(\d{1,2})[:.](\d{2})/);
-  const hourThai = value.match(/(\d{1,2})\s*โมง/);
-  const afternoon = value.match(/ก่อนบ่าย\s*(\d{1,2})/);
-  if (exact) time = `${exact[1].padStart(2, '0')}:${exact[2]}`;
-  else if (afternoon)
-    time = `${String(Number(afternoon[1]) + 12).padStart(2, '0')}:00`;
-  else if (hourThai) {
-    let hour = Number(hourThai[1]);
-    if ((value.includes('เย็น') || value.includes('บ่าย')) && hour < 12)
-      hour += 12;
-    time = `${String(hour).padStart(2, '0')}:00`;
-  }
-  return `${tomorrow ? 'พรุ่งนี้' : value.includes('วันนี้') ? 'วันนี้' : 'เวลาที่อ่านได้'} · ${time}`;
-}
-
-// Sorting is a comparison of instants. The prototype ranked by reading a
-// Thai label with a regex, so a genuinely late task sorted as on-time
-// unless someone had typed the word "เกินกำหนด" into it.
 function deadlineRank(task: Task) {
   if (!task.dueAt) return Number.MAX_SAFE_INTEGER;
   const at = new Date(task.dueAt).getTime();
@@ -582,12 +559,23 @@ function nicknameAcrossProjects(
 
 function normalizeTask(task: Task): Task {
   const activity = task.activity || [];
+  // Saves from the prototype carried a Thai label in `due` ("วันนี้ 16:00",
+  // and also status words like "เสร็จ 11:24"). Those are ambiguous — the day
+  // they referred to is unrecoverable — so they are dropped rather than
+  // guessed, and the task shows as having no deadline until someone sets one.
+  const legacy = task as Task & { due?: unknown };
+  const dueAt =
+    typeof task.dueAt === 'string' && Number.isFinite(new Date(task.dueAt).getTime())
+      ? task.dueAt
+      : null;
+  if (legacy.due !== undefined) delete legacy.due;
   const acceptedEvent = activity.find((item) => item.text.includes('รับงานแล้ว'));
   const reviewEvent = activity.some((item) =>
     item.text.includes('ส่งงานให้ตรวจ'),
   );
   return {
     ...task,
+    dueAt,
     evidence: task.evidence || [],
     activity,
     acceptedAt: task.acceptedAt || acceptedEvent?.time,
@@ -3143,7 +3131,13 @@ export default function Home() {
                     <span>กำหนดส่ง</span>
                     <strong>
                       {deadlineMode === 'natural'
-                        ? parseNaturalDeadline(naturalDeadline, settings.cutoff)
+                        ? formatDeadline(
+                            resolveDeadline(naturalDeadline, {
+                              now,
+                              cutoff: settings.cutoff,
+                            }).at,
+                            { now },
+                          )
                         : `${taskDueLabel()} · ${taskTime}`}
                     </strong>
                   </div>

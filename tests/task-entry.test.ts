@@ -4,7 +4,7 @@ import {
   nextTaskId,
   validateTaskEntry,
   visibleFormViewport,
-} from '../src/task-entry.ts';
+} from '../lib/task-entry.ts';
 
 test('empty and whitespace-only fields explain why saving failed', () => {
   assert.equal(validateTaskEntry({ title: '   ' })?.field, 'title');
