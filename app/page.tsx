@@ -92,6 +92,8 @@ import {
   type DayBucket,
 } from '@/lib/deadline';
 import { th } from 'date-fns/locale';
+import { api, ApiError, newIdempotencyKey } from '@/lib/api/client';
+import { toUiTask, toUiCapture, toUiMember } from '@/lib/api/adapters';
 import {
   appNavigation,
   mobilePrimaryPages,
@@ -161,6 +163,9 @@ type Capture = {
   assigneeId: string;
   /** What the sender wrote, shown for confirmation. */
   dueText: string;
+  /** What the rules read out of it, or null when nothing was named. */
+  dueAt: string | null;
+  confidence: 'explicit' | 'inferred' | 'fallback';
   state: 'pending' | 'created' | 'dismissed';
 };
 type Reminder = {
@@ -190,292 +195,8 @@ const navigationIcons = {
   settings: Settings2,
 };
 
-/** Demo fixtures resolve to real instants relative to today. */
-function seedAt(dayOffset: number, time: string): string {
-  const today = zonedDateParts(new Date());
-  const [hour, minute] = time.split(':').map(Number);
-  return fromZonedWallClock(
-    today.year,
-    today.month,
-    today.day + dayOffset,
-    hour,
-    minute,
-  ).toISOString();
-}
 /** For the seeded task that is deliberately late. */
-function seedHoursAgo(hours: number): string {
-  return new Date(Date.now() - hours * 3600000).toISOString();
-}
 
-const initialProjects: Project[] = [
-  {
-    id: 'mine',
-    name: 'งานของฉัน',
-    source: 'manual',
-    groupLabel: 'งานของคุณจากทุกกลุ่ม',
-    members: [
-      {
-        id: 'me-view',
-        lineName: 'Pim P.',
-        nickname: 'Pim P.',
-        initials: 'PP',
-        role: 'มุมมองมาตรฐาน',
-      },
-    ],
-    teams: [],
-  },
-  {
-    id: 'ops',
-    name: 'ทีม Operations',
-    source: 'line',
-    groupLabel: 'LINE · ทีม Operations',
-    members: [
-      {
-        id: 'pim',
-        lineName: 'Pim P.',
-        nickname: 'Pim P.',
-        initials: 'PP',
-        role: 'ผู้ดูแลกลุ่ม',
-      },
-      {
-        id: 'may',
-        lineName: 'May W.',
-        nickname: 'เมย์',
-        initials: 'มย',
-        role: 'Account',
-      },
-      {
-        id: 'nont',
-        lineName: 'Nont S.',
-        nickname: 'นนท์',
-        initials: 'นน',
-        role: 'Operations',
-      },
-      {
-        id: 'art',
-        lineName: 'Art K.',
-        nickname: 'อาร์ต',
-        initials: 'อท',
-        role: 'Field team',
-      },
-    ],
-    teams: [
-      { id: 'field', name: 'ทีมหน้างาน', memberIds: ['nont', 'art'] },
-      { id: 'docs', name: 'ทีมเอกสาร', memberIds: ['pim', 'may'] },
-    ],
-  },
-  {
-    id: 'nami',
-    name: 'Project Nami',
-    source: 'line',
-    groupLabel: 'LINE · Project Nami',
-    members: [
-      {
-        id: 'pim-nami',
-        lineName: 'Pim P.',
-        nickname: 'Pim P.',
-        initials: 'PP',
-        role: 'Account',
-      },
-      {
-        id: 'anne',
-        lineName: 'Anne N.',
-        nickname: 'แอน',
-        initials: 'อน',
-        role: 'Client',
-      },
-      {
-        id: 'poom',
-        lineName: 'Poom C.',
-        nickname: 'ภูมิ',
-        initials: 'ภม',
-        role: 'Creative',
-      },
-    ],
-    teams: [{ id: 'creative', name: 'ทีม Creative', memberIds: ['poom'] }],
-  },
-  {
-    id: 'personal',
-    name: 'งานส่วนตัว',
-    source: 'manual',
-    groupLabel: 'สร้างในทันงาน',
-    members: [
-      {
-        id: 'me',
-        lineName: 'Pim P.',
-        nickname: 'Pim P.',
-        initials: 'PP',
-        role: 'เจ้าของ',
-      },
-    ],
-    teams: [],
-  },
-];
-const initialTasks: Task[] = [
-  {
-    id: 'TNG-241',
-    projectId: 'ops',
-    title: 'ส่งใบเสนอราคาแคมเปญ Q4 ให้ ABC',
-    assigneeType: 'member',
-    assigneeId: 'may',
-    source: 'LINE · ทีม Operations',
-    dueAt: seedAt(0, '16:00'),
-    status: 'todo',
-    priority: 'urgent',
-    note: 'ตรวจส่วนลดแพ็กเกจรายปี และแนบ media plan เวอร์ชันล่าสุด',
-    activity: [
-      { text: 'สร้างจากข้อความใน LINE', time: '10:14' },
-      { text: 'เมย์รับงานแล้ว', time: '10:16' },
-    ],
-    evidence: [],
-    acceptedAt: '10:16',
-    reviewState: 'working',
-  },
-  {
-    id: 'TNG-238',
-    projectId: 'ops',
-    title: 'ยืนยันจำนวนสื่อหน้าร้านกับทีมติดตั้ง',
-    assigneeType: 'team',
-    assigneeId: 'field',
-    source: 'LINE · ทีม Operations',
-    dueAt: seedAt(1, '10:00'),
-    status: 'todo',
-    priority: 'high',
-    note: 'ขอจำนวน standee และจุดติดตั้งที่ยืนยันแล้ว',
-    activity: [{ text: 'สร้างโดยพิม', time: 'เมื่อวาน 16:42' }],
-    evidence: [],
-  },
-  {
-    id: 'TNG-236',
-    projectId: 'nami',
-    title: 'แก้ artwork ตาม feedback รอบสอง',
-    assigneeType: 'member',
-    assigneeId: 'poom',
-    source: 'LINE · Project Nami',
-    dueAt: seedAt(0, '18:00'),
-    status: 'progress',
-    priority: 'urgent',
-    note: 'แก้ headline และเพิ่ม legal line ตามข้อความต้นทาง',
-    activity: [{ text: 'สร้างจากข้อความใน LINE', time: '09:20' }],
-    evidence: [
-      {
-        label: 'Artwork draft v2 · Google Drive',
-        url: 'https://drive.google.com/',
-      },
-    ],
-    acceptedAt: '09:24',
-    reviewState: 'working',
-  },
-  {
-    id: 'TNG-231',
-    projectId: 'nami',
-    title: 'สรุปผล performance campaign สัปดาห์ 34',
-    assigneeType: 'member',
-    assigneeId: 'pim-nami',
-    source: 'Weekly operation',
-    dueAt: seedAt(3, '15:00'),
-    status: 'progress',
-    priority: 'normal',
-    note: 'สรุป KPI, insight และ next action ในหน้าเดียว',
-    activity: [{ text: 'สร้างจากงานประจำสัปดาห์', time: 'จ. 09:00' }],
-    evidence: [],
-  },
-  {
-    id: 'TNG-225',
-    projectId: 'ops',
-    title: 'รอลูกค้าอนุมัติ storyboard',
-    assigneeType: 'member',
-    assigneeId: 'pim',
-    source: 'LINE · ทีม Operations',
-    dueAt: seedHoursAgo(2),
-    status: 'blocked',
-    priority: 'urgent',
-    note: 'ส่ง reminder แล้ว 1 ครั้ง รอการยืนยัน scene 4–6',
-    activity: [{ text: 'พิมส่งงานให้ตรวจ', time: 'เมื่อวาน 14:10' }],
-    evidence: [
-      {
-        label: 'Storyboard v3 · Google Drive',
-        url: 'https://drive.google.com/',
-      },
-    ],
-    acceptedAt: 'เมื่อวาน 10:04',
-    reviewState: 'review',
-  },
-  {
-    id: 'TNG-219',
-    projectId: 'ops',
-    title: 'อัปโหลดรูปหน้างานครบ 12 สาขา',
-    assigneeType: 'team',
-    assigneeId: 'field',
-    source: 'LINE · ทีม Operations',
-    dueAt: seedAt(0, '11:24'),
-    status: 'done',
-    priority: 'normal',
-    note: 'รูปทั้งหมดผ่านการตรวจและประกาศกลับเข้ากลุ่มแล้ว',
-    activity: [{ text: 'ทีมหน้างานเพิ่มลิงก์หลักฐาน', time: '11:20' }],
-    evidence: [
-      { label: 'รูปหน้างาน 12 สาขา · Drive', url: 'https://drive.google.com/' },
-    ],
-    acceptedAt: '08:45',
-    reviewState: 'approved',
-  },
-];
-const initialCaptures: Capture[] = [
-  {
-    id: 'CAP-01',
-    projectId: 'ops',
-    sender: 'พิม',
-    senderInitials: 'พม',
-    message: '@เมย์ ของาน สวล. ส่งให้ลูกค้าภายในวันนี้นะ',
-    title: 'ส่งเอกสาร สวล. ให้ลูกค้า',
-    assigneeType: 'member',
-    assigneeId: 'may',
-    dueText: 'ภายในวันนี้',
-    state: 'pending',
-  },
-  {
-    id: 'CAP-02',
-    projectId: 'ops',
-    sender: 'อาร์ต',
-    senderInitials: 'อท',
-    message: '@ทีมหน้างาน ช่วยเช็กของเข้าคลังพรุ่งนี้เช้าด้วยครับ',
-    title: 'เช็กของเข้าคลัง',
-    assigneeType: 'team',
-    assigneeId: 'field',
-    dueText: 'พรุ่งนี้เช้า',
-    state: 'pending',
-  },
-  {
-    id: 'CAP-03',
-    projectId: 'nami',
-    sender: 'แอน',
-    senderInitials: 'อน',
-    message: '@ภูมิ ปรับ headline ตามคอมเมนต์ล่าสุดก่อนบ่าย 3',
-    title: 'ปรับ headline ตามคอมเมนต์ล่าสุด',
-    assigneeType: 'member',
-    assigneeId: 'poom',
-    dueText: 'ก่อนบ่าย 3',
-    state: 'pending',
-  },
-];
-const initialReminders: Reminder[] = [
-  {
-    id: 'REM-01',
-    title: 'โทรยืนยันคิวกับลูกค้า',
-    date: '29 ส.ค.',
-    time: '09:00',
-    repeat: 'once',
-    done: false,
-  },
-  {
-    id: 'REM-02',
-    title: 'สรุปงานค้างก่อนเลิกงาน',
-    date: 'ทุกวันทำงาน',
-    time: '16:45',
-    repeat: 'daily',
-    done: false,
-  },
-];
 const timeOptions = Array.from(
   { length: 96 },
   (_, index) =>
@@ -602,19 +323,24 @@ function useNow() {
 export default function Home() {
   const now = useNow();
   const [page, setPage] = useState<Page>('home');
-  const [projects, setProjects] = useState(initialProjects);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState('mine');
-  const [tasks, setTasks] = useState(initialTasks);
-  const [captures, setCaptures] = useState(initialCaptures);
-  const [reminders, setReminders] = useState(initialReminders);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [captures, setCaptures] = useState<Capture[]>([]);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [menuOpen, setMenuOpen] = useState(false);
+  // Filled from the server session. Nothing here is trusted from the browser.
   const [account, setAccount] = useState<Account>({
-    loggedIn: true,
-    lineConnected: true,
-    lineName: 'Pim P.',
-    displayName: 'Pim P.',
+    loggedIn: false,
+    lineConnected: false,
+    lineName: '',
+    displayName: '',
   });
+  const [meUserId, setMeUserId] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [busy, setBusy] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [taskDialog, setTaskDialog] = useState(false);
@@ -675,59 +401,70 @@ export default function Home() {
     projects.find((project) => project.source === 'line') ||
     taskProject;
 
+  // The server is the only source of truth for application data. Prototype
+  // localStorage is deliberately not imported: it belongs to nobody.
   useEffect(() => {
-    const saved = localStorage.getItem('tungan-v4-state');
-    if (saved) {
+    let cancelled = false;
+    (async () => {
       try {
-        const data = JSON.parse(saved);
-        if (data.projects)
-          setProjects(
-            data.account
-              ? data.projects
-              : nicknameAcrossProjects(data.projects, 'Pim P.', 'Pim P.'),
-          );
-        if (data.tasks) setTasks((data.tasks as Task[]).map(normalizeTask));
-        if (data.captures) setCaptures(data.captures);
-        if (data.reminders) setReminders(data.reminders);
-        if (data.settings) {
-          const preferences = normalizeSettings(data.settings);
-          setSettings(preferences);
-          setPage(preferences.startPage);
+        const me = await api.me();
+        if (cancelled) return;
+        setMeUserId(me.user.userId);
+        setAccount({
+          loggedIn: true,
+          lineConnected: me.user.isOaFriend,
+          lineName: me.user.displayName,
+          displayName: me.user.displayName,
+        });
+
+        const list = me.workspaces;
+        if (!list.length) {
+          setProjects([]);
+          setLoading(false);
+          setHydrated(true);
+          return;
         }
-        if (data.account) setAccount(data.account);
-        if (data.selectedProjectId)
-          setSelectedProjectId(data.selectedProjectId);
-      } catch {
-        localStorage.removeItem('tungan-v4-state');
+
+        const current = list[0];
+        const membersRes = await api.members(current.id);
+        if (cancelled) return;
+        setProjects(
+          list.map((w) => ({
+            id: w.id,
+            name: w.name,
+            source: 'manual' as const,
+            groupLabel: w.name,
+            members: w.id === current.id ? membersRes.members.map(toUiMember) : [],
+            teams: [],
+          })),
+        );
+        setSelectedProjectId(current.id);
+        setSettings((prev) => ({ ...prev, cutoff: current.cutoff || prev.cutoff }));
+
+        const [tasksRes, inboxRes] = await Promise.all([
+          api.tasks(current.id),
+          api.inbox(current.id),
+        ]);
+        if (cancelled) return;
+        setTasks(tasksRes.tasks.map(toUiTask) as Task[]);
+        setCaptures(inboxRes.items.map(toUiCapture) as unknown as Capture[]);
+      } catch (error) {
+        if (cancelled) return;
+        setLoadError(
+          error instanceof ApiError ? error.message : 'โหลดข้อมูลไม่สำเร็จ',
+        );
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          setHydrated(true);
+        }
       }
-    }
-    setHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
-  useEffect(() => {
-    if (!hydrated) return;
-    localStorage.setItem(
-      'tungan-v4-state',
-      JSON.stringify({
-        schemaVersion: 5,
-        projects,
-        tasks,
-        captures,
-        reminders,
-        settings,
-        account,
-        selectedProjectId,
-      }),
-    );
-  }, [
-    account,
-    captures,
-    hydrated,
-    projects,
-    reminders,
-    selectedProjectId,
-    settings,
-    tasks,
-  ]);
+
   useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(''), 2800);
@@ -780,24 +517,36 @@ export default function Home() {
     setForwardTime(settings.cutoff);
   }, [forwardDialog, selectedProject.id, settings.cutoff]);
 
+  /** Re-read the workspace after a mutation. The UI never claims a change the
+   *  server has not confirmed. */
+  async function refreshWorkspace(workspaceId: string) {
+    const [tasksRes, inboxRes] = await Promise.all([
+      api.tasks(workspaceId),
+      api.inbox(workspaceId),
+    ]);
+    setTasks(tasksRes.tasks.map(toUiTask) as Task[]);
+    setCaptures(inboxRes.items.map(toUiCapture) as unknown as Capture[]);
+  }
+
+  function reportError(error: unknown, fallback: string) {
+    setNotice(error instanceof ApiError ? error.message : fallback);
+  }
+
   const getProject = (id: string) =>
     projects.find((project) => project.id === id) || projects[0];
+  // "Is this mine" is decided by the id the server put in our session, not by
+  // a list of demo ids compiled into the bundle.
   const assignmentIsMine = (
     projectId: string,
     type: 'member' | 'team',
     id: string,
   ) => {
-    if (type === 'member')
-      return (
-        ['pim', 'pim-nami', 'me', 'me-view'].includes(id) ||
-        id.startsWith('owner-')
-      );
+    if (!meUserId) return false;
+    if (type === 'member') return id === meUserId;
     return (
       getProject(projectId)
         .teams.find((team) => team.id === id)
-        ?.memberIds.some((memberId) =>
-          ['pim', 'pim-nami', 'me'].includes(memberId),
-        ) || false
+        ?.memberIds.includes(meUserId) || false
     );
   };
   const belongsToMe = (
@@ -1042,22 +791,16 @@ export default function Home() {
     setNotice(`เปลี่ยนเป็น ${nextProject?.name || 'พื้นที่งานใหม่'} แล้ว`);
   }
   function loginWithLine() {
-    const displayName = account.displayName.trim() || account.lineName;
-    setAccount((current) => ({
-      ...current,
-      loggedIn: true,
-      lineConnected: true,
-      displayName,
-    }));
-    setProjects((all) =>
-      nicknameAcrossProjects(all, account.lineName, displayName),
-    );
-    setPage(settings.startPage);
-    setNotice('เข้าสู่เดโมแล้ว');
+    window.location.href = '/api/auth/line/start';
   }
-  function logout() {
-    setAccount((current) => ({ ...current, loggedIn: false }));
+  async function logout() {
     setNotificationOpen(false);
+    try {
+      await api.logout();
+    } finally {
+      // Always leave, even if the call failed: the cookie may already be gone.
+      window.location.href = '/login';
+    }
   }
   function saveAccountName(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1207,23 +950,32 @@ export default function Home() {
     );
   }
 
-  function updateStatus(task: Task, status: Status) {
+  async function moveTask(
+    task: Task,
+    action: 'accept' | 'info' | 'blocked' | 'handoff' | 'submit',
+    extra: { assigneeUserId?: string; evidenceUrl?: string } = {},
+    successText = 'อัปเดตแล้ว',
+  ) {
     if (!canEditTask(task))
       return setNotice('งานนี้ดูได้อย่างเดียว เพราะคุณไม่ใช่ผู้รับผิดชอบ');
-    const updated = {
-      ...task,
-      status,
-      activity: [
-        ...task.activity,
-        { text: `เปลี่ยนสถานะเป็น ${statusMeta[status].label}`, time: 'เมื่อสักครู่' },
-      ],
-    };
-    setTasks((all) =>
-      all.map((item) => (item.id === task.id ? updated : item)),
-    );
-    setSelectedTask(updated);
-    setNotice('อัปเดตสถานะเรียบร้อย');
+    setBusy(true);
+    try {
+      await api.moveTask(task.id, action, extra);
+      await refreshWorkspace(task.projectId);
+      setSelectedTask(null);
+      setNotice(successText);
+    } catch (error) {
+      reportError(error, 'อัปเดตสถานะไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
   }
+
+  function updateStatus(task: Task, status: Status) {
+    if (status === 'blocked') return moveTask(task, 'blocked', {}, 'แจ้งว่าติดปัญหาแล้ว');
+    return moveTask(task, 'accept', {}, 'อัปเดตสถานะเรียบร้อย');
+  }
+
   function saveTaskUpdate(updated: Task, noticeText: string) {
     setTasks((all) =>
       all.map((item) => (item.id === updated.id ? updated : item)),
@@ -1232,52 +984,16 @@ export default function Home() {
     setNotice(noticeText);
   }
   function acceptTask(task: Task) {
-    if (!canEditTask(task)) return setNotice('มีเฉพาะผู้รับผิดชอบที่รับงานนี้ได้');
     if (task.acceptedAt) return setNotice('รับงานนี้แล้ว');
-    saveTaskUpdate(
-      {
-        ...task,
-        acceptedAt: 'เมื่อสักครู่',
-        status: 'progress',
-        reviewState: 'working',
-        activity: [
-          ...task.activity,
-          { text: `${getAssignee(task).label}รับงานแล้ว`, time: 'เมื่อสักครู่' },
-        ],
-      },
-      'รับงานแล้ว · ทีมเห็นเจ้าของงานชัดเจนแล้ว',
-    );
+    return moveTask(task, 'accept', {}, 'รับงานแล้ว · ทีมเห็นเจ้าของงานชัดเจนแล้ว');
   }
   function requestMoreInfo(task: Task) {
-    if (!canEditTask(task)) return;
-    saveTaskUpdate(
-      {
-        ...task,
-        status: 'blocked',
-        reviewState: 'working',
-        activity: [
-          ...task.activity,
-          { text: 'ขอข้อมูลเพิ่มก่อนทำงานต่อ', time: 'เมื่อสักครู่' },
-        ],
-      },
-      'แจ้งว่ารอข้อมูลเพิ่มแล้ว',
-    );
+    return moveTask(task, 'info', {}, 'แจ้งว่ารอข้อมูลเพิ่มแล้ว');
   }
   function submitForReview(task: Task) {
-    if (!canEditTask(task)) return;
-    if (!task.evidence.length) return setNotice('เพิ่มลิงก์หลักฐานก่อนส่งตรวจ');
-    saveTaskUpdate(
-      {
-        ...task,
-        status: 'progress',
-        reviewState: 'review',
-        activity: [
-          ...task.activity,
-          { text: 'ส่งหลักฐานให้ตรวจ', time: 'เมื่อสักครู่' },
-        ],
-      },
-      'ส่งตรวจแล้ว',
-    );
+    const evidenceUrl = task.evidence[0]?.url;
+    if (!evidenceUrl) return setNotice('เพิ่มลิงก์หลักฐานก่อนส่งตรวจ');
+    return moveTask(task, 'submit', { evidenceUrl }, 'ส่งตรวจแล้ว');
   }
   // Approval closes a task and is the one transition a customer sees, so it
   // was the one place with no permission check at all — not even the
@@ -1378,41 +1094,42 @@ export default function Home() {
     setNotice('สร้างงานจากข้อความ LINE แล้ว');
     event.currentTarget.reset();
   }
-  function confirmCapture(capture: Capture) {
-    const exists = tasks.some(
-      (task) =>
-        task.title === capture.title && task.projectId === capture.projectId,
-    );
-    if (!exists) {
-      const task: Task = {
-        id: nextTaskId(tasks),
-        projectId: capture.projectId,
-        title: capture.title,
-        assigneeType: capture.assigneeType,
-        assigneeId: capture.assigneeId,
-        primaryAssigneeType: capture.assigneeType,
-        primaryAssigneeId: capture.assigneeId,
-        source: getProject(capture.projectId).groupLabel,
-        dueAt: resolveDeadline(capture.dueText, {
-          now,
-          cutoff: settings.cutoff,
-        }).at.toISOString(),
-        status: 'todo',
-        priority: 'normal',
-        note: `สร้างจากข้อความ “${capture.message}”`,
-        activity: [{ text: 'ยืนยันจาก LINE Smart Capture', time: 'เมื่อสักครู่' }],
-        evidence: [],
-      };
-      setTasks((all) => [task, ...all]);
+  async function confirmCapture(capture: Capture) {
+    setBusy(true);
+    try {
+      // The idempotency key makes a double tap safe: the second call returns
+      // the first task instead of creating a second one.
+      await api.confirmInbox(
+        capture.id,
+        {
+          title: capture.title,
+          assigneeUserId: capture.assigneeId || null,
+          dueAt: capture.dueAt ?? null,
+        },
+        newIdempotencyKey(),
+      );
+      await refreshWorkspace(capture.projectId);
+      setNotice('สร้างงานและมอบหมายแล้ว');
+    } catch (error) {
+      reportError(error, 'ยืนยันไม่สำเร็จ');
+    } finally {
+      setBusy(false);
     }
-    setCaptures((all) =>
-      all.map((item) =>
-        item.id === capture.id ? { ...item, state: 'created' } : item,
-      ),
-    );
-    setNotice(exists ? 'งานนี้มีอยู่แล้ว ระบบจึงไม่สร้างซ้ำ' : 'สร้างงานและมอบหมายแล้ว');
   }
-  function createTask(event: FormEvent<HTMLFormElement>) {
+
+  async function dismissCapture(capture: Capture) {
+    setBusy(true);
+    try {
+      await api.dismissInbox(capture.id);
+      await refreshWorkspace(capture.projectId);
+      setNotice('ปิดข้อความนี้แล้ว');
+    } catch (error) {
+      reportError(error, 'ปิดข้อความไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function createTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const title = String(form.get('title') || '').trim();
@@ -1423,37 +1140,40 @@ export default function Home() {
     });
     setTaskError(error);
     if (error) return showEntryError(event.currentTarget, error);
-    const assignee = (
-      taskAssignee || `member:${taskProject.members[0].id}`
-    ).split(':');
+
+    // Resolved to a real instant here, so the server stores a timestamp and
+    // never a phrase like "พรุ่งนี้".
     const dueAt =
       deadlineMode === 'natural'
-        ? resolveDeadline(naturalDeadline, {
-            now,
-            cutoff: settings.cutoff,
-          }).at.toISOString()
+        ? resolveDeadline(naturalDeadline, { now, cutoff: settings.cutoff }).at.toISOString()
         : pickerDueAt(taskDueDay, taskDate, taskTime);
-    const task: Task = {
-      id: nextTaskId(tasks),
-      projectId: taskProject.id,
-      title,
-      assigneeType: assignee[0] as 'member' | 'team',
-      assigneeId: assignee[1],
-      primaryAssigneeType: assignee[0] as 'member' | 'team',
-      primaryAssigneeId: assignee[1],
-      source: taskProject.groupLabel,
-      dueAt,
-      status: 'todo',
-      priority: taskPriority,
-      note: String(form.get('note') || ''),
-      activity: [{ text: 'สร้างโดยคุณและกำหนดผู้รับผิดชอบหลัก', time: 'เมื่อสักครู่' }],
-      evidence: [],
-    };
-    revealCreatedTask(task);
-    setTaskDialog(false);
-    setNaturalDeadline('');
-    setNotice(`สร้าง ${task.id} เรียบร้อย`);
-    event.currentTarget.reset();
+    const assignee = (taskAssignee || '').split(':')[1] || null;
+    const note = String(form.get('note') || '');
+
+    setBusy(true);
+    try {
+      await api.createTask(
+        {
+          workspaceId: taskProject.id,
+          title,
+          note,
+          assigneeUserId: assignee,
+          dueAt,
+          priority: taskPriority,
+          source: 'สร้างในทันงาน',
+        },
+        newIdempotencyKey(),
+      );
+      await refreshWorkspace(taskProject.id);
+      setTaskDialog(false);
+      setNaturalDeadline('');
+      navigate('tasks');
+      setNotice('สร้างงานเรียบร้อย');
+    } catch (err) {
+      reportError(err, 'สร้างงานไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
   }
   function addEvidence(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1612,35 +1332,12 @@ export default function Home() {
     setNotice('เลื่อนเตือนออกไป 10 นาทีแล้ว');
   }
   function delegateTask(task: Task) {
-    if (!canEditTask(task)) return setNotice('มีเฉพาะผู้รับผิดชอบงานนี้ที่ส่งงานต่อได้');
     if (!delegateTarget) return;
-    const [assigneeType, assigneeId] = delegateTarget.split(':') as [
-      'member' | 'team',
-      string,
-    ];
-    if (assigneeType === task.assigneeType && assigneeId === task.assigneeId)
+    const [, assigneeId] = delegateTarget.split(':');
+    if (!assigneeId) return;
+    if (assigneeId === task.assigneeId)
       return setNotice('งานนี้อยู่กับผู้รับคนนี้แล้ว');
-    const nextAssignee = getAssignee({
-      projectId: task.projectId,
-      assigneeType,
-      assigneeId,
-    });
-    const updated: Task = {
-      ...task,
-      primaryAssigneeType: task.primaryAssigneeType || task.assigneeType,
-      primaryAssigneeId: task.primaryAssigneeId || task.assigneeId,
-      assigneeType,
-      assigneeId,
-      activity: [
-        ...task.activity,
-        { text: `ผู้รับผิดชอบหลักส่งงานต่อให้ ${nextAssignee.label}`, time: 'เมื่อสักครู่' },
-      ],
-    };
-    setTasks((all) =>
-      all.map((item) => (item.id === updated.id ? updated : item)),
-    );
-    setSelectedTask(updated);
-    setNotice(`ส่งงานต่อให้ ${nextAssignee.label} แล้ว`);
+    return moveTask(task, 'handoff', { assigneeUserId: assigneeId }, 'ส่งงานต่อแล้ว');
   }
   async function shareReport() {
     const text = `พื้นที่ ${selectedProject.name} มี ${totalTaskCount} งาน · ปิดแล้ว ${counts.done} งาน (${completionRate}%) — ทันงาน.`;
@@ -2818,7 +2515,18 @@ export default function Home() {
     </section>
   );
 
-  if (!account.loggedIn) {
+  if (loading) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <Brand />
+          <p>กำลังโหลดงานของคุณ</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (loadError || !account.loggedIn) {
     return (
       <main className="auth-page">
         <section className="auth-card">
@@ -2829,11 +2537,11 @@ export default function Home() {
           <div>
             <h1>เข้าสู่ระบบ</h1>
           </div>
+          {loadError && <p className="auth-error">{loadError}</p>}
           <Button className="auth-line-button" onClick={loginWithLine}>
             <LogIn />
-            เข้าสู่เดโม
+            เข้าสู่ระบบด้วย LINE
           </Button>
-          <small>โหมด Public Beta · ข้อมูลตัวอย่างเก็บในอุปกรณ์นี้</small>
         </section>
       </main>
     );
