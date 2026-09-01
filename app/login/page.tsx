@@ -6,6 +6,11 @@ export const dynamic = 'force-dynamic';
 const MESSAGES: Record<string, string> = {
   config: 'ยังตั้งค่าการเชื่อมต่อ LINE ไม่ครบ',
   session: 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่',
+  // These three separate "LINE said yes but our side failed" from "LINE said
+  // no", which a single generic message used to hide.
+  db_not_configured: 'ยังไม่ได้ตั้งค่าฐานข้อมูลบนเซิร์ฟเวอร์ (DATABASE_URL)',
+  db_unreachable: 'เชื่อมต่อฐานข้อมูลไม่ได้',
+  session_failed: 'สร้างเซสชันไม่สำเร็จ',
 };
 
 export default async function LoginPage({

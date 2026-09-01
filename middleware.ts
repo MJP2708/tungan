@@ -17,7 +17,10 @@ export function middleware(req: NextRequest) {
     pathname === '/login' ||
     pathname.startsWith('/api/auth/line') ||
     // LINE calls this one with a signature, not a session.
-    pathname.startsWith('/api/webhooks/');
+    pathname.startsWith('/api/webhooks/') ||
+    // Reports presence booleans only, so it is safe unauthenticated and can
+    // still diagnose a login that fails before a session exists.
+    pathname === '/api/health';
 
   if (isPublic) return NextResponse.next();
 

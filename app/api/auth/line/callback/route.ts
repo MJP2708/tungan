@@ -61,7 +61,20 @@ export async function GET(req: Request) {
     return backToLogin(req, 'ยืนยันตัวตนกับ LINE ไม่สำเร็จ');
   }
 
-  await upsertUserAndSession(identity);
+  // LINE has confirmed who this is; the remaining work is ours. An unguarded
+  // failure here produced a blank 500 with no way to tell what broke.
+  try {
+    await upsertUserAndSession(identity);
+  } catch (error) {
+    const message = (error as Error).message ?? '';
+    console.error('[auth callback] could not create the session:', message);
+    const reason = /DATABASE_URL/.test(message)
+      ? 'db_not_configured'
+      : /ECONNREFUSED|ENOTFOUND|timeout|terminating connection|SSL/i.test(message)
+        ? 'db_unreachable'
+        : 'session_failed';
+    return backToLogin(req, reason);
+  }
   return NextResponse.redirect(new URL('/', req.url));
 }
 
