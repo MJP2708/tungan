@@ -177,6 +177,17 @@ type Reminder = {
   done: boolean;
 };
 
+/** Stands in until the first workspace arrives from the server, so the shell
+ *  renders an empty state instead of crashing on `projects[0]`. */
+const EMPTY_PROJECT: Project = {
+  id: '',
+  name: 'ยังไม่มีพื้นที่งาน',
+  source: 'manual',
+  groupLabel: 'เชื่อมกลุ่ม LINE หรือสร้างงานของคุณเอง',
+  members: [],
+  teams: [],
+};
+
 const statusMeta: Record<Status, { label: string; icon: typeof Circle }> = {
   todo: { label: 'ต้องทำ', icon: Circle },
   progress: { label: 'กำลังทำ', icon: Play },
@@ -391,7 +402,9 @@ export default function Home() {
   const [taskError, setTaskError] = useState<EntryError | null>(null);
   const [forwardError, setForwardError] = useState<EntryError | null>(null);
   const selectedProject =
-    projects.find((project) => project.id === selectedProjectId) || projects[0];
+    projects.find((project) => project.id === selectedProjectId) ||
+    projects[0] ||
+    EMPTY_PROJECT;
   const taskProject =
     selectedProjectId === 'mine'
       ? projects.find((project) => project.id === 'personal') || selectedProject
@@ -481,7 +494,9 @@ export default function Home() {
   useEffect(() => {
     if (taskDialog) {
       setTaskError(null);
-      setTaskAssignee(`member:${taskProject.members[0].id}`);
+      setTaskAssignee(
+        taskProject.members[0] ? `member:${taskProject.members[0].id}` : '',
+      );
       setTaskPriority('normal');
       setTaskDueDay('today');
       setTaskTime(settings.cutoff);
@@ -511,7 +526,9 @@ export default function Home() {
         ? selectedProject
         : projects.find((project) => project.source === 'line') || taskProject;
     setForwardProjectId(preferred.id);
-    setForwardAssignee(`member:${preferred.members[0].id}`);
+    setForwardAssignee(
+      preferred.members[0] ? `member:${preferred.members[0].id}` : '',
+    );
     setForwardDueDay('today');
     setForwardDate(undefined);
     setForwardTime(settings.cutoff);
@@ -533,7 +550,7 @@ export default function Home() {
   }
 
   const getProject = (id: string) =>
-    projects.find((project) => project.id === id) || projects[0];
+    projects.find((project) => project.id === id) || projects[0] || EMPTY_PROJECT;
   // "Is this mine" is decided by the id the server put in our session, not by
   // a list of demo ids compiled into the bundle.
   const assignmentIsMine = (
