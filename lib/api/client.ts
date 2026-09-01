@@ -99,6 +99,12 @@ export const api = {
 
   workspaces: () => request<{ workspaces: ApiWorkspace[] }>('/api/workspaces'),
 
+  createWorkspace: (name: string) =>
+    request<{ id: string; name: string }>('/api/workspaces', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+
   members: (workspaceId: string) =>
     request<{ members: ApiMember[]; completeness: string; completenessNote: string }>(
       `/api/workspaces/${encodeURIComponent(workspaceId)}/members`,
@@ -144,7 +150,7 @@ export const api = {
   /** The five mobile transitions. */
   moveTask: (
     taskId: string,
-    action: 'accept' | 'info' | 'blocked' | 'handoff' | 'submit',
+    action: 'accept' | 'info' | 'blocked' | 'handoff' | 'submit' | 'approve' | 'revision',
     extra: { assigneeUserId?: string; evidenceUrl?: string } = {},
   ) =>
     request<{ ok: true }>(`/api/tasks/${encodeURIComponent(taskId)}/status`, {

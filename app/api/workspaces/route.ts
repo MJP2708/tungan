@@ -29,3 +29,25 @@ export async function GET() {
     return errorResponse(error);
   }
 }
+
+/** Create a workspace. The creator owns it. */
+export async function POST(req: Request) {
+  try {
+    const user = await requireSession();
+    const body = await req.json().catch(() => ({}));
+    const name = String(body.name ?? '').trim();
+    if (!name) return NextResponse.json({ error: 'ใส่ชื่อพื้นที่งานก่อน' }, { status: 400 });
+
+    const id = crypto.randomUUID();
+    await db().insert(workspace).values({ id, name });
+    await db().insert(workspaceMember).values({
+      workspaceId: id,
+      userId: user.userId,
+      role: 'owner',
+      nickname: user.displayName,
+    });
+    return NextResponse.json({ id, name }, { status: 201 });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}

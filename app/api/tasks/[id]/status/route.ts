@@ -15,7 +15,12 @@ const TRANSITIONS = {
   blocked: { status: 'blocked', reviewState: 'working', kind: 'blocked', detail: 'ติดปัญหา' },
   handoff: { status: null, reviewState: null, kind: 'handoff', detail: 'ส่งต่อ' },
   submit: { status: 'progress', reviewState: 'review', kind: 'submitted', detail: 'ส่งงาน' },
+  approve: { status: 'done', reviewState: 'approved', kind: 'approved', detail: 'อนุมัติงาน' },
+  revision: { status: 'progress', reviewState: 'revision', kind: 'revision', detail: 'ขอแก้ไข' },
 } as const;
+
+/** Reviewing someone's work is a different right from doing the work. */
+const REVIEW_ACTIONS = new Set(['approve', 'revision']);
 
 export async function POST(
   req: Request,
@@ -43,6 +48,20 @@ export async function POST(
       membership.role === 'owner' ||
       membership.role === 'admin';
     if (!mayEdit) throw new HttpError(403, 'งานนี้ดูได้อย่างเดียว เพราะคุณไม่ใช่ผู้รับผิดชอบ');
+
+    // Approving your own submission would make review meaningless, so the
+    // person who asked for the work signs it off, not the person who did it.
+    // This is enforced here rather than in the UI, which is where the
+    // prototype's approval had no check at all.
+    if (REVIEW_ACTIONS.has(action)) {
+      const mayReview =
+        membership.role === 'owner' ||
+        membership.role === 'admin' ||
+        found.createdByUserId === membership.userId;
+      if (!mayReview) {
+        throw new HttpError(403, 'ตรวจงานได้เฉพาะผู้สั่งงานหรือผู้ดูแลพื้นที่งาน');
+      }
+    }
 
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     if (move.status) patch.status = move.status;

@@ -1040,7 +1040,9 @@ export default function Home() {
 
   async function moveTask(
     task: Task,
-    action: 'accept' | 'info' | 'blocked' | 'handoff' | 'submit',
+    action:
+      | 'accept' | 'info' | 'blocked' | 'handoff' | 'submit'
+      | 'approve' | 'revision',
     extra: { assigneeUserId?: string; evidenceUrl?: string } = {},
     successText = 'อัปเดตแล้ว',
   ) {
@@ -1064,13 +1066,6 @@ export default function Home() {
     return moveTask(task, 'accept', {}, 'อัปเดตสถานะเรียบร้อย');
   }
 
-  function saveTaskUpdate(updated: Task, noticeText: string) {
-    setTasks((all) =>
-      all.map((item) => (item.id === updated.id ? updated : item)),
-    );
-    setSelectedTask(updated);
-    setNotice(noticeText);
-  }
   function acceptTask(task: Task) {
     if (task.acceptedAt) return setNotice('รับงานนี้แล้ว');
     return moveTask(task, 'accept', {}, 'รับงานแล้ว · ทีมเห็นเจ้าของงานชัดเจนแล้ว');
@@ -1089,44 +1084,14 @@ export default function Home() {
   // screen called straight through. Until a tokenised review link exists,
   // approval follows the same rule as every other edit.
   function approveTask(task: Task, client = false) {
-    if (!canEditTask(task))
-      return setNotice('อนุมัติงานได้เฉพาะผู้รับผิดชอบงานนี้');
-    saveTaskUpdate(
-      {
-        ...task,
-        status: 'done',
-        reviewState: 'approved',
-        activity: [
-          ...task.activity,
-          {
-            text: client ? 'ลูกค้าอนุมัติผ่านหน้าตรวจงาน' : 'อนุมัติงานแล้ว',
-            time: 'เมื่อสักครู่',
-          },
-        ],
-      },
-      'อนุมัติและปิดงานแล้ว',
+    return moveTask(task, 'approve', {}, 'อนุมัติและปิดงานแล้ว').then(() =>
+      setClientApprovalOpen(false),
     );
-    setClientApprovalOpen(false);
   }
   function requestRevision(task: Task, client = false) {
-    if (!canEditTask(task))
-      return setNotice('ขอแก้ไขงานได้เฉพาะผู้รับผิดชอบงานนี้');
-    saveTaskUpdate(
-      {
-        ...task,
-        status: 'progress',
-        reviewState: 'revision',
-        activity: [
-          ...task.activity,
-          {
-            text: client ? 'ลูกค้าขอแก้ไขงาน' : 'ขอแก้ไขและเปิดงานอีกครั้ง',
-            time: 'เมื่อสักครู่',
-          },
-        ],
-      },
-      'ส่งกลับให้แก้ไขแล้ว',
+    return moveTask(task, 'revision', {}, 'ส่งกลับให้แก้ไขแล้ว').then(() =>
+      setClientApprovalOpen(false),
     );
-    setClientApprovalOpen(false);
   }
   function showEntryError(form: HTMLFormElement, error: EntryError) {
     const field = form.elements.namedItem(error.field);
@@ -1135,52 +1100,46 @@ export default function Home() {
       field.scrollIntoView({ block: 'nearest', behavior: 'instant' });
     }
   }
-  function revealCreatedTask(task: Task) {
-    setTasks((all) => [task, ...all]);
-    setSelectedProjectId(task.projectId);
-    navigate('tasks');
-  }
-  function createForwardedTask(event: FormEvent<HTMLFormElement>) {
+  async function createForwardedTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const message = String(form.get('message') || '').trim();
     const title = String(form.get('title') || '').trim();
     const evidenceUrl = String(form.get('evidenceUrl') || '').trim();
     const error = validateTaskEntry({
-      title,
-      message,
-      evidenceUrl,
+      title, message, evidenceUrl,
       customDate: forwardDueDay === 'later',
       date: forwardDate,
     });
     setForwardError(error);
     if (error) return showEntryError(event.currentTarget, error);
-    const [assigneeType, assigneeId] = forwardAssignee.split(':') as [
-      'member' | 'team',
-      string,
-    ];
-    const task: Task = {
-      id: nextTaskId(tasks),
-      projectId: forwardProject.id,
-      title,
-      assigneeType,
-      assigneeId,
-      primaryAssigneeType: assigneeType,
-      primaryAssigneeId: assigneeId,
-      source: `DM บอท · ${forwardProject.name}`,
-      dueAt: pickerDueAt(forwardDueDay, forwardDate, forwardTime),
-      status: 'todo',
-      priority: 'normal',
-      note: `ส่งต่อจาก LINE: “${message}”`,
-      activity: [{ text: 'นำข้อความจาก LINE มาสร้างงาน', time: 'เมื่อสักครู่' }],
-      evidence: evidenceUrl
-        ? [{ label: 'ลิงก์ประกอบจาก LINE', url: evidenceUrl }]
-        : [],
-    };
-    revealCreatedTask(task);
-    setForwardDialog(false);
-    setNotice('สร้างงานจากข้อความ LINE แล้ว');
-    event.currentTarget.reset();
+
+    const assigneeUserId = (forwardAssignee || '').split(':')[1] || null;
+    setBusy(true);
+    try {
+      const created = await api.createTask(
+        {
+          workspaceId: forwardProject.id,
+          title,
+          note: `ส่งต่อจาก LINE: “${message}”`,
+          assigneeUserId,
+          dueAt: pickerDueAt(forwardDueDay, forwardDate, forwardTime),
+          source: 'นำเข้าด้วยมือ',
+        },
+        newIdempotencyKey(),
+      );
+      if (evidenceUrl) {
+        await api.updateTask(created.id, { evidenceUrl });
+      }
+      await refreshWorkspace(forwardProject.id);
+      setForwardDialog(false);
+      navigate('tasks');
+      setNotice('สร้างงานจากข้อความ LINE แล้ว');
+    } catch (err) {
+      reportError(err, 'สร้างงานไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
   }
   async function confirmCapture(capture: Capture) {
     setBusy(true);
@@ -1348,53 +1307,62 @@ export default function Home() {
     setTeamDialog(false);
     setNotice(`สร้าง ${name} แล้ว`);
   }
-  function createProject(event: FormEvent<HTMLFormElement>) {
+  async function createProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const name = String(form.get('projectName') || '').trim();
+    const name = String(
+      new FormData(event.currentTarget).get('projectName') || '',
+    ).trim();
     if (!name) return;
-    const source = projectSource;
-    const id = `project-${Date.now()}`;
-    const project: Project = {
-      id,
-      name,
-      source,
-      groupLabel: source === 'line' ? `LINE · ${name}` : 'สร้างในทันงาน',
-      members: [
-        {
-          id: `owner-${id}`,
-          lineName: account.lineName,
-          nickname: account.displayName,
-          initials: initialsFor(account.displayName),
-          role: 'เจ้าของ',
-        },
-      ],
-      teams: [],
-    };
-    setProjects((all) => [...all, project]);
-    setSelectedProjectId(id);
-    setProjectDialog(false);
-    setNotice('สร้างพื้นที่งานใหม่แล้ว');
+    setBusy(true);
+    try {
+      const created = await api.createWorkspace(name);
+      const me = await api.me();
+      setProjects(
+        me.workspaces.map((w) => ({
+          id: w.id,
+          name: w.name,
+          source: 'manual' as const,
+          groupLabel: w.name,
+          members: [],
+          teams: [],
+        })),
+      );
+      setSelectedProjectId(created.id);
+      setProjectDialog(false);
+      setNotice('สร้างพื้นที่งานใหม่แล้ว');
+    } catch (error) {
+      reportError(error, 'สร้างพื้นที่งานไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
   }
-  function createReminder(event: FormEvent<HTMLFormElement>) {
+  async function createReminder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const title = String(form.get('title') || '').trim();
+    const title = String(new FormData(event.currentTarget).get('title') || '').trim();
     if (!title) return;
-    setReminders((all) => [
-      {
-        id: `REM-${Date.now()}`,
-        title,
-        date: reminderDay === 'today' ? 'วันนี้' : 'พรุ่งนี้',
-        time: reminderTime,
-        repeat: reminderRepeat,
-        done: false,
-      },
-      ...all,
-    ]);
-    setReminderDialog(false);
-    setNotice('สร้างเตือนแล้ว — ไม่เสียค่าใช้จ่ายเพิ่ม');
-    event.currentTarget.reset();
+    const dueAt = pickerDueAt(
+      reminderDay === 'today' ? 'today' : 'tomorrow',
+      undefined,
+      reminderTime,
+    );
+    setBusy(true);
+    try {
+      const created = await api.createReminder(
+        { workspaceId: selectedProject.id, dueAt, leadMinutes: 0 },
+        newIdempotencyKey(),
+      );
+      await refreshReminders();
+      setReminderDialog(false);
+      setNotice(
+        created.shifted === 'none'
+          ? 'สร้างเตือนแล้ว'
+          : `${created.reason} · จะเตือน ${formatDeadline(created.sendAt, { now })}`,
+      );
+    } catch (error) {
+      reportError(error, 'สร้างเตือนไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
   }
   async function createQuickReminder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1770,15 +1738,8 @@ export default function Home() {
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={() =>
-                      setCaptures((all) =>
-                        all.map((item) =>
-                          item.id === capture.id
-                            ? { ...item, state: 'dismissed' }
-                            : item,
-                        ),
-                      )
-                    }
+                    disabled={busy}
+                    onClick={() => dismissCapture(capture)}
                   >
                     <X />
                     ไม่ใช่งาน
