@@ -161,9 +161,16 @@ export const api = {
       reason?: string; dueAt?: string;
     } = {},
   ) =>
-    request<{ ok: true; warning?: string | null }>(
+    request<{ ok: true; warning?: string | null; eventId?: string }>(
       `/api/tasks/${encodeURIComponent(taskId)}/status`,
       { method: 'POST', body: JSON.stringify({ action, ...extra }) },
+    ),
+
+  /** Reverse one change. Idempotent server-side, so a double tap is safe. */
+  undo: (taskId: string, eventId: string) =>
+    request<{ ok: true; alreadyUndone?: boolean }>(
+      `/api/tasks/${encodeURIComponent(taskId)}/undo`,
+      { method: 'POST', body: JSON.stringify({ eventId }) },
     ),
 
   updateTask: (

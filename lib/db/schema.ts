@@ -175,6 +175,13 @@ export const taskEvent = pgTable(
     actorUserId: text('actor_user_id').references(() => lineUser.id, { onDelete: 'set null' }),
     kind: text('kind').notNull(), // created|accepted|info|blocked|handoff|submitted|approved|revision
     detail: text('detail').notNull().default(''),
+    /** The fields this event changed, as they were before it.
+     *  Undo restores exactly these rather than guessing an inverse: there is
+     *  no reliable inverse of "blocked" without knowing what it was before. */
+    previousState: jsonb('previous_state'),
+    /** Set once this event has been undone, which is what makes undo
+     *  idempotent — a second undo of the same event does nothing. */
+    undoneAt: timestamp('undone_at', { withTimezone: true }),
     at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('task_event_task_idx').on(t.taskId)],

@@ -191,6 +191,14 @@ export async function POST(
       linkWarning = (await checkEvidenceLink(evidenceUrl)).warning;
     }
 
+    // Snapshot only the fields this action touches, so undo restores exactly
+    // what changed and leaves anything edited since alone.
+    const previousState: Record<string, unknown> = {};
+    for (const key of Object.keys(patch)) {
+      if (key === 'updatedAt') continue;
+      previousState[key] = (found as unknown as Record<string, unknown>)[key] ?? null;
+    }
+
     await db().update(task).set(patch).where(eq(task.id, id));
 
     // Handing over moves the reminders too. Leaving them behind would keep
@@ -226,11 +234,13 @@ export async function POST(
     const nameOf = (id: string | null) =>
       names.find((n) => n.id === id)?.name || 'ไม่ทราบชื่อ';
 
+    const eventId = crypto.randomUUID();
     await db().insert(taskEvent).values({
-      id: crypto.randomUUID(),
+      id: eventId,
       taskId: id,
       workspaceId: found.workspaceId,
       actorUserId: membership.userId,
+      previousState,
       kind: move.kind,
       // Handing over records both people, so the history answers "who had
       // this and when" without guessing.
@@ -271,7 +281,8 @@ export async function POST(
     // The answer to "who should be reminded, and when" just changed.
     await planRemindersForTask(id);
 
-    return NextResponse.json({ ok: true, warning: linkWarning });
+    // The id the client needs to offer undo on this exact change.
+    return NextResponse.json({ ok: true, warning: linkWarning, eventId });
   } catch (error) {
     return errorResponse(error);
   }

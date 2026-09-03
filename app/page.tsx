@@ -94,6 +94,7 @@ import {
 } from '@/lib/deadline';
 import { th } from 'date-fns/locale';
 import { api, ApiError, newIdempotencyKey } from '@/lib/api/client';
+import { useToast, ToastHost } from '@/components/toast-host';
 import { toUiTask, toUiCapture, toUiMember } from '@/lib/api/adapters';
 import {
   appNavigation,
@@ -394,7 +395,12 @@ export default function Home() {
     'picker',
   );
   const [naturalDeadline, setNaturalDeadline] = useState('');
-  const [notice, setNotice] = useState('');
+  const { toast, show: showToast, dismiss: dismissToast } = useToast();
+  // Kept so the 32 existing call sites keep working; they now route to the
+  // toast rather than the old inline strip.
+  const setNotice = (text: string) => {
+    if (text) showToast({ text });
+  };
   const [taskAssignee, setTaskAssignee] = useState('');
   const [taskPriority, setTaskPriority] = useState<Priority>('normal');
   const [taskDueDay, setTaskDueDay] =
@@ -505,11 +511,6 @@ export default function Home() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(''), 2800);
-    return () => clearTimeout(timer);
-  }, [notice]);
   useEffect(() => {
     document.documentElement.dataset.motion = settings.reducedMotion
       ? 'reduced'
@@ -1154,6 +1155,18 @@ export default function Home() {
     );
   }
 
+  /**
+   * Move a task, optimistically.
+   *
+   * The row changes immediately and rolls back if the server disagrees. On a
+   * mid-range Android on mobile data this is the difference between an app
+   * that feels usable and one that feels broken — the alternative is a
+   * spinner on every tap over a connection with 400ms of latency.
+   *
+   * The toast carries undo rather than a confirmation dialog in front of the
+   * action: asking "are you sure" before every status change costs a tap on
+   * every correct action to protect against the rare wrong one.
+   */
   async function moveTask(
     task: Task,
     action:
@@ -1161,24 +1174,70 @@ export default function Home() {
       | 'approve' | 'revision'
       | 'accept_handoff' | 'decline_handoff',
     extra: {
-      assigneeUserId?: string; evidenceUrl?: string; note?: string; reason?: string;
+      assigneeUserId?: string; evidenceUrl?: string; note?: string;
+      reason?: string; dueAt?: string;
     } = {},
     successText = 'อัปเดตแล้ว',
   ) {
-    if (!canEditTask(task))
+    if (!canEditTask(task) && task.pendingAssigneeId !== meUserId)
       return setNotice('งานนี้ดูได้อย่างเดียว เพราะคุณไม่ใช่ผู้รับผิดชอบ');
-    setBusy(true);
+
+    const OPTIMISTIC_STATUS: Partial<Record<typeof action, Status>> = {
+      accept: 'progress',
+      blocked: 'blocked',
+      info: 'blocked',
+      submit: 'progress',
+      approve: 'done',
+      revision: 'progress',
+      accept_handoff: 'progress',
+    };
+    const before = tasks;
+    const optimistic = OPTIMISTIC_STATUS[action];
+    if (optimistic) {
+      setTasks((all) =>
+        all.map((t) => (t.id === task.id ? { ...t, status: optimistic } : t)),
+      );
+    }
+
     try {
       const res = await api.moveTask(task.id, action, extra);
       await refreshWorkspace(task.projectId);
       setSelectedTask(null);
-      // A link the reviewer will not be able to open is worth saying now,
-      // while the submitter is still here to fix it.
-      setNotice((res as { warning?: string | null }).warning ?? successText);
+      const eventId = (res as { eventId?: string }).eventId;
+      const warning = (res as { warning?: string | null }).warning;
+      showToast({
+        // Names what happened to what, never a bare "สำเร็จ".
+        text: warning ?? `${successText}: ${task.title}`,
+        tone: warning ? 'error' : 'ok',
+        action: eventId
+          ? {
+              label: 'ยกเลิก',
+              run: async () => {
+                try {
+                  await api.undo(task.id, eventId);
+                  await refreshWorkspace(task.projectId);
+                  showToast({ text: `ยกเลิกแล้ว: ${task.title}` });
+                } catch (error) {
+                  showToast({
+                    text: error instanceof ApiError ? error.message : 'ยกเลิกไม่สำเร็จ',
+                    tone: 'error',
+                  });
+                }
+              },
+            }
+          : undefined,
+      });
     } catch (error) {
-      reportError(error, 'อัปเดตสถานะไม่สำเร็จ');
-    } finally {
-      setBusy(false);
+      // Put the row back exactly as it was, and say why.
+      setTasks(before);
+      showToast({
+        text: error instanceof ApiError ? error.message : 'อัปเดตสถานะไม่สำเร็จ',
+        tone: 'error',
+        action: {
+          label: 'ลองใหม่',
+          run: () => moveTask(task, action, extra, successText),
+        },
+      });
     }
   }
 
@@ -3185,12 +3244,7 @@ export default function Home() {
           </nav>
         </SheetContent>
       </Sheet>
-      {notice && (
-        <div className="toast">
-          <CheckCircle2 />
-          {notice}
-        </div>
-      )}
+      <ToastHost toast={toast} onDismiss={dismissToast} />
 
       <Dialog open={taskDialog} onOpenChange={setTaskDialog}>
         <TaskEntryDialog
