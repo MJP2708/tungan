@@ -127,9 +127,39 @@ database dumps.
 
 ## Out of scope
 
-Model-based extraction, AI chat or summarizing, auto-scan of all messages,
-native apps, calendar sync, file storage, public signup, annual plans,
-per-group add-ons, public leaderboards.
+Auto-scan of all messages, native apps, calendar sync, file storage, public
+signup, annual plans, per-group add-ons, public leaderboards.
+
+## AI scope — updated
+
+IN scope, with the constraints below:
+- Model-based extraction as a FALLBACK when the rules cannot decide: task, assignee, date.
+- Input types: text, image (extract text), and voice (transcribe), each then handled by the same
+  rules. Nothing else is sent to a model.
+- Drafting a follow-up message (ตามงาน) that the user reads before sending.
+- Suggesting a folder or filename for a Drive upload.
+
+OUT of scope, unchanged:
+- AI chat, open-ended conversation, or a chat surface of any kind.
+- Summarizing chat history for its own sake, as a feature users invoke.
+- Prioritizing or reorganizing anyone's workflow. Prioritization stays deterministic:
+  deadline, time-in-state, blocked status.
+- Autonomous multi-step agent loops. One call, one JSON response, one human confirmation.
+- Training, fine-tuning, or building our own classifier on raw LINE text.
+
+Constraints that apply to every model call:
+- AI proposes, never acts. Every output is confirmed by a person before anything is created.
+- Weighted consumption: text 1, image 2–3, voice per 30 seconds. Rules-parsed messages cost nothing.
+- Hard cap per day and per workspace, plus a kill switch. No negative balances.
+- Server-enforced limits on image size and audio length.
+- A retry under the same idempotency key is never charged twice.
+- When the allowance runs out, rules, manual creation, reminders and all status actions keep working.
+- Never the words token or credit in the Thai UI.
+
+Build order for extraction is text, then image, then voice — separately, not at
+once. Voice is the most expensive and the least certain, so whether image and
+voice are worth their cost is decided from real beta usage, not from a guess
+made before any of it shipped.
 
 ## Task 0 audit findings — the fix list
 
