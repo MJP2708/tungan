@@ -5753,3 +5753,62 @@ html[data-motion='reduced'] *::after {
     to { opacity: 1; transform: none; }
   }
 }
+
+/* Skeletons.
+   Shaped like the real rows so nothing shifts when data arrives — a layout
+   that jumps costs more confidence than the wait did. A spinner is avoided
+   because after two seconds it reads as broken rather than as loading. */
+.skeleton-row {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+  padding: 16px;
+}
+.skeleton-row + .skeleton-row {
+  margin-top: 10px;
+}
+.skeleton-bar {
+  height: 12px;
+  border-radius: 6px;
+  background: #ececE8;
+}
+.skeleton-bar.wide { width: 70%; }
+.skeleton-bar.mid { width: 45%; }
+.skeleton-bar.narrow { width: 28%; }
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton-bar { animation: skeleton-pulse 1.4s ease-in-out infinite; }
+  @keyframes skeleton-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+}
+
+/* Offline banner.
+   Quiet and persistent: it states a fact and does not demand action, because
+   the person cannot fix their signal by tapping anything here. */
+.offline-banner {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  background: #fff6e5;
+  color: #6b4b00;
+  padding: 10px 16px;
+  font-size: 13px;
+}
+.offline-banner svg { width: 15px; height: 15px; flex: none; }
+
+/* A row whose change has not reached the server yet. */
+.row-pending { opacity: 0.72; }
+.row-pending-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #6b4b00;
+  font-size: 11px;
+}

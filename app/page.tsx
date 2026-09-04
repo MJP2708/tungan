@@ -90,11 +90,13 @@ import {
   fromZonedWallClock,
   zonedDateParts,
   quickDayDate,
+  relativeDeadline,
   type DayBucket,
 } from '@/lib/deadline';
 import { th } from 'date-fns/locale';
 import { api, ApiError, newIdempotencyKey } from '@/lib/api/client';
 import { useToast, ToastHost } from '@/components/toast-host';
+import * as queue from '@/lib/api/queue';
 import { toUiTask, toUiCapture, toUiMember } from '@/lib/api/adapters';
 import {
   appNavigation,
@@ -261,6 +263,21 @@ function Brand({ mobile = false }: { mobile?: boolean }) {
     </div>
   );
 }
+/** Shaped like the real rows so the layout does not jump when data arrives. */
+function SkeletonList({ rows = 3 }: { rows?: number }) {
+  return (
+    <div aria-hidden="true">
+      {Array.from({ length: rows }, (_, i) => (
+        <div className="skeleton-row" key={i}>
+          <div className="skeleton-bar wide" />
+          <div className="skeleton-bar mid" />
+          <div className="skeleton-bar narrow" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function EmptyState({ title, body }: { title: string; body: string }) {
   return (
     <div className="empty-state">
@@ -363,6 +380,8 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [usage, setUsage] = useState<{ used: number; cap: number; remaining: number } | null>(null);
   const [schedule, setSchedule] = useState<{ startsAt: string; endsAt: string; note: string } | null>(null);
+  const [online, setOnline] = useState(true);
+  const [queued, setQueued] = useState<queue.QueuedAction[]>([]);
   const [blockedItems, setBlockedItems] = useState<
     { id: string; title: string; assigneeName: string | null; needs: string }[]
   >([]);
@@ -466,8 +485,20 @@ export default function Home() {
           return;
         }
 
+        // Everything below depends only on the workspace id, so it goes out in
+        // one round trip rather than nine. On mobile data the difference is the
+        // gap between a screen that appears and one that looks broken.
         const current = list[0];
-        const membersRes = await api.members(current.id);
+        const [membersRes, tasksRes, inboxRes] = await Promise.all([
+          api.members(current.id),
+          api.tasks(current.id),
+          api.inbox(current.id),
+          refreshGroups(),
+          refreshReminders(current.id),
+          refreshBlocked(current.id),
+          refreshUsage(current.id),
+          refreshSchedule(current.id),
+        ]);
         if (cancelled) return;
         setProjects(
           list.map((w) => ({
@@ -481,19 +512,8 @@ export default function Home() {
         );
         setSelectedProjectId(current.id);
         setSettings((prev) => ({ ...prev, cutoff: current.cutoff || prev.cutoff }));
-
-        const [tasksRes, inboxRes] = await Promise.all([
-          api.tasks(current.id),
-          api.inbox(current.id),
-        ]);
-        if (cancelled) return;
         setTasks(tasksRes.tasks.map(toUiTask) as Task[]);
         setCaptures(inboxRes.items.map(toUiCapture) as unknown as Capture[]);
-        await refreshGroups();
-        await refreshReminders();
-        await refreshBlocked();
-        await refreshUsage();
-        await refreshSchedule();
       } catch (error) {
         if (cancelled) return;
         setLoadError(
@@ -594,11 +614,46 @@ export default function Home() {
     ]);
     setTasks(tasksRes.tasks.map(toUiTask) as Task[]);
     setCaptures(inboxRes.items.map(toUiCapture) as unknown as Capture[]);
-    await refreshReminders();
-    await refreshBlocked();
-    await refreshUsage();
-    await refreshSchedule();
+    await Promise.all([
+      refreshReminders(workspaceId),
+      refreshBlocked(workspaceId),
+      refreshUsage(workspaceId),
+      refreshSchedule(workspaceId),
+    ]);
   }
+
+  // Offline handling.
+  //
+  // Front-line teams work where there is no signal. A change that silently
+  // fails there is worse than one that visibly waits, because the person
+  // believes it is recorded and stops thinking about it.
+  useEffect(() => {
+    const sync = async () => {
+      const res = await queue.flush();
+      setQueued(queue.pending());
+      if (res.sent > 0) {
+        showToast({ text: `ส่งการเปลี่ยนแปลงที่ค้างไว้แล้ว ${res.sent} รายการ` });
+        if (selectedProjectId) await refreshWorkspace(selectedProjectId);
+      }
+      for (const f of res.failed) {
+        showToast({ text: `${f.label} ไม่สำเร็จ · ${f.lastError ?? ''}`, tone: 'error' });
+      }
+    };
+    const goOnline = () => {
+      setOnline(true);
+      void sync();
+    };
+    const goOffline = () => setOnline(false);
+    setOnline(navigator.onLine);
+    setQueued(queue.pending());
+    if (navigator.onLine) void sync();
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, [selectedProjectId]);
 
   // Live updates.
   //
@@ -638,19 +693,19 @@ export default function Home() {
     };
   }, [hydrated, selectedProjectId]);
 
-  async function refreshUsage() {
-    if (!selectedProject.id) return;
+  async function refreshUsage(workspaceId = selectedProject.id) {
+    if (!workspaceId) return;
     try {
-      setUsage(await api.usage(selectedProject.id));
+      setUsage(await api.usage(workspaceId));
     } catch {
       // Non-fatal.
     }
   }
 
-  async function refreshSchedule() {
-    if (!selectedProject.id) return;
+  async function refreshSchedule(workspaceId = selectedProject.id) {
+    if (!workspaceId) return;
     try {
-      setSchedule(await api.schedule(selectedProject.id));
+      setSchedule(await api.schedule(workspaceId));
     } catch {
       // Non-fatal.
     }
@@ -675,10 +730,10 @@ export default function Home() {
     }
   }
 
-  async function refreshBlocked() {
-    if (!selectedProject.id) return;
+  async function refreshBlocked(workspaceId = selectedProject.id) {
+    if (!workspaceId) return;
     try {
-      const res = await api.blocked(selectedProject.id);
+      const res = await api.blocked(workspaceId);
       setBlockedItems(res.items);
     } catch {
       // Non-fatal.
@@ -1199,6 +1254,22 @@ export default function Home() {
       );
     }
 
+    // Offline: queue it and say so. The row shows as pending rather than as
+    // final, so nobody is told the work is recorded when it is not.
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      queue.enqueue({
+        taskId: task.id,
+        action,
+        extra: extra as Record<string, unknown>,
+        optimisticStatus: optimistic,
+        label: `${successText}: ${task.title}`,
+      });
+      setQueued(queue.pending());
+      setSelectedTask(null);
+      showToast({ text: `บันทึกไว้ก่อน · จะส่งเมื่อกลับมาออนไลน์: ${task.title}` });
+      return;
+    }
+
     try {
       const res = await api.moveTask(task.id, action, extra);
       await refreshWorkspace(task.projectId);
@@ -1640,10 +1711,10 @@ export default function Home() {
     }
   }
 
-  async function refreshReminders() {
-    if (!selectedProject.id) return;
+  async function refreshReminders(workspaceId = selectedProject.id) {
+    if (!workspaceId) return;
     try {
-      const res = await api.reminders(selectedProject.id);
+      const res = await api.reminders(workspaceId);
       setReminders(
         res.reminders.map((r) => ({
           id: r.id,
@@ -1723,10 +1794,11 @@ export default function Home() {
   }) {
     const assignee = getAssignee(task);
     const editable = canEditTask(task);
+    const waiting = queued.some((q) => q.taskId === task.id);
     return (
       <button
         title={editable ? 'เปิดและจัดการงาน' : 'เปิดดูรายละเอียด — แก้ไขไม่ได้'}
-        className={`task-row ${compact ? 'compact' : ''} ${!editable ? 'read-only' : ''} ${task.priority === 'urgent' && task.status !== 'done' ? 'deadline-glow' : ''}`}
+        className={`task-row ${compact ? 'compact' : ''} ${!editable ? 'read-only' : ''} ${waiting ? 'row-pending' : ''} ${task.priority === 'urgent' && task.status !== 'done' ? 'deadline-glow' : ''}`}
         onClick={() => setSelectedTask(task)}
       >
         <div className="task-row-main">
@@ -1746,7 +1818,10 @@ export default function Home() {
         </div>
         <div className="task-due">
           <Clock3 />
-          {task.dueAt ? formatDeadline(task.dueAt, { now }) : 'ไม่มีกำหนด'}
+          {/* Lists are scanned: "อีก 2 ชม." answers the reader's question,
+              where an absolute date makes them do the subtraction. The detail
+              view keeps the exact time. */}
+          {relativeDeadline(task.dueAt, now)}
         </div>
         <StatusChip status={task.status} />
         <ChevronRight className="task-chevron" />
@@ -2975,13 +3050,18 @@ export default function Home() {
   );
 
   if (loading) {
+    // Deliberately the app shell with skeletons, not a centred spinner: the
+    // page that appears is the page that stays, so nothing moves under the
+    // reader's eye when the data lands.
     return (
-      <main className="auth-page">
-        <section className="auth-card">
-          <Brand />
-          <p>กำลังโหลดงานของคุณ</p>
-        </section>
-      </main>
+      <div className="app-shell">
+        <main className="app-main">
+          <div className="content-area" aria-busy="true">
+            <span className="sr-only">กำลังโหลดงานของคุณ</span>
+            <SkeletonList rows={4} />
+          </div>
+        </main>
+      </div>
     );
   }
 
@@ -3244,6 +3324,13 @@ export default function Home() {
           </nav>
         </SheetContent>
       </Sheet>
+      {!online && (
+        <div className="offline-banner" role="status">
+          <AlertCircle />
+          ออฟไลน์อยู่ · สิ่งที่ทำไว้จะถูกส่งเมื่อกลับมาออนไลน์
+          {queued.length > 0 ? ` (ค้างอยู่ ${queued.length} รายการ)` : ''}
+        </div>
+      )}
       <ToastHost toast={toast} onDismiss={dismissToast} />
 
       <Dialog open={taskDialog} onOpenChange={setTaskDialog}>

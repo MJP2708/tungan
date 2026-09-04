@@ -7,6 +7,8 @@ import {
   fromZonedWallClock,
   zonedDateParts,
   quickDayDate,
+  relativeDeadline,
+  relativeSince,
 } from '../lib/deadline.ts';
 
 // A fixed reference: Tue 1 Sep 2026, 10:00 Bangkok (03:00 UTC).
@@ -161,4 +163,21 @@ test('"ศุกร์" at the weekend means the coming Friday', () => {
     `${r.year}-${String(r.month).padStart(2, '0')}-${String(r.day).padStart(2, '0')}`;
   const saturday = fromZonedWallClock(2026, 9, 5, 12, 0);
   assert.equal(fmt(quickDayDate('friday', { now: saturday })), '2026-09-11');
+});
+
+test('lists show relative time, which is the question the reader has', () => {
+  const now = fromZonedWallClock(2026, 9, 3, 12, 0);
+  assert.equal(relativeDeadline(fromZonedWallClock(2026, 9, 3, 14, 0), now), 'อีก 2 ชม.');
+  assert.equal(relativeDeadline(fromZonedWallClock(2026, 9, 3, 12, 30), now), 'อีก 30 นาที');
+  assert.equal(relativeDeadline(fromZonedWallClock(2026, 9, 5, 12, 0), now), 'อีก 2 วัน');
+  // Late reads as late, not as a negative number.
+  assert.equal(relativeDeadline(fromZonedWallClock(2026, 9, 2, 12, 0), now), 'เลย 1 วัน');
+  assert.equal(relativeDeadline(fromZonedWallClock(2026, 9, 3, 11, 0), now), 'เลย 1 ชม.');
+  assert.equal(relativeDeadline(null, now), 'ไม่มีกำหนด');
+});
+
+test('time-in-state reads as a duration', () => {
+  const now = fromZonedWallClock(2026, 9, 3, 12, 0);
+  assert.equal(relativeSince(fromZonedWallClock(2026, 8, 31, 12, 0), now), '3 วัน');
+  assert.equal(relativeSince(fromZonedWallClock(2026, 9, 3, 9, 0), now), '3 ชม.');
 });

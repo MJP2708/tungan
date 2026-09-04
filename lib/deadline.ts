@@ -342,3 +342,46 @@ export function formatDeadline(
   }).format(at);
   return `${date} ${time}`;
 }
+
+
+/**
+ * Relative time for lists: "อีก 2 ชม.", "เลย 1 วัน".
+ *
+ * Lists are scanned, not read — "อีก 2 ชม." answers the question the reader
+ * actually has, where "2 ก.ย. 16:00" makes them do the subtraction. Detail
+ * screens keep the absolute time, where precision is what is wanted.
+ */
+export function relativeDeadline(
+  dueAt: Date | string | null,
+  now: Date = new Date(),
+): string {
+  if (!dueAt) return 'ไม่มีกำหนด';
+  const at = typeof dueAt === 'string' ? new Date(dueAt) : dueAt;
+  if (!Number.isFinite(at.getTime())) return 'ไม่มีกำหนด';
+
+  const diffMs = at.getTime() - now.getTime();
+  const late = diffMs < 0;
+  const mins = Math.floor(Math.abs(diffMs) / 60000);
+  const hours = Math.floor(mins / 60);
+  const days = Math.floor(hours / 24);
+
+  const amount =
+    mins < 1 ? 'ไม่ถึงนาที'
+    : mins < 60 ? `${mins} นาที`
+    : hours < 24 ? `${hours} ชม.`
+    : days < 30 ? `${days} วัน`
+    : `${Math.floor(days / 30)} เดือน`;
+
+  return late ? `เลย ${amount}` : `อีก ${amount}`;
+}
+
+/** How long something has sat in one state: "ติดปัญหา 3 วัน". */
+export function relativeSince(since: Date | string, now: Date = new Date()): string {
+  const at = typeof since === 'string' ? new Date(since) : since;
+  if (!Number.isFinite(at.getTime())) return '';
+  const mins = Math.floor((now.getTime() - at.getTime()) / 60000);
+  if (mins < 60) return `${Math.max(0, mins)} นาที`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} ชม.`;
+  return `${Math.floor(hours / 24)} วัน`;
+}
