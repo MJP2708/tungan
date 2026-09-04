@@ -5812,3 +5812,36 @@ html[data-motion='reduced'] *::after {
   color: #6b4b00;
   font-size: 11px;
 }
+
+/* Who can read a note, shown on the note itself.
+   Appended, so it lands last in source order and cannot disturb the cascade
+   the rest of this file depends on. The activity row stays a three-column
+   grid: both of these sit inside its existing text cell. */
+.note-audience {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px solid #deded9;
+  border-radius: 999px;
+  color: #666;
+  font-size: 7px;
+  font-style: normal;
+  white-space: nowrap;
+}
+.note-share-button {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px solid #0080ff;
+  border-radius: 999px;
+  background: transparent;
+  color: #0080ff;
+  font-size: 7px;
+  font-family: inherit;
+  cursor: pointer;
+  /* Comfortable to hit on a phone without changing the row's height. */
+  min-height: 20px;
+}
+.note-share-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

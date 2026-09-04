@@ -400,7 +400,12 @@ export default function Home() {
     { id: string; question: string; answer: string | null; answeredAt: string | null; askedOfUserId: string; askedOfName: string | null }[]
   >([]);
   const [history, setHistory] = useState<
-    { id: string; kind: string; detail: string; at: string; actorName: string | null }[]
+    {
+      id: string; kind: string; detail: string; at: string;
+      actorName: string | null;
+      /** Who can read this note. Shown on the note itself. */
+      visibility?: string; actorUserId?: string | null;
+    }[]
   >([]);
   const [lineGroups, setLineGroups] = useState<
     { id: string; name: string; bound: boolean; workspaceName: string | null }[]
@@ -1264,6 +1269,7 @@ export default function Home() {
     extra: {
       assigneeUserId?: string; evidenceUrl?: string; note?: string;
       reason?: string; dueAt?: string;
+      visibility?: 'private' | 'workspace' | 'client';
     } = {},
     successText = 'อัปเดตแล้ว',
   ) {
@@ -1356,11 +1362,38 @@ export default function Home() {
       const reason = reasons[Number(pick) - 1];
       if (!reason) return;
       const note = window.prompt('เพิ่มรายละเอียด (ไม่ใส่ก็ได้)') ?? '';
+      // Private by default, and the person writing it is told so before they
+      // write. Asked as an opt-IN to sharing rather than an opt-out of
+      // privacy: the default has to be the one you get by saying nothing.
+      const share = window.confirm(
+        'บันทึกนี้จะเห็นเฉพาะคุณกับหัวหน้า\n\n' +
+          'กด OK ถ้าอยากให้ทุกคนในพื้นที่งานเห็นด้วย\n' +
+          'กด Cancel เพื่อเก็บเป็นส่วนตัว (แนะนำ)\n\n' +
+          'ไม่ว่าเลือกแบบไหน ทีมจะเห็นว่างานนี้ติดปัญหาอยู่ แต่ไม่เห็นเหตุผล',
+      );
       return moveTask(
-        task, 'blocked', { reason, note: note.trim() }, 'แจ้งว่าติดปัญหาแล้ว',
+        task,
+        'blocked',
+        { reason, note: note.trim(), visibility: share ? 'workspace' : 'private' },
+        share ? 'แจ้งว่าติดปัญหาแล้ว · ทุกคนในพื้นที่งานเห็นเหตุผล' : 'แจ้งว่าติดปัญหาแล้ว · เห็นเฉพาะคุณกับหัวหน้า',
       );
     }
     return moveTask(task, 'accept', {}, 'อัปเดตสถานะเรียบร้อย');
+  }
+
+  /** Widen a note you wrote. The task's own status never changes with it. */
+  async function shareNote(eventId: string, taskId: string) {
+    setBusy(true);
+    try {
+      await api.setEventVisibility(eventId, 'workspace');
+      const res = await api.task(taskId);
+      setHistory(res.history);
+      showToast({ text: 'ทุกคนในพื้นที่งานเห็นบันทึกนี้แล้ว' });
+    } catch (error) {
+      reportError(error, 'เปลี่ยนการมองเห็นไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
   }
 
   function acceptTask(task: Task) {
@@ -4049,6 +4082,25 @@ export default function Home() {
                     <span>
                       {entry.detail}
                       {entry.actorName ? ` · ${entry.actorName}` : ''}
+                      {/* Who can read this, on the note itself. Nobody should
+                          have to remember what they chose, or guess. */}
+                      {entry.visibility && entry.visibility !== 'workspace' && (
+                        <em className="note-audience">
+                          {entry.visibility === 'private' ? 'เห็นเฉพาะคุณกับหัวหน้า' : 'ลูกค้าเห็นด้วย'}
+                        </em>
+                      )}
+                      {/* Only the author may widen it. Kept inside the span so
+                          the row stays the three-column grid it already is. */}
+                      {entry.actorUserId === meUserId && entry.visibility === 'private' && (
+                        <button
+                          type="button"
+                          className="note-share-button"
+                          disabled={busy}
+                          onClick={() => shareNote(entry.id, selectedTask.id)}
+                        >
+                          ให้ทีมเห็น
+                        </button>
+                      )}
                     </span>
                     <small>{formatDeadline(entry.at, { now })}</small>
                   </div>

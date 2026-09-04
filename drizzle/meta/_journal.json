@@ -71,6 +71,13 @@
       "when": 1788534372009,
       "tag": "0009_red_tempest",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788536271934,
+      "tag": "0010_robust_captain_britain",
+      "breakpoints": true
     }
   ]
 }

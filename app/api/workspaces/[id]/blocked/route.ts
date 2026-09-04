@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
-import { and, eq, desc, inArray } from 'drizzle-orm';
+import { and, eq, desc } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
-import { task, taskEvent, lineUser } from '@/lib/db/schema.ts';
+import { task, lineUser } from '@/lib/db/schema.ts';
+import { latestEventPerTask } from '@/lib/db/events.ts';
+import { canReadPrivate } from '@/lib/events/visibility.ts';
 import { requireMembership } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
 
@@ -22,7 +24,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    await requireMembership(id);
+    const membership = await requireMembership(id);
 
     const stuck = await db()
       .select({
@@ -31,6 +33,9 @@ export async function GET(
         status: task.status,
         dueAt: task.dueAt,
         assigneeUserId: task.assigneeUserId,
+        primaryAssigneeUserId: task.primaryAssigneeUserId,
+        createdByUserId: task.createdByUserId,
+        reviewerUserId: task.reviewerUserId,
         assigneeName: lineUser.displayName,
       })
       .from(task)
@@ -42,31 +47,34 @@ export async function GET(
 
     // The note from the most recent ขอข้อมูล / ติดปัญหา is what someone
     // actually needs, so the reader can help rather than just chase.
-    const events = await db()
-      .select({
-        taskId: taskEvent.taskId,
-        kind: taskEvent.kind,
-        detail: taskEvent.detail,
-        at: taskEvent.at,
-      })
-      .from(taskEvent)
-      .where(
-        and(
-          inArray(taskEvent.taskId, stuck.map((s) => s.id)),
-          inArray(taskEvent.kind, ['blocked', 'info']),
-        ),
-      )
-      .orderBy(desc(taskEvent.at));
-
-    const latest = new Map<string, { detail: string; at: Date }>();
-    for (const e of events) {
-      if (!latest.has(e.taskId)) latest.set(e.taskId, { detail: e.detail, at: e.at });
-    }
+    //
+    // Entitlement is per task, not per person: this viewer may be the manager
+    // on one blocked task and a bystander on the next. The two groups are
+    // queried separately so the filtering happens in SQL — pulling every
+    // private note into memory and trusting a later filter is how one bad
+    // line of code turns a private note into a public one.
+    const insider = stuck.filter((t) =>
+      canReadPrivate({ viewerUserId: membership.userId, role: membership.role, task: t }),
+    );
+    const outsider = stuck.filter((t) => !insider.includes(t));
+    const [privateLatest, publicLatest] = await Promise.all([
+      latestEventPerTask(insider.map((t) => t.id), ['blocked', 'info'], 'private'),
+      latestEventPerTask(outsider.map((t) => t.id), ['blocked', 'info'], 'workspace'),
+    ]);
+    const latest = new Map([...privateLatest, ...publicLatest]);
 
     return NextResponse.json({
       items: stuck.map((s) => ({
-        ...s,
-        needs: latest.get(s.id)?.detail ?? 'ยังไม่ได้ระบุว่าติดตรงไหน',
+        id: s.id,
+        title: s.title,
+        status: s.status,
+        dueAt: s.dueAt,
+        assigneeUserId: s.assigneeUserId,
+        assigneeName: s.assigneeName,
+        // No reason reaches someone the note was not written for. They still
+        // see the task is stuck and who to ask, which is what a manager needs
+        // to act; the reason belongs to the person who wrote it.
+        needs: latest.get(s.id)?.detail ?? 'ติดปัญหาอยู่ · ถามผู้รับผิดชอบได้',
         since: latest.get(s.id)?.at ?? null,
       })),
     });

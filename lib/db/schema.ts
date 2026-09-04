@@ -193,6 +193,17 @@ export const taskEvent = pgTable(
     actorUserId: text('actor_user_id').references(() => lineUser.id, { onDelete: 'set null' }),
     kind: text('kind').notNull(), // created|accepted|info|blocked|handoff|submitted|approved|revision
     detail: text('detail').notNull().default(''),
+    /** private | workspace | client.
+     *
+     *  ติดปัญหา defaults to private, because people only report a problem
+     *  honestly when the report is not broadcast. The task still shows as
+     *  blocked to everyone — managers know work is stuck, only the intended
+     *  reader knows why.
+     *
+     *  Read through lib/db/events.ts. No route selects this table directly:
+     *  a rule enforced per view is a rule that leaks the first time somebody
+     *  adds a view. */
+    visibility: text('visibility').notNull().default('workspace'),
     /** The fields this event changed, as they were before it.
      *  Undo restores exactly these rather than guessing an inverse: there is
      *  no reliable inverse of "blocked" without knowing what it was before. */

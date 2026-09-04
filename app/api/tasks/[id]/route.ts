@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
-import { eq, asc } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
-import { task, taskEvent, lineUser } from '@/lib/db/schema.ts';
+import { task, taskEvent } from '@/lib/db/schema.ts';
+import { listTaskEvents } from '@/lib/db/events.ts';
+import { audienceForViewer } from '@/lib/events/visibility.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
@@ -24,19 +26,13 @@ export async function GET(
     const { id } = await params;
     const found = await loadTask(id);
     // Authorization comes from the task's own workspace, never from the URL.
-    await requireMembership(found.workspaceId);
-    const history = await db()
-      .select({
-        id: taskEvent.id,
-        kind: taskEvent.kind,
-        detail: taskEvent.detail,
-        at: taskEvent.at,
-        actorName: lineUser.displayName,
-      })
-      .from(taskEvent)
-      .leftJoin(lineUser, eq(lineUser.id, taskEvent.actorUserId))
-      .where(eq(taskEvent.taskId, id))
-      .orderBy(asc(taskEvent.at));
+    const membership = await requireMembership(found.workspaceId);
+    // A member with no connection to this task reads it as the workspace
+    // does: they see it is blocked, not why.
+    const history = await listTaskEvents(
+      id,
+      audienceForViewer({ viewerUserId: membership.userId, role: membership.role, task: found }),
+    );
     return NextResponse.json({ task: found, history });
   } catch (error) {
     return errorResponse(error);

@@ -164,9 +164,18 @@ export const api = {
     extra: {
       assigneeUserId?: string; evidenceUrl?: string; note?: string;
       reason?: string; dueAt?: string;
+      /** Who may read the note. ติดปัญหา defaults to private server-side. */
+      visibility?: 'private' | 'workspace' | 'client';
     } = {},
   ) =>
-    request<{ ok: true; warning?: string | null; eventId?: string }>(
+    request<{
+      ok: true;
+      warning?: string | null;
+      eventId?: string;
+      visibility?: string;
+      /** Plain Thai for who can read it, shown on the note itself. */
+      audienceNote?: string;
+    }>(
       `/api/tasks/${encodeURIComponent(taskId)}/status`,
       { method: 'POST', body: JSON.stringify({ action, ...extra }) },
     ),
@@ -304,13 +313,25 @@ export const api = {
   task: (taskId: string) =>
     request<{
       task: Record<string, unknown>;
-      history: Array<{ id: string; kind: string; detail: string; at: string; actorName: string | null }>;
+      history: Array<{
+        id: string; kind: string; detail: string; at: string;
+        actorName: string | null;
+        /** Notes you are not entitled to read never arrive at all. */
+        visibility?: string; actorUserId?: string | null;
+      }>;
     }>(`/api/tasks/${encodeURIComponent(taskId)}`),
 
   /** Cheap change probe for live updates. */
   changes: (workspaceId: string) =>
     request<{ version: string; pendingInbox: number }>(
       `/api/workspaces/${encodeURIComponent(workspaceId)}/changes`,
+    ),
+
+  /** Widen or narrow a note you wrote. Only its author may change it. */
+  setEventVisibility: (eventId: string, visibility: 'private' | 'workspace' | 'client') =>
+    request<{ ok: true; visibility: string }>(
+      `/api/events/${encodeURIComponent(eventId)}/visibility`,
+      { method: 'PATCH', body: JSON.stringify({ visibility }) },
     ),
 
   usage: (workspaceId: string) =>

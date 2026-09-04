@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server';
-import { and, eq, gte, desc, sql } from 'drizzle-orm';
-import { db } from '@/lib/db/index.ts';
-import { task, lineUser } from '@/lib/db/schema.ts';
+import { clientDelivery } from '@/lib/delivery/client-view.ts';
 import { requireMembership } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
 import { formatDeadline } from '@/lib/deadline.ts';
@@ -27,28 +25,10 @@ export async function GET(
     const { id } = await params;
     await requireMembership(id);
     const days = Math.min(180, Math.max(1, Number(new URL(req.url).searchParams.get('days') ?? 30)));
-    const since = new Date(Date.now() - days * 86400000);
 
-    const rows = await db()
-      .select({
-        title: task.title,
-        dueAt: task.dueAt,
-        evidenceUrl: task.evidenceUrl,
-        updatedAt: task.updatedAt,
-        closedAt: task.closedAt,
-      })
-      .from(task)
-      // Only closed work, and windowed on when it actually closed. `updatedAt`
-      // moves for any later edit, so a task closed three months ago could
-      // reappear in a 30-day summary because someone fixed a typo in it.
-      .where(
-        and(
-          eq(task.workspaceId, id),
-          eq(task.status, 'done'),
-          gte(sql`coalesce(${task.closedAt}, ${task.updatedAt})`, since),
-        ),
-      )
-      .orderBy(desc(sql`coalesce(${task.closedAt}, ${task.updatedAt})`));
+    // Built through the one client-facing view, so a private note cannot
+    // reach a client even if this route later grows a new field.
+    const rows = await clientDelivery({ workspaceId: id, days });
 
     const now = new Date();
     const text = [
@@ -57,7 +37,7 @@ export async function GET(
       ...rows.map((r) =>
         `• ${r.title}${r.dueAt ? ` (${formatDeadline(r.dueAt, { now })})` : ''}${
           r.evidenceUrl ? `\n  ${r.evidenceUrl}` : ''
-        }`,
+        }${r.notes.map((n) => `\n  ${n.detail}`).join('')}`,
       ),
     ].join('\n');
 

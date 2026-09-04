@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
-import { asc, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
-import { task, taskEvent, taskQuestion, lineUser } from '@/lib/db/schema.ts';
+import { task, taskQuestion, lineUser } from '@/lib/db/schema.ts';
+import { listTaskEvents } from '@/lib/db/events.ts';
+import { audienceForViewer } from '@/lib/events/visibility.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
 
@@ -46,17 +48,12 @@ export async function GET(
     const membership = await requireMembership(t.workspaceId);
 
     const [history, questions] = await Promise.all([
-      db()
-        .select({
-          kind: taskEvent.kind,
-          detail: taskEvent.detail,
-          at: taskEvent.at,
-          actorName: lineUser.displayName,
-        })
-        .from(taskEvent)
-        .leftJoin(lineUser, eq(lineUser.id, taskEvent.actorUserId))
-        .where(eq(taskEvent.taskId, id))
-        .orderBy(asc(taskEvent.at)),
+      // The reviewer is a manager on this task, so they see the private
+      // notes — that is who a ติดปัญหา note was written for.
+      listTaskEvents(
+        id,
+        audienceForViewer({ viewerUserId: membership.userId, role: membership.role, task: t }),
+      ),
       db()
         .select({
           question: taskQuestion.question,

@@ -8,6 +8,7 @@ import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { pushToUser } from '@/lib/line/messaging.ts';
 import { noteActivity } from '@/lib/reminders/schedule-learning.ts';
 import { checkEvidenceLink } from '@/lib/evidence/check-link.ts';
+import { audienceLabel, defaultVisibilityFor, normalizeVisibility } from '@/lib/events/visibility.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -350,6 +351,21 @@ export async function POST(
     const nameOf = (id: string | null) =>
       names.find((n) => n.id === id)?.name || 'ไม่ทราบชื่อ';
 
+    // ติดปัญหา and ขอข้อมูลเพิ่ม are private unless the worker says otherwise.
+    // People report a problem honestly only when the report is not broadcast,
+    // and the default is what almost everyone will use.
+    //
+    // Only the person writing the note may widen it. A manager quietly making
+    // someone's private note workspace-visible would be worse than not having
+    // the setting at all.
+    const requested = normalizeVisibility(body.visibility, defaultVisibilityFor(move.kind));
+    const visibility =
+      defaultVisibilityFor(move.kind) === 'private' && requested === 'client'
+        ? // A blocked reason is internal. Marking one client-visible is almost
+          // always a mistake, and an expensive one.
+          'workspace'
+        : requested;
+
     const eventId = crypto.randomUUID();
     await db().insert(taskEvent).values({
       id: eventId,
@@ -357,6 +373,7 @@ export async function POST(
       workspaceId: found.workspaceId,
       actorUserId: membership.userId,
       previousState,
+      visibility,
       kind: move.kind,
       // Handing over records both people, so the history answers "who had
       // this and when" without guessing.
@@ -397,8 +414,15 @@ export async function POST(
     // The answer to "who should be reminded, and when" just changed.
     await planRemindersForTask(id);
 
-    // The id the client needs to offer undo on this exact change.
-    return NextResponse.json({ ok: true, warning: linkWarning, eventId });
+    // The id the client needs to offer undo on this exact change, and who
+    // can read the note — shown on the note itself, so nobody has to guess.
+    return NextResponse.json({
+      ok: true,
+      warning: linkWarning,
+      eventId,
+      visibility,
+      audienceNote: audienceLabel(visibility),
+    });
   } catch (error) {
     return errorResponse(error);
   }

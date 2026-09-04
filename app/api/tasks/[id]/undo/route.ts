@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
 import { task, taskEvent } from '@/lib/db/schema.ts';
+import { findEventForUndo } from '@/lib/db/events.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
 import { planRemindersForTask } from '@/lib/reminders/plan.ts';
@@ -34,8 +35,11 @@ export async function POST(
     const eventId = String(body.eventId ?? '');
     if (!eventId) return NextResponse.json({ error: 'ต้องระบุการกระทำที่จะยกเลิก' }, { status: 400 });
 
-    const rows = await db().select().from(taskEvent).where(eq(taskEvent.id, eventId)).limit(1);
-    const event = rows[0];
+    // Deliberately reads past the visibility rule: you are undoing your own
+    // action, and the check below is that you are its actor. Going through the
+    // audience filter would mean a worker could not take back the private note
+    // they just wrote.
+    const event = await findEventForUndo(eventId);
     if (!event || event.taskId !== id) throw new HttpError(404, 'ไม่พบการกระทำนี้');
 
     const membership = await requireMembership(event.workspaceId);
