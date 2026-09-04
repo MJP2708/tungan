@@ -43,11 +43,11 @@ async function claimDue(now: Date) {
         limit ${BATCH}
         for update skip locked
      )
-    returning id, workspace_id, task_id, recipient_user_id, send_at, attempts
+    returning id, workspace_id, task_id, recipient_user_id, send_at, attempts, kind
   `);
   return (rows as unknown as { rows: Array<{
     id: string; workspace_id: string; task_id: string | null;
-    recipient_user_id: string; send_at: string; attempts: number;
+    recipient_user_id: string; send_at: string; attempts: number; kind: string;
   }> }).rows ?? [];
 }
 
@@ -110,16 +110,32 @@ export async function dispatchDueReminders(
     const [workspaceId, recipientUserId] = key.split('::');
     const ids = rows.map((r) => r.id);
 
-    const lines = rows.map((r) => {
+    // Work you have to do and work you have to check are different requests.
+    // Merging them under one heading would make the reviewer read their own
+    // queue as a list of things they are late on.
+    const toReview = rows.filter((r) => r.kind === 'review_due');
+    const toDo = rows.filter((r) => r.kind !== 'review_due');
+    const lineFor = (r: (typeof rows)[number]) => {
       const t = r.task_id ? titles.get(r.task_id) : null;
       const when = t?.dueAt ? ` · ${formatDeadline(t.dueAt, { now })}` : '';
       return `• ${t?.title ?? 'งานที่ต้องทำ'}${when}`;
-    });
+    };
+    const sections: string[] = [];
+    if (toDo.length) {
+      sections.push(
+        (toDo.length === 1 ? 'เตือนงาน' : `เตือนงาน ${toDo.length} รายการ`) +
+          `\n${toDo.map(lineFor).join('\n')}`,
+      );
+    }
+    if (toReview.length) {
+      sections.push(
+        (toReview.length === 1 ? 'รอคุณตรวจ' : `รอคุณตรวจ ${toReview.length} รายการ`) +
+          `\n${toReview.map(lineFor).join('\n')}`,
+      );
+    }
     const notice = capNotices.get(workspaceId);
     const text =
-      (rows.length === 1
-        ? `เตือนงาน\n${lines[0]}`
-        : `เตือนงาน ${rows.length} รายการ\n${lines.join('\n')}`) +
+      sections.join('\n\n') +
       // Say it in the message itself. A quieter bot with no explanation reads
       // as a broken bot.
       (notice ? `\n\n(${notice})` : '');

@@ -42,10 +42,15 @@ export type ApiTask = {
   source: string;
   /** ISO instant or null. Never a label, never a status word. */
   dueAt: string | null;
-  status: 'todo' | 'progress' | 'blocked' | 'done';
+  /** `review` is รอตรวจ, `done` is closed. Submitting is not closing. */
+  status: 'todo' | 'progress' | 'blocked' | 'review' | 'done';
   priority: string;
   reviewState: string;
   acceptedAt: string | null;
+  submittedAt?: string | null;
+  reviewerUserId?: string | null;
+  closedAt?: string | null;
+  createdByUserId?: string | null;
   evidenceUrl: string | null;
   pendingAssigneeUserId?: string | null;
   blockedReason?: string | null;

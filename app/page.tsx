@@ -38,6 +38,7 @@ import {
   Users,
   UserRound,
   X,
+  Hourglass,
 } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -108,7 +109,9 @@ import {
   type Page,
 } from '@/lib/app-preferences';
 
-type Status = 'todo' | 'progress' | 'blocked' | 'done';
+/** `review` is รอตรวจ and `done` is closed. Submitting is not closing:
+ *  the worker hands in, somebody with review rights signs off. */
+type Status = 'todo' | 'progress' | 'blocked' | 'review' | 'done';
 type Priority = 'urgent' | 'high' | 'normal';
 type ReviewState = 'working' | 'review' | 'approved' | 'revision';
 type ManageTab = 'members' | 'teams' | 'projects' | 'ai';
@@ -160,6 +163,10 @@ type Task = {
   /** Set while a handoff is waiting for this person to accept. */
   pendingAssigneeId?: string | null;
   blockedReason?: string | null;
+  /** Who asked for the work. Decides who may sign it off. */
+  createdById?: string | null;
+  submittedAt?: string | null;
+  closedAt?: string | null;
 };
 type Capture = {
   id: string;
@@ -203,7 +210,11 @@ const statusMeta: Record<Status, { label: string; icon: typeof Circle }> = {
   todo: { label: 'ต้องทำ', icon: Circle },
   progress: { label: 'กำลังทำ', icon: Play },
   blocked: { label: 'ติดปัญหา', icon: AlertCircle },
-  done: { label: 'เสร็จแล้ว', icon: CheckCircle2 },
+  // Deliberately not "เสร็จแล้ว". The worker has handed in; nobody has agreed
+  // it is finished yet, and wording that says otherwise is what let the
+  // approval step be skipped in practice.
+  review: { label: 'รอตรวจ', icon: Hourglass },
+  done: { label: 'ปิดงานแล้ว', icon: CheckCircle2 },
 };
 const navigationIcons = {
   home: LayoutGrid,
@@ -847,14 +858,18 @@ export default function Home() {
   );
   const dailyBrief = useMemo(
     () => ({
+      // Submitted work is not late. Counting it as overdue blames the worker
+      // for time the task is spending in the reviewer's queue.
       overdue: projectTasks.filter(
-        (task) => task.status !== 'done' && isOverdue(task.dueAt ?? '', now),
+        (task) =>
+          task.status !== 'done' &&
+          task.status !== 'review' &&
+          isOverdue(task.dueAt ?? '', now),
       ).length,
-      waiting: projectTasks.filter((task) => task.reviewState === 'review')
-        .length,
+      waiting: projectTasks.filter((task) => task.status === 'review').length,
       blocked: projectTasks.filter((task) => task.status === 'blocked').length,
       unaccepted: projectTasks.filter(
-        (task) => task.status !== 'done' && !task.acceptedAt,
+        (task) => task.status !== 'done' && task.status !== 'review' && !task.acceptedAt,
       ).length,
     }),
     [projectTasks],
@@ -882,7 +897,7 @@ export default function Home() {
     (task) => task.status === 'progress',
   ).length;
   const statusBreakdown = (
-    ['todo', 'progress', 'blocked', 'done'] as Status[]
+    ['todo', 'progress', 'blocked', 'review', 'done'] as Status[]
   ).map((status) => ({
     status,
     count: projectTasks.filter((task) => task.status === status).length,
@@ -947,6 +962,24 @@ export default function Home() {
       assignmentIsMine(task.projectId, primaryType, primaryId)
     );
   }
+  /**
+   * Whether this person may CLOSE the task, which is a different right from
+   * being able to work on it.
+   *
+   * Mirrors the server rule in app/api/tasks/[id]/status/route.ts so the
+   * button is not offered and then refused. The server is still the authority
+   * — this only decides what to draw.
+   */
+  function canReviewTask(task: Task) {
+    const role = selectedProject.members.find((m) => m.id === meUserId)?.role;
+    const mine = assignmentIsMine(task.projectId, task.assigneeType, task.assigneeId);
+    const askedBySomeoneElse = !!task.createdById && task.createdById !== task.assigneeId;
+    // Signing off your own work when somebody else asked for it would make
+    // every approval on the record potentially self-issued.
+    if (mine && askedBySomeoneElse) return false;
+    return role === 'owner' || role === 'admin' || task.createdById === meUserId;
+  }
+
   // Preset day + themed time select -> one real instant in Asia/Bangkok.
   function pickerDueAt(
     dueDay: 'today' | 'tomorrow' | 'friday' | 'nextweek' | 'later',
@@ -1241,7 +1274,7 @@ export default function Home() {
       accept: 'progress',
       blocked: 'blocked',
       info: 'blocked',
-      submit: 'progress',
+      submit: 'review',
       approve: 'done',
       revision: 'progress',
       accept_handoff: 'progress',
@@ -2103,7 +2136,7 @@ export default function Home() {
         </label>
       </div>
       <div className="filter-row">
-        {(['all', 'todo', 'progress', 'blocked', 'done'] as const).map(
+        {(['all', 'todo', 'progress', 'blocked', 'review', 'done'] as const).map(
           (item) => (
             <button
               key={item}
@@ -2137,7 +2170,7 @@ export default function Home() {
             </span>
           </SelectTrigger>
           <SelectContent className="themed-select-content">
-            {(['all', 'todo', 'progress', 'blocked', 'done'] as const).map(
+            {(['all', 'todo', 'progress', 'blocked', 'review', 'done'] as const).map(
               (item) => (
                 <SelectItem key={item} value={item}>
                   {item === 'all' ? 'ทั้งหมด' : statusMeta[item].label}
@@ -3950,7 +3983,7 @@ export default function Home() {
                   </span>
                 </div>
                 {selectedTask.reviewState === 'review' &&
-                  canEditTask(selectedTask) && (
+                  canReviewTask(selectedTask) && (
                     <div className="approval-actions">
                       <Button
                         variant="outline"

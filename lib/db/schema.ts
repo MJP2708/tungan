@@ -53,6 +53,10 @@ export const workspace = pgTable('workspace', {
   defaultDueTime: text('default_due_time').notNull().default('18:00'),
   /** Counted LINE messages allowed per calendar month for this workspace. */
   monthlyMessageCap: integer('monthly_message_cap').notNull().default(300),
+  /** How long a submission may sit before the reviewer is nudged, once.
+   *  One working day by default. There is deliberately no auto-approve
+   *  setting: an approval nobody made is a record that proves nothing. */
+  reviewNudgeHours: integer('review_nudge_hours').notNull().default(24),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -138,10 +142,24 @@ export const task = pgTable(
     source: text('source').notNull().default(''),
     /** Real instant. NULL means no deadline — never a status word. */
     dueAt: timestamp('due_at', { withTimezone: true }),
-    status: text('status').notNull().default('todo'), // todo|progress|blocked|done
+    /** todo|progress|blocked|review|done. `review` is รอตรวจ and `done` is
+     *  closed. Submitting is not closing: only someone with review rights
+     *  moves a task to done, which is what makes the evidence trail mean
+     *  anything. */
+    status: text('status').notNull().default('todo'),
     priority: text('priority').notNull().default('normal'),
     reviewState: text('review_state').notNull().default('working'),
     acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    /** When the worker submitted. The reviewer's nudge is measured from this,
+     *  not from the deadline: a task submitted early should not be chased
+     *  early. */
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    /** Resolved once, at submit, so the nudge has a definite recipient rather
+     *  than a rule re-derived later against a workspace that has since
+     *  changed hands. */
+    reviewerUserId: text('reviewer_user_id').references(() => lineUser.id, { onDelete: 'set null' }),
+    /** When it actually closed. Never set by the worker. */
+    closedAt: timestamp('closed_at', { withTimezone: true }),
     /** A handoff waits here until the receiver accepts. Until then the task
      *  is still the sender's: an unaccepted handoff that silently moved
      *  responsibility is how work falls between two people. */

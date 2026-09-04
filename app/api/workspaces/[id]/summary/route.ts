@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { and, eq, gte, desc } from 'drizzle-orm';
+import { and, eq, gte, desc, sql } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
 import { task, lineUser } from '@/lib/db/schema.ts';
 import { requireMembership } from '@/lib/auth/session.ts';
@@ -35,10 +35,20 @@ export async function GET(
         dueAt: task.dueAt,
         evidenceUrl: task.evidenceUrl,
         updatedAt: task.updatedAt,
+        closedAt: task.closedAt,
       })
       .from(task)
-      .where(and(eq(task.workspaceId, id), eq(task.status, 'done'), gte(task.updatedAt, since)))
-      .orderBy(desc(task.updatedAt));
+      // Only closed work, and windowed on when it actually closed. `updatedAt`
+      // moves for any later edit, so a task closed three months ago could
+      // reappear in a 30-day summary because someone fixed a typo in it.
+      .where(
+        and(
+          eq(task.workspaceId, id),
+          eq(task.status, 'done'),
+          gte(sql`coalesce(${task.closedAt}, ${task.updatedAt})`, since),
+        ),
+      )
+      .orderBy(desc(sql`coalesce(${task.closedAt}, ${task.updatedAt})`));
 
     const now = new Date();
     const text = [

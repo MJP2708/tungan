@@ -70,7 +70,7 @@ export type UiTask = {
   primaryAssigneeId?: string;
   source: string;
   dueAt: string | null;
-  status: 'todo' | 'progress' | 'blocked' | 'done';
+  status: 'todo' | 'progress' | 'blocked' | 'review' | 'done';
   priority: 'urgent' | 'high' | 'normal';
   note: string;
   activity: { text: string; time: string }[];
@@ -80,6 +80,10 @@ export type UiTask = {
   /** Set while a handoff is waiting for this person to accept. */
   pendingAssigneeId?: string | null;
   blockedReason?: string | null;
+  /** Who asked for the work. Null when nobody is recorded. */
+  createdById?: string | null;
+  submittedAt?: string | null;
+  closedAt?: string | null;
 };
 
 export function toUiTask(t: ApiTask): UiTask {
@@ -102,6 +106,12 @@ export function toUiTask(t: ApiTask): UiTask {
     reviewState: (t.reviewState as UiTask['reviewState']) ?? 'working',
     pendingAssigneeId: t.pendingAssigneeUserId ?? null,
     blockedReason: t.blockedReason ?? null,
+    // Needed to decide whether this person may sign the work off. Somebody
+    // who does a task cannot close it when someone else asked for it, so the
+    // button must not be offered and then refused.
+    createdById: t.createdByUserId ?? null,
+    submittedAt: t.submittedAt ?? null,
+    closedAt: t.closedAt ?? null,
   };
 }
 

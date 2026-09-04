@@ -4,7 +4,10 @@
 // the deadline field — the prototype wrote "เสร็จเมื่อสักครู่" over `due`,
 // which destroyed the original time and made reminders impossible.
 
-export type TaskStatus = 'todo' | 'progress' | 'blocked' | 'done';
+/** `review` is รอตรวจ and `done` is closed. Handing work in is not the same
+ *  as it being agreed finished, and only the second belongs in a client
+ *  summary. */
+export type TaskStatus = 'todo' | 'progress' | 'blocked' | 'review' | 'done';
 export type TaskPriority = 'urgent' | 'high' | 'normal';
 export type ReviewState = 'working' | 'review' | 'approved' | 'revision';
 export type AssigneeType = 'member' | 'team';

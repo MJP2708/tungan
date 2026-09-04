@@ -148,6 +148,39 @@ export function planOwnerEscalation(
 }
 
 /**
+ * When to nudge the reviewer about a submission nobody has looked at.
+ *
+ * Measured from the moment of submission, not the deadline: work handed in
+ * three days early should not be chased three days early. One nudge only —
+ * and never an auto-approval, because an approval nobody made is a record
+ * that proves nothing, which defeats the point of collecting evidence.
+ *
+ * The result is moved to the reviewer's working hours, so a submission at
+ * 22:00 does not produce a nudge at 22:00 the next night.
+ */
+export function planReviewNudge(
+  params: {
+    submittedAt: Date;
+    afterHours: number;
+    now?: Date;
+    hours?: WorkingHours;
+    timeZone?: string;
+  },
+): Date {
+  const hours = params.hours ?? DEFAULT_WORKING_HOURS;
+  const timeZone = params.timeZone ?? PRODUCT_TIME_ZONE;
+  const target = new Date(params.submittedAt.getTime() + params.afterHours * 3600000);
+  const startMinutes = minutesOf(hours.startsAt);
+  const endMinutes = minutesOf(hours.endsAt);
+  const atMinutes = wallClockMinutes(target, timeZone);
+  // Inside working hours on a working day, the raw time is already right.
+  if (isWorkingDay(target, timeZone) && atMinutes >= startMinutes && atMinutes < endMinutes) {
+    return target;
+  }
+  return nextWorkingMorning(target, hours, timeZone);
+}
+
+/**
  * Messages to the same person close together are one message.
  *
  * Push is billed per recipient, so two nudges five minutes apart cost twice

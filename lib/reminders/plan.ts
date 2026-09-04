@@ -5,6 +5,7 @@ import { reminder, task, workspace } from '../db/schema.ts';
 import {
   planAssigneeNudge,
   planOwnerEscalation,
+  planReviewNudge,
   type WorkingHours,
 } from './policy.ts';
 import { inQuietHours, scheduleReminder } from './schedule.ts';
@@ -29,6 +30,9 @@ export async function planRemindersForTask(taskId: string, now = new Date()) {
       status: task.status,
       assigneeUserId: task.assigneeUserId,
       createdByUserId: task.createdByUserId,
+      submittedAt: task.submittedAt,
+      reviewerUserId: task.reviewerUserId,
+      reviewNudgeHours: workspace.reviewNudgeHours,
       quietStart: workspace.quietHoursStart,
       quietEnd: workspace.quietHoursEnd,
       workStart: workspace.workingHoursStart,
@@ -39,19 +43,44 @@ export async function planRemindersForTask(taskId: string, now = new Date()) {
     .where(eq(task.id, taskId))
     .limit(1);
   const t = rows[0];
-  if (!t) return { assignee: null as Date | null, owner: null as Date | null };
+  if (!t) {
+    return { assignee: null as Date | null, owner: null as Date | null, reviewer: null as Date | null };
+  }
 
   // Clear the plan, keep the history.
   await db()
     .delete(reminder)
     .where(and(eq(reminder.taskId, taskId), eq(reminder.state, 'pending')));
 
-  // A finished task reminds nobody.
-  if (!t.dueAt || t.status === 'done') return { assignee: null, owner: null };
+  // A closed task reminds nobody.
+  if (t.status === 'done') return { assignee: null, owner: null, reviewer: null };
 
   const workspaceHours: WorkingHours = { startsAt: t.workStart, endsAt: t.workEnd };
   const quiet = { start: t.quietStart, end: t.quietEnd };
-  const planned: { assignee: Date | null; owner: Date | null } = { assignee: null, owner: null };
+  const planned: { assignee: Date | null; owner: Date | null; reviewer: Date | null } =
+    { assignee: null, owner: null, reviewer: null };
+
+  // Waiting to be reviewed. The worker has done their part, so chasing them
+  // now is both useless and the fastest way to teach a team that the bot does
+  // not know what is going on. The wait belongs to the reviewer instead.
+  if (t.status === 'review') {
+    if (t.reviewerUserId && t.submittedAt) {
+      const hours = await workingHoursFor(t.workspaceId, t.reviewerUserId, workspaceHours);
+      const at = planReviewNudge({
+        submittedAt: t.submittedAt,
+        afterHours: t.reviewNudgeHours,
+        now,
+        hours,
+      });
+      await insertPending(t.id, t.workspaceId, t.reviewerUserId, at, at, 'review_due');
+      planned.reviewer = at;
+    }
+    // No reviewer resolvable means no nudge at all. Falling back to the
+    // worker would ask them to review their own submission.
+    return planned;
+  }
+
+  if (!t.dueAt) return planned;
 
   // One nudge to the person doing it, before the deadline.
   if (t.assigneeUserId) {
