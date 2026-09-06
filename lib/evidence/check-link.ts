@@ -1,4 +1,5 @@
 import 'server-only';
+import { isSafeHttpUrl } from '../url.ts';
 
 /**
  * Check an evidence link at the moment it is submitted.
@@ -27,15 +28,10 @@ export async function checkEvidenceLink(
   url: string,
   options: { fetchImpl?: typeof fetch } = {},
 ): Promise<LinkCheck> {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return { ok: false, status: null, warning: 'ลิงก์ไม่ถูกต้อง' };
-  }
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
+  if (!isSafeHttpUrl(url)) {
     return { ok: false, status: null, warning: 'ใช้ได้เฉพาะลิงก์ http หรือ https' };
   }
+  const parsed = new URL(url);
   // Never let a submitted link make the server fetch its own network.
   if (/^(localhost|127\.|0\.|10\.|192\.168\.|169\.254\.|\[?::1)/i.test(parsed.hostname)) {
     return { ok: false, status: null, warning: 'ลิงก์ภายในเครื่อง คนอื่นเปิดไม่ได้' };

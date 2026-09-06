@@ -7,6 +7,7 @@ import { planRemindersForTask } from '../reminders/plan.ts';
 import { pushToUser } from '../line/messaging.ts';
 import { noteActivity } from '../reminders/schedule-learning.ts';
 import { checkEvidenceLink } from '../evidence/check-link.ts';
+import { isSafeHttpUrl } from '../url.ts';
 import { audienceLabel, defaultVisibilityFor, normalizeVisibility } from '../events/visibility.ts';
 import { BLOCKED_REASONS, isBlockedReason } from './reasons.ts';
 
@@ -330,10 +331,7 @@ export async function applyTransition(params: {
       submittedWithoutEvidence = true;
     }
     if (evidenceUrl) {
-      try {
-        const url = new URL(evidenceUrl);
-        if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
-      } catch {
+      if (!isSafeHttpUrl(evidenceUrl)) {
         throw new HttpError(400, 'ใส่ลิงก์ http:// หรือ https:// ที่ถูกต้อง');
       }
       patch.evidenceUrl = evidenceUrl;

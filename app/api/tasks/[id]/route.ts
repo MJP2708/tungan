@@ -7,6 +7,7 @@ import { audienceForViewer } from '@/lib/events/visibility.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
+import { isSafeHttpUrl } from '@/lib/url.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -85,10 +86,7 @@ export async function PATCH(
       changed.push('ความสำคัญ');
     }
     if (typeof body.evidenceUrl === 'string') {
-      try {
-        const url = new URL(body.evidenceUrl);
-        if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
-      } catch {
+      if (!isSafeHttpUrl(body.evidenceUrl)) {
         return NextResponse.json(
           { error: 'ใส่ลิงก์ http:// หรือ https:// ที่ถูกต้อง' },
           { status: 400 },

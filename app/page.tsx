@@ -79,7 +79,6 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { TaskEntryDialog } from '@/components/task-entry-dialog';
 import {
-  nextTaskId,
   validateTaskEntry,
   type EntryError,
 } from '@/lib/task-entry';
@@ -4003,7 +4002,7 @@ export default function Home() {
                     className="evidence-link"
                     href={evidence.url}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     key={evidence.label}
                   >
                     <ExternalLink />
@@ -4215,7 +4214,7 @@ export default function Home() {
                     key={evidence.url}
                     href={evidence.url}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                   >
                     <Link2 />
                     {evidence.label}

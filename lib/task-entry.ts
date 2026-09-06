@@ -1,3 +1,5 @@
+import { isSafeHttpUrl } from './url.ts';
+
 export type EntryError = { field: string; message: string };
 
 export function validateTaskEntry(input: {
@@ -15,16 +17,11 @@ export function validateTaskEntry(input: {
     (!input.date || !Number.isFinite(input.date.getTime()))
   )
     return { field: 'date', message: 'เลือกกำหนดส่งก่อน' };
-  if (input.evidenceUrl?.trim()) {
-    try {
-      const url = new URL(input.evidenceUrl.trim());
-      if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
-    } catch {
-      return {
-        field: 'evidenceUrl',
-        message: 'ใส่ลิงก์ http:// หรือ https:// ที่ถูกต้อง',
-      };
-    }
+  if (input.evidenceUrl?.trim() && !isSafeHttpUrl(input.evidenceUrl.trim())) {
+    return {
+      field: 'evidenceUrl',
+      message: 'ใส่ลิงก์ http:// หรือ https:// ที่ถูกต้อง',
+    };
   }
   return null;
 }
