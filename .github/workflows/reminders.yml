@@ -1,0 +1,80 @@
+# Deliver due reminders.
+#
+# Vercel's Hobby plan refuses any cron that runs more than once a day, and once
+# a day is the wrong shape for a nudge that has to arrive before a deadline. So
+# the real schedule lives here, where it costs nothing: GitHub gives public
+# repositories unlimited standard-runner minutes.
+#
+# vercel.json still carries a daily cron. That is deliberate belt and braces —
+# if this workflow is ever disabled, reminders arrive late rather than never.
+# Two schedulers cannot double-send: the dispatcher claims rows with
+# `FOR UPDATE SKIP LOCKED` under a lease, so whichever run arrives first owns
+# the row and the other claims nothing.
+
+name: reminders
+
+on:
+  schedule:
+    # Every 15 minutes, and only 01:00–14:59 UTC — that is 08:00–21:59 in
+    # Bangkok.
+    #
+    # The window is not arbitrary and the interval is not laziness. Both are
+    # set by what the free tier costs:
+    #
+    #   Neon Free gives 100 CU-hours/month and suspends the database after 5
+    #   minutes idle, which cannot be disabled. Every poll wakes it for about
+    #   five minutes. Polling every 5 minutes around the clock keeps it awake
+    #   permanently — roughly 180 CU-hours — and exhausts the month around day
+    #   16. This schedule costs about 35, leaving the rest for real traffic.
+    #
+    #   The window matches the product: quiet hours default to 21:00–08:00 and
+    #   reminders are shifted out of them, so no reminder is ever scheduled
+    #   overnight. Polling at 03:00 could only ever find nothing.
+    #
+    # Fifteen minutes of slop on a nudge sent two hours before a deadline does
+    # not matter. Losing the database for the back half of every month does.
+    - cron: '*/15 1-14 * * *'
+  # So a person can prove the wiring works without waiting for the schedule.
+  workflow_dispatch:
+
+# Overlapping runs would only contend for the same lease.
+concurrency:
+  group: reminders
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send reminders that are due
+        env:
+          # Read from the environment, never interpolated into the command, so
+          # it cannot land in a log line or a process list.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BASE_URL: ${{ vars.APP_BASE_URL || 'https://www.humanmatter.work' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::CRON_SECRET is not set in this repository's secrets."
+            echo "Add it under Settings -> Secrets and variables -> Actions,"
+            echo "with the same value as CRON_SECRET in the Vercel project."
+            exit 1
+          fi
+
+          http_code=$(curl -sS -o response.json -w '%{http_code}' \
+            --max-time 120 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${BASE_URL%/}/api/cron/reminders")
+
+          echo "HTTP ${http_code}"
+          cat response.json
+          echo
+
+          # A wrong or missing secret answers 401, exactly as an absent
+          # scheduler does — silently. Failing the job here is what turns that
+          # into something visible instead of a quiet month with no reminders.
+          if [ "${http_code}" != "200" ]; then
+            echo "::error::Reminder dispatch failed with HTTP ${http_code}."
+            exit 1
+          fi
