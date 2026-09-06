@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
 import { dispatchDueReminders } from '@/lib/reminders/dispatch.ts';
+import { purgeExpiredContent } from '@/lib/retention.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,10 +35,22 @@ async function run(req: Request) {
     return NextResponse.json({ error: 'unauthorised' }, { status: 401 });
   }
   const result = await dispatchDueReminders();
+
+  // Retention rides along on the same run. The free plan allows one scheduled
+  // job, so a second endpoint would simply never be called — and a retention
+  // rule nothing calls is the state this started in.
+  let retention: Awaited<ReturnType<typeof purgeExpiredContent>> | null = null;
+  try {
+    retention = await purgeExpiredContent();
+  } catch (error) {
+    // Never let housekeeping stop a reminder going out.
+    console.error('[cron] retention failed', (error as Error).message);
+  }
+
   // Logged so a run that sends nothing is distinguishable from one that
   // never happened.
-  console.log('[cron] reminders', JSON.stringify(result));
-  return NextResponse.json({ ok: true, ...result });
+  console.log('[cron] reminders', JSON.stringify(result), 'retention', JSON.stringify(retention));
+  return NextResponse.json({ ok: true, ...result, retention });
 }
 
 export const GET = run;
