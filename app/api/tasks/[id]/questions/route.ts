@@ -70,6 +70,26 @@ export async function POST(
       return NextResponse.json({ error: 'ถามตัวเองไม่ได้' }, { status: 400 });
     }
 
+    // Asking the same person the same thing twice, while the first is still
+    // unanswered, is never intentional — it is a double tap or a retry. It
+    // used to create a second question AND send a second DM, which is billed
+    // per recipient against a 300-message monthly cap.
+    const already = await db()
+      .select({ id: taskQuestion.id })
+      .from(taskQuestion)
+      .where(
+        and(
+          eq(taskQuestion.taskId, id),
+          eq(taskQuestion.askedOfUserId, askedOfUserId),
+          eq(taskQuestion.question, question),
+          isNull(taskQuestion.answeredAt),
+        ),
+      )
+      .limit(1);
+    if (already.length) {
+      return NextResponse.json({ id: already[0].id, replayed: true });
+    }
+
     const questionId = crypto.randomUUID();
     await db().insert(taskQuestion).values({
       id: questionId,

@@ -631,6 +631,7 @@ export default function Home() {
     setTasks(tasksRes.tasks.map(toUiTask) as Task[]);
     setCaptures(inboxRes.items.map(toUiCapture) as unknown as Capture[]);
     await Promise.all([
+      loadMembers(workspaceId),
       refreshReminders(workspaceId),
       refreshBlocked(workspaceId),
       refreshUsage(workspaceId),
@@ -1077,10 +1078,35 @@ export default function Home() {
     setSettings((current) => ({ ...current, [key]: value }));
     setNotice('บันทึกแล้ว');
   }
+  /**
+   * Load one workspace's members into `projects`.
+   *
+   * Only the workspace open at login had its members fetched, and switching
+   * never fetched the next one — so every other workspace showed an empty
+   * assignee picker and an empty team list, as though nobody were in it.
+   */
+  async function loadMembers(workspaceId: string) {
+    try {
+      const res = await api.members(workspaceId);
+      setProjects((all) =>
+        all.map((project) =>
+          project.id === workspaceId
+            ? { ...project, members: res.members.map(toUiMember) }
+            : project,
+        ),
+      );
+    } catch {
+      // Non-fatal: the rest of the workspace still works, and the picker
+      // already degrades to "known members only".
+    }
+  }
+
   function chooseProject(id: string) {
     setSelectedProjectId(id);
     setPage('home');
     const nextProject = projects.find((project) => project.id === id);
+    // Fetched on switch, not only at login.
+    if (nextProject && !nextProject.members.length) void loadMembers(id);
     setNotice(`เปลี่ยนเป็น ${nextProject?.name || 'พื้นที่งานใหม่'} แล้ว`);
   }
   function loginWithLine() {
@@ -3142,7 +3168,7 @@ export default function Home() {
           <div>
             <h1>เข้าสู่ระบบ</h1>
           </div>
-          {loadError && <p className="auth-error">{loadError}</p>}
+          {loadError && <p className="entry-error">{loadError}</p>}
           <Button className="auth-line-button" onClick={loginWithLine}>
             <LogIn />
             เข้าสู่ระบบด้วย LINE
@@ -3700,7 +3726,11 @@ export default function Home() {
                     );
                     if (!next) return;
                     setForwardProjectId(value as string);
-                    setForwardAssignee(`member:${next.members[0].id}`);
+                    // A workspace whose members have not loaded has an empty
+                    // list; reading [0].id there threw and, with no error
+                    // boundary, took the whole app down to a blank screen.
+                    setForwardAssignee(next.members[0] ? `member:${next.members[0].id}` : '');
+                    if (!next.members.length) void loadMembers(next.id);
                   }}
                 >
                   <SelectTrigger className="themed-field-trigger">
