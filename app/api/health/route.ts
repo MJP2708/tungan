@@ -20,6 +20,11 @@ export async function GET() {
     LINE_MESSAGING_CHANNEL_ACCESS_TOKEN: present('LINE_MESSAGING_CHANNEL_ACCESS_TOKEN'),
     APP_BASE_URL: present('APP_BASE_URL'),
     NEXT_PUBLIC_LIFF_ID: present('NEXT_PUBLIC_LIFF_ID'),
+    // Without it the scheduler is refused and every reminder silently stays
+    // pending. The route cannot say which of "no secret" or "wrong secret"
+    // it hit — correctly, since that would help an attacker — so presence is
+    // reported here instead, where it is only a boolean.
+    CRON_SECRET: present('CRON_SECRET'),
   };
 
   let database: 'ok' | 'unreachable' | 'not_configured' = 'not_configured';
@@ -36,6 +41,29 @@ export async function GET() {
     }
   }
 
+  // When reminders last went out. A scheduler that stopped being called looks
+  // exactly like a quiet week from the outside, which is how a dead reminder
+  // system goes unnoticed for a month.
+  let remindersLastSentAt: string | null = null;
+  let remindersDueNow: number | null = null;
+  if (env.DATABASE_URL && database === 'ok') {
+    try {
+      const rows = await db().execute(
+        sql`select max(sent_at) as last_sent,
+                   count(*) filter (where state = 'pending' and send_at <= now())::int as due_now
+              from reminder`,
+      );
+      const row = (rows as unknown as { rows: { last_sent: string | null; due_now: number }[] }).rows?.[0];
+      remindersLastSentAt = row?.last_sent ?? null;
+      remindersDueNow = Number(row?.due_now ?? 0);
+    } catch {
+      // Non-fatal: readiness does not depend on it.
+    }
+  }
+
   const ready = Object.values(env).every(Boolean) && database === 'ok' && tables >= 14;
-  return NextResponse.json({ ready, env, database, tables }, { status: ready ? 200 : 503 });
+  return NextResponse.json(
+    { ready, env, database, tables, remindersLastSentAt, remindersDueNow },
+    { status: ready ? 200 : 503 },
+  );
 }
