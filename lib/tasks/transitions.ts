@@ -8,6 +8,7 @@ import { pushToUser } from '../line/messaging.ts';
 import { noteActivity } from '../reminders/schedule-learning.ts';
 import { checkEvidenceLink } from '../evidence/check-link.ts';
 import { audienceLabel, defaultVisibilityFor, normalizeVisibility } from '../events/visibility.ts';
+import { BLOCKED_REASONS, isBlockedReason } from './reasons.ts';
 
 /**
  * Every way a task can move, in one place.
@@ -42,8 +43,6 @@ export function isTransition(value: unknown): value is TransitionAction {
   return typeof value === 'string' && value in TRANSITIONS;
 }
 
-/** Presets, so reporting a problem never requires typing. */
-export const BLOCKED_REASONS = ['รอลูกค้า', 'รอของ', 'รอคนอื่น', 'อื่นๆ'] as const;
 
 /** Reviewing someone's work is a different right from doing the work. */
 const REVIEW_ACTIONS = new Set(['approve', 'revision']);
@@ -53,11 +52,25 @@ const HANDOFF_ANSWERS = new Set(['accept_handoff', 'decline_handoff']);
 
 export type TransitionActor = { userId: string; role: string };
 
+/**
+ * Read one field of the request body as text.
+ *
+ * The body is JSON from a client, so a field can be any shape. Coercing an
+ * object with String() stores the literal text "[object Object]" as somebody's
+ * blocked reason, which then looks like real data in every view that reads it.
+ * Anything that is not a string is treated as absent.
+ */
+function text(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
 export type TransitionInput = {
   note?: unknown;
   reason?: unknown;
   assigneeUserId?: unknown;
   evidenceUrl?: unknown;
+  /** Set only by an explicit "ส่งโดยไม่มีลิงก์" choice, never a default. */
+  allowWithoutEvidence?: unknown;
   dueAt?: unknown;
   visibility?: unknown;
 };
@@ -217,11 +230,14 @@ export async function applyTransition(params: {
   // ติดปัญหา takes a preset reason so it is countable and sortable. Free
   // text stays optional: forcing prose is how a required field turns into
   // "-" and stops meaning anything.
-  const note = String(input.note ?? '').trim().slice(0, 300);
-  const reason = String(input.reason ?? '').trim();
+  const note = text(input.note).trim().slice(0, 300);
+  const reason = text(input.reason).trim();
   let linkWarning: string | null = null;
+  // Recorded on the event, so "handed in with no proof" is visible in the
+  // history rather than inferred from a missing field.
+  let submittedWithoutEvidence = false;
   if (action === 'blocked') {
-    if (!BLOCKED_REASONS.includes(reason as (typeof BLOCKED_REASONS)[number])) {
+    if (!isBlockedReason(reason)) {
       throw new HttpError(400, `เลือกเหตุผล: ${BLOCKED_REASONS.join(' / ')}`);
     }
   }
@@ -245,7 +261,7 @@ export async function applyTransition(params: {
   if (move.reviewState) patch.reviewState = move.reviewState;
   if (action === 'accept' && !found.acceptedAt) patch.acceptedAt = new Date();
   if (action === 'handoff') {
-    const to = input.assigneeUserId ? String(input.assigneeUserId) : null;
+    const to = text(input.assigneeUserId) || null;
     if (!to) throw new HttpError(400, 'ต้องระบุผู้รับงานต่อ');
     if (to === found.assigneeUserId) {
       throw new HttpError(400, 'งานนี้อยู่กับผู้รับคนนี้แล้ว');
@@ -286,7 +302,7 @@ export async function applyTransition(params: {
     if (!note) {
       throw new HttpError(400, 'บอกด้วยว่าต้องแก้อะไร');
     }
-    const newDue = input.dueAt ? new Date(String(input.dueAt)) : null;
+    const newDue = text(input.dueAt) ? new Date(text(input.dueAt)) : null;
     if (!newDue || !Number.isFinite(newDue.getTime())) {
       throw new HttpError(400, 'ตั้งกำหนดส่งใหม่ด้วย ไม่งั้นงานจะเกิดมาพร้อมสถานะเลยกำหนด');
     }
@@ -300,25 +316,36 @@ export async function applyTransition(params: {
   else if (move.status && move.status !== 'blocked') patch.blockedReason = null;
   if (move.status && move.status !== found.status) patch.statusChangedAt = new Date();
   if (action === 'submit') {
-    const evidenceUrl = input.evidenceUrl ? String(input.evidenceUrl) : found.evidenceUrl;
+    const evidenceUrl = text(input.evidenceUrl) || found.evidenceUrl;
     if (!evidenceUrl) {
-      throw new HttpError(400, 'เพิ่มลิงก์หลักฐานก่อนส่งตรวจ');
+      // Proof is the point of the review step, so the ask comes first. But a
+      // refusal with no way to answer it would make the LINE button a dead
+      // end, and a worker who has genuinely finished should not be stuck. So
+      // handing in without a link stays possible when explicitly chosen, and
+      // is recorded as such — the reviewer sees the gap instead of a
+      // submission that looks complete.
+      if (!input.allowWithoutEvidence) {
+        throw new HttpError(400, 'เพิ่มลิงก์หลักฐานก่อนส่งตรวจ');
+      }
+      submittedWithoutEvidence = true;
     }
-    try {
-      const url = new URL(evidenceUrl);
-      if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
-    } catch {
-      throw new HttpError(400, 'ใส่ลิงก์ http:// หรือ https:// ที่ถูกต้อง');
+    if (evidenceUrl) {
+      try {
+        const url = new URL(evidenceUrl);
+        if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
+      } catch {
+        throw new HttpError(400, 'ใส่ลิงก์ http:// หรือ https:// ที่ถูกต้อง');
+      }
+      patch.evidenceUrl = evidenceUrl;
+      // Checked now, while the submitter is still there, rather than when the
+      // reviewer is already blocked by it.
+      linkWarning = (await checkEvidenceLink(evidenceUrl)).warning;
     }
-    patch.evidenceUrl = evidenceUrl;
     patch.submittedAt = new Date();
     // Resolve who has to sign this off once, now, and store it. Re-deriving
     // the rule at nudge time would chase whoever happens to be owner then,
     // which is not who the worker submitted to.
     patch.reviewerUserId = await resolveReviewer(found.workspaceId, found.createdByUserId, found.assigneeUserId);
-    // Checked now, while the submitter is still on the screen, rather than
-    // when the reviewer is already blocked by it.
-    linkWarning = (await checkEvidenceLink(evidenceUrl)).warning;
   }
 
   if (action === 'approve') patch.closedAt = new Date();
@@ -431,9 +458,13 @@ export async function applyTransition(params: {
         ? `เสนอส่งต่อจาก ${nameOf(found.assigneeUserId)} ให้ ${nameOf(patch.pendingAssigneeUserId as string)} · รอผู้รับกดรับ`
         : action === 'blocked'
           ? `ติดปัญหา: ${reason}${note ? ` · ${note}` : ''}`
-          : note
-            ? `${move.detail}: ${note}`
-            : move.detail,
+          // Handed in with nothing to look at. Said plainly, so the reviewer
+          // sees the gap rather than a submission that appears complete.
+          : submittedWithoutEvidence
+            ? 'ส่งงาน · ไม่ได้แนบลิงก์หลักฐาน'
+            : note
+              ? `${move.detail}: ${note}`
+              : move.detail,
   });
 
   // The receiver has to know an offer is waiting, or it sits forever.

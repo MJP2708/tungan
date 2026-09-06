@@ -20,6 +20,12 @@ import { fromZonedWallClock } from '@/lib/deadline.ts';
 import { isHelpRequest, helpMessage } from '@/lib/line/help.ts';
 import { confirmMessage, confirmBody, assigneePicker } from '@/lib/line/confirm-message.ts';
 import { replyMessage, isFriendOfOa } from '@/lib/line/messaging.ts';
+import { applyTransition, isTransition, type TransitionAction } from '@/lib/tasks/transitions.ts';
+import { HttpError } from '@/lib/auth/session.ts';
+import { undoTaskEvent } from '@/lib/tasks/undo.ts';
+import {
+  statusActions, withActions, reasonPrompt, handoffPicker, evidencePrompt, undoAction,
+} from '@/lib/line/status-buttons.ts';
 
 // Signature verification needs node crypto's timingSafeEqual.
 export const runtime = 'nodejs';
@@ -327,11 +333,157 @@ async function handleUndo(event: LineEventPayload, params: URLSearchParams) {
   return;
 }
 
+/** Resolve the tapper to one of our users. Identity is the LINE user id. */
+async function actorFor(event: LineEventPayload): Promise<string | null> {
+  const lineUserId = event.source?.userId;
+  if (!lineUserId) return null;
+  const rows = await db()
+    .select({ id: lineUser.id })
+    .from(lineUser)
+    .where(eq(lineUser.lineUserId, lineUserId))
+    .limit(1);
+  return rows[0]?.id ?? null;
+}
+
+async function replyTo(event: LineEventPayload, workspaceId: string, messages: unknown[]) {
+  if (!event.replyToken) return;
+  // The reply token is free; a push would be billed per recipient. Every
+  // status change handled inside LINE has to stay on this path.
+  await replyMessage(event.replyToken, messages as never, { workspaceId }).catch(() => {});
+}
+
+/**
+ * The five worker actions, tapped inside LINE.
+ *
+ * Runs the same lib/tasks/transitions.ts the app does, so the permission rules
+ * cannot differ between the two surfaces. Every answer uses the reply token,
+ * so a worker can handle a whole day from chat without spending a message.
+ */
+async function handleStatusPostback(event: LineEventPayload, params: URLSearchParams) {
+  const taskId = params.get('task');
+  const doing = params.get('do');
+  if (!taskId || !doing) return;
+
+  const rows = await db().select().from(task).where(eq(task.id, taskId)).limit(1);
+  const found = rows[0];
+  if (!found) return;
+
+  const actorUserId = await actorFor(event);
+  if (!actorUserId) {
+    await replyTo(event, found.workspaceId, [{
+      type: 'text',
+      text: 'ยังไม่รู้จักบัญชีนี้ · เข้าสู่ระบบในแอปหนึ่งครั้งก่อน',
+    }]);
+    return;
+  }
+
+  const appUrl = (process.env.APP_BASE_URL ?? '').replace(/\/$/, '');
+
+  // Two of the five ask what is wanted before they do anything. Presets, so
+  // the answer is still one tap.
+  if ((doing === 'info' || doing === 'blocked') && !params.get('reason')) {
+    await replyTo(event, found.workspaceId, [reasonPrompt(taskId, doing)]);
+    return;
+  }
+  if (doing === 'handoff' && !params.get('user')) {
+    await replyTo(event, found.workspaceId, [
+      handoffPicker(taskId, await knownMembers(found.workspaceId), appUrl),
+    ]);
+    return;
+  }
+  // Ask for proof before accepting a submission without it, rather than
+  // refusing with no way to answer from inside chat.
+  if (doing === 'submit' && !found.evidenceUrl && !params.get('nolink')) {
+    await replyTo(event, found.workspaceId, [evidencePrompt(taskId, appUrl)]);
+    return;
+  }
+
+  if (!isTransition(doing)) return;
+  const reason = params.get('reason') ?? undefined;
+
+  try {
+    const result = await applyTransition({
+      taskId,
+      action: doing as TransitionAction,
+      actorUserId,
+      input: {
+        reason,
+        // ขอข้อมูลเพิ่ม stores its preset as the note; ติดปัญหา keeps reason
+        // and note apart so blocked work stays countable by cause.
+        note: doing === 'info' ? reason : undefined,
+        assigneeUserId: params.get('user') ?? undefined,
+        allowWithoutEvidence: params.get('nolink') === '1',
+      },
+    });
+
+    // A second tap of the same button lands here. Saying so is better than
+    // repeating the success line, which reads as having done it twice.
+    if (result.alreadyApplied) {
+      await replyTo(event, found.workspaceId, [{ type: 'text', text: 'ทำรายการนี้ไปแล้ว' }]);
+      return;
+    }
+
+    const after = await db().select().from(task).where(eq(task.id, taskId)).limit(1);
+    const now = after[0] ?? found;
+    const said = STATUS_REPLY[doing] ?? 'อัปเดตแล้ว';
+    const line = `${said}: ${found.title}`;
+    const audience = result.audienceNote ? `\n(${result.audienceNote})` : '';
+
+    await replyTo(event, found.workspaceId, [
+      withActions(
+        line + audience,
+        result.eventId ? [undoAction(taskId, result.eventId)] : statusActions(now, actorUserId),
+      ),
+    ]);
+  } catch (error) {
+    const text = error instanceof HttpError ? error.message : 'ทำรายการไม่สำเร็จ';
+    await replyTo(event, found.workspaceId, [{ type: 'text', text }]);
+  }
+}
+
+/** What each action says once it has happened. Never implies more than it did. */
+const STATUS_REPLY: Record<string, string> = {
+  accept: 'รับงานแล้ว',
+  info: 'บันทึกว่าขอข้อมูลเพิ่มแล้ว',
+  blocked: 'บันทึกว่าติดปัญหาแล้ว',
+  handoff: 'เสนอส่งต่อแล้ว · รอผู้รับกดรับ',
+  accept_handoff: 'รับงานที่ส่งต่อมาแล้ว',
+  decline_handoff: 'ส่งกลับให้คนเดิมแล้ว',
+  // Not "เสร็จแล้ว". The task is not over until somebody signs it off, and
+  // wording that says otherwise is what made the approval step decorative.
+  submit: 'ส่งตรวจแล้ว · สถานะตอนนี้คือรอตรวจ',
+};
+
+/** Take back a status change, within the same 30 seconds the app allows. */
+async function handleStatusUndo(event: LineEventPayload, params: URLSearchParams) {
+  const taskId = params.get('task');
+  const eventId = params.get('event');
+  if (!taskId || !eventId) return;
+  const rows = await db().select().from(task).where(eq(task.id, taskId)).limit(1);
+  const found = rows[0];
+  if (!found) return;
+  const actorUserId = await actorFor(event);
+  if (!actorUserId) return;
+
+  try {
+    const res = await undoTaskEvent({ taskId, eventId, actorUserId });
+    await replyTo(event, found.workspaceId, [{
+      type: 'text',
+      text: res.alreadyUndone ? 'ยกเลิกไปแล้ว' : `ยกเลิกแล้ว: ${found.title}`,
+    }]);
+  } catch (error) {
+    const text = error instanceof HttpError ? error.message : 'ยกเลิกไม่สำเร็จ';
+    await replyTo(event, found.workspaceId, [{ type: 'text', text }]);
+  }
+}
+
 async function handlePostback(event: LineEventPayload) {
   const params = new URLSearchParams(event.postback?.data ?? '');
   const action = params.get('action');
-  // `undo` addresses a task, everything else addresses a draft.
+  // `undo` and `status` address a task, everything else addresses a draft.
   if (action === 'undo') return handleUndo(event, params);
+  if (action === 'status') return handleStatusPostback(event, params);
+  if (action === 'statusundo') return handleStatusUndo(event, params);
   const inboxId = params.get('inbox');
   if (!action || !inboxId) return;
 
@@ -452,28 +604,35 @@ async function handlePostback(event: LineEventPayload) {
   });
 
   if (event.replyToken) {
-    // One short message with the result and a way back, rather than a
-    // congratulation followed by a separate delete flow.
+    // The confirmation carries the five worker actions, so the person who has
+    // to do the task can accept it, flag a problem or hand it in without ever
+    // leaving the chat. All of them answer on the reply token, which is free.
+    const fresh = {
+      id: taskId,
+      status: 'todo',
+      acceptedAt: null,
+      pendingAssigneeUserId: null,
+    };
+    const actions = statusActions(fresh, actorUserId ?? undefined);
     await replyMessage(
       event.replyToken,
-      [{
-        type: 'template',
-        altText: `สร้างงานแล้ว: ${item.suggestedTitle}`,
-        template: {
-          type: 'buttons',
-          text: `สร้างงานแล้ว: ${item.suggestedTitle}${
-            item.suggestedDueAt ? `\nกำหนดส่ง ${formatForReply(item.suggestedDueAt)}` : ''
-          }`.slice(0, 160),
-          actions: [
-            {
+      [withActions(
+        `สร้างงานแล้ว: ${item.suggestedTitle}${
+          item.suggestedDueAt ? `\nกำหนดส่ง ${formatForReply(item.suggestedDueAt)}` : ''
+        }`,
+        [
+          ...actions,
+          {
+            type: 'action',
+            action: {
               type: 'postback',
               label: 'ยกเลิกงานนี้',
               data: `action=undo&task=${taskId}`,
               displayText: 'ยกเลิกงานนี้',
             },
-          ],
-        },
-      }],
+          },
+        ],
+      )],
       { workspaceId: item.workspaceId },
     ).catch(() => {});
   }
