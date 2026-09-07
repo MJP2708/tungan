@@ -680,17 +680,24 @@ export default function Home() {
   // workspace. Polling stops while the tab is hidden, so a phone left open in
   // LINE does not sit and drain battery.
   useEffect(() => {
-    if (!hydrated || !selectedProjectId) return;
+    // `selectedProjectId` can be the "mine" sentinel, which means "my tasks
+    // across workspaces" and is not a workspace id at all. Polling it asked
+    // the server about a workspace that does not exist — and because it is
+    // also the INITIAL value, a login that failed left the app polling a 401
+    // every twelve seconds forever behind the login screen. Each of those
+    // wakes the database, which is metered.
+    const pollId = selectedProject.id;
+    if (!hydrated || !pollId) return;
     let version = '';
     let stopped = false;
 
     async function probe() {
       if (stopped || document.visibilityState !== 'visible') return;
       try {
-        const res = await api.changes(selectedProjectId);
+        const res = await api.changes(pollId);
         if (stopped) return;
         if (version && res.version !== version) {
-          await refreshWorkspace(selectedProjectId);
+          await refreshWorkspace(pollId);
         }
         version = res.version;
       } catch {
@@ -707,7 +714,7 @@ export default function Home() {
       clearInterval(id);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [hydrated, selectedProjectId]);
+  }, [hydrated, selectedProject.id]);
 
   async function refreshUsage(workspaceId = selectedProject.id) {
     if (!workspaceId) return;
@@ -1969,7 +1976,7 @@ export default function Home() {
               <Bot />
             </span>
             <span className="shortcut-copy">
-              <strong>คุยกับ AI</strong>
+              <strong>AI ช่วยอ่านข้อความ</strong>
             </span>
             <span className="soon-pill">เร็ว ๆ นี้</span>
           </button>
@@ -2069,7 +2076,7 @@ export default function Home() {
           <Badge>FREE BETA</Badge>
           <div>
             <strong>ใช้ฟรีช่วงทดสอบ · ไม่ต้องใส่บัตร</strong>
-            <small>เตือนงานฟรี · AI ทดลอง 50 ครั้ง</small>
+            <small>ช่วงทดสอบยังไม่คิดเงิน · AI ทดลอง 50 ครั้ง</small>
           </div>
         </div>
         <div className="beta-unlock">
