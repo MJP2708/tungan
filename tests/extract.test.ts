@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractDraft, shouldProcessGroupMessage, splitInstructions } from '../lib/line/extract.ts';
+import { extractDraft, shouldProcessGroupMessage, splitInstructions, TITLE_MAX_LENGTH } from '../lib/line/extract.ts';
 
 const NOW = new Date('2026-09-01T03:00:00.000Z'); // Tue 1 Sep, 10:00 Bangkok
 const MEMBERS = [
@@ -107,4 +107,20 @@ test('an ordinary sentence is not split', () => {
 test('newlines and bullets split, blank fragments do not survive', () => {
   const r = splitInstructions('- ส่งรายงานพรุ่งนี้\n- โทรหาลูกค้าบ่าย 3\n\n');
   assert.equal(r.length, 2);
+});
+
+test('a very long message becomes a title, not the whole message', () => {
+  // Only the fallback path was capped, so anything cleanTitle could handle
+  // came through at full length — unreadable in a list, and pasted verbatim
+  // into a LINE reply that has its own limits. The full text is kept as the
+  // raw message instead.
+  const long = extractDraft(`@ทันงาน ${'ก'.repeat(3000)}`, { members: [], now: new Date() });
+  assert.ok(long.title.length <= TITLE_MAX_LENGTH, `ยาว ${long.title.length}`);
+  assert.ok(long.title.length > 0);
+});
+
+test('an ordinary title is not truncated', () => {
+  const normal = extractDraft('@ทันงาน แก้ artwork ลูกค้า A ส่งศุกร์', { members: [], now: new Date() });
+  assert.ok(normal.title.includes('artwork'));
+  assert.ok(normal.title.length < 60);
 });

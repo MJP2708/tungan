@@ -6,6 +6,9 @@
 
 import { resolveDeadline, type DeadlineConfidence } from '../deadline.ts';
 
+/** Long enough for a real instruction, short enough to read in a list. */
+export const TITLE_MAX_LENGTH = 200;
+
 export type KnownMember = {
   userId: string;
   /** Display names we can match on, per workspace. Two members may share a
@@ -114,7 +117,12 @@ export function extractDraft(
     deadline.matched.day !== null || deadline.matched.time !== null;
 
   const allNames = context.members.flatMap((m) => m.names);
-  const title = cleanTitle(raw, allNames) || raw.slice(0, 80);
+  // A title is a title. Only the fallback was capped, so a long forwarded
+  // message became a task whose name was the whole message — unreadable in
+  // every list, and pasted verbatim into the LINE confirmation, which has its
+  // own length limits. The full text is kept separately as the raw message,
+  // which is what the record shows.
+  const title = (cleanTitle(raw, allNames) || raw).slice(0, TITLE_MAX_LENGTH).trim();
 
   return {
     title,

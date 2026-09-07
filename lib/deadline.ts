@@ -301,20 +301,36 @@ export function dayBucket(
   return 'later';
 }
 
-/** A deadline is late when its instant has passed. No string matching. */
-export function isOverdue(dueAt: Date | string, now: Date = new Date()): boolean {
-  const at = typeof dueAt === 'string' ? new Date(dueAt) : dueAt;
-  if (!Number.isFinite(at.getTime())) return false;
+/**
+ * A deadline is late when its instant has passed. No string matching.
+ *
+ * Takes null because that is what a task without a deadline actually holds.
+ * Requiring every caller to guard first meant one missed `?? ''` would throw
+ * inside a render — and no deadline is not the same as an overdue one.
+ */
+export function isOverdue(
+  dueAt: Date | string | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  const at = toInstant(dueAt);
+  if (!at) return false;
   return at.getTime() < now.getTime();
+}
+
+/** One place that turns anything deadline-shaped into an instant, or null. */
+function toInstant(value: Date | string | null | undefined): Date | null {
+  if (value == null) return null;
+  const at = typeof value === 'string' ? new Date(value) : value;
+  return Number.isFinite(at.getTime()) ? at : null;
 }
 
 /** Thai display label for a stored instant. Derived, never stored. */
 export function formatDeadline(
-  dueAt: Date | string,
+  dueAt: Date | string | null | undefined,
   options: { now?: Date; timeZone?: string } = {},
 ): string {
-  const at = typeof dueAt === 'string' ? new Date(dueAt) : dueAt;
-  if (!Number.isFinite(at.getTime())) return 'ไม่มีกำหนด';
+  const at = toInstant(dueAt);
+  if (!at) return 'ไม่มีกำหนด';
   const timeZone = options.timeZone ?? PRODUCT_TIME_ZONE;
   const now = options.now ?? new Date();
 
@@ -355,9 +371,8 @@ export function relativeDeadline(
   dueAt: Date | string | null,
   now: Date = new Date(),
 ): string {
-  if (!dueAt) return 'ไม่มีกำหนด';
-  const at = typeof dueAt === 'string' ? new Date(dueAt) : dueAt;
-  if (!Number.isFinite(at.getTime())) return 'ไม่มีกำหนด';
+  const at = toInstant(dueAt);
+  if (!at) return 'ไม่มีกำหนด';
 
   const diffMs = at.getTime() - now.getTime();
   const late = diffMs < 0;
@@ -376,9 +391,12 @@ export function relativeDeadline(
 }
 
 /** How long something has sat in one state: "ติดปัญหา 3 วัน". */
-export function relativeSince(since: Date | string, now: Date = new Date()): string {
-  const at = typeof since === 'string' ? new Date(since) : since;
-  if (!Number.isFinite(at.getTime())) return '';
+export function relativeSince(
+  since: Date | string | null | undefined,
+  now: Date = new Date(),
+): string {
+  const at = toInstant(since);
+  if (!at) return '';
   const mins = Math.floor((now.getTime() - at.getTime()) / 60000);
   if (mins < 60) return `${Math.max(0, mins)} นาที`;
   const hours = Math.floor(mins / 60);
