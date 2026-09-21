@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
-import { and, eq, desc } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
 import { task, taskEvent } from '@/lib/db/schema.ts';
 import { requireMembership } from '@/lib/auth/session.ts';
 import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { errorResponse, withIdempotency } from '@/lib/api/handler.ts';
+import { assertAssignable } from '@/lib/auth/assignable.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -41,6 +42,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'กำหนดส่งไม่ถูกต้อง' }, { status: 400 });
     }
 
+    const assigneeUserId = await assertAssignable(workspaceId, body.assigneeUserId);
+
     const { result, replayedId } = await withIdempotency(
       {
         key: req.headers.get('idempotency-key'),
@@ -54,8 +57,8 @@ export async function POST(req: Request) {
           workspaceId,
           title,
           note: String(body.note ?? ''),
-          assigneeUserId: body.assigneeUserId ?? null,
-          primaryAssigneeUserId: body.assigneeUserId ?? null,
+          assigneeUserId,
+          primaryAssigneeUserId: assigneeUserId,
           source: String(body.source ?? 'สร้างในทันงาน'),
           dueAt,
           priority: String(body.priority ?? 'normal'),
@@ -79,7 +82,11 @@ export async function POST(req: Request) {
       // creating a second task.
       return NextResponse.json({ id: replayedId, replayed: true });
     }
-    return NextResponse.json({ id: result!.id }, { status: 201 });
+    if (!result) {
+      // Same key, and the first request is still running. Not a failure.
+      return NextResponse.json({ error: 'กำลังบันทึกอยู่ ลองอีกครั้งในอีกครู่' }, { status: 409 });
+    }
+    return NextResponse.json({ id: result.id }, { status: 201 });
   } catch (error) {
     return errorResponse(error);
   }

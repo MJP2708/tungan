@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
 import { inboxItem, task, taskEvent } from '@/lib/db/schema.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { errorResponse, withIdempotency } from '@/lib/api/handler.ts';
+import { assertAssignable } from '@/lib/auth/assignable.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -41,7 +42,10 @@ export async function POST(
     if (dueAt && !Number.isFinite(dueAt.getTime())) {
       return NextResponse.json({ error: 'กำหนดส่งไม่ถูกต้อง' }, { status: 400 });
     }
-    const assigneeUserId = body.assigneeUserId ?? item.suggestedAssigneeUserId ?? null;
+    const assigneeUserId = await assertAssignable(
+      item.workspaceId,
+      body.assigneeUserId ?? item.suggestedAssigneeUserId ?? null,
+    );
 
     const { result, replayedId } = await withIdempotency(
       {
@@ -50,18 +54,42 @@ export async function POST(
         route: 'POST /api/inbox/confirm',
       },
       async () => {
+        // Claim the draft FIRST, conditionally. Checking "still pending" and
+        // then inserting was two steps, so a confirm in the app and a tap in
+        // LINE at the same moment both passed the check and made two tasks.
+        // Only the call that flips pending -> created goes on.
+        const claimed = await db()
+          .update(inboxItem)
+          // The raw text goes now: only what became a task is kept, which is
+          // what the privacy page and the bot's join message promise. (It used
+          // to be copied into task.note here, where unsend and retention
+          // could never reach it.)
+          .set({ state: 'created', rawMessage: null })
+          .where(and(eq(inboxItem.id, id), eq(inboxItem.state, 'pending')))
+          .returning({ id: inboxItem.id });
+        if (!claimed.length) throw new HttpError(409, 'ข้อความนี้ถูกจัดการไปแล้ว');
+
         const taskId = crypto.randomUUID();
-        await db().insert(task).values({
-          id: taskId,
-          workspaceId: item.workspaceId,
-          title,
-          note: item.rawMessage ? `จากข้อความ: ${item.rawMessage}` : '',
-          assigneeUserId,
-          primaryAssigneeUserId: assigneeUserId,
-          source: item.lineGroupId ? 'LINE · กลุ่ม' : 'LINE · DM',
-          dueAt,
-          createdByUserId: membership.userId,
-        });
+        try {
+          await db().insert(task).values({
+            id: taskId,
+            workspaceId: item.workspaceId,
+            title,
+            note: '',
+            assigneeUserId,
+            primaryAssigneeUserId: assigneeUserId,
+            source: item.lineGroupId ? 'LINE · กลุ่ม' : 'LINE · DM',
+            dueAt,
+            createdByUserId: membership.userId,
+          });
+        } catch (error) {
+          // Hand the draft back rather than leave it claimed with no task.
+          await db()
+            .update(inboxItem)
+            .set({ state: 'pending' })
+            .where(eq(inboxItem.id, id));
+          throw error;
+        }
         await db().insert(taskEvent).values({
           id: crypto.randomUUID(),
           taskId,
@@ -70,18 +98,17 @@ export async function POST(
           kind: 'created',
           detail: 'ยืนยันจากข้อความใน LINE',
         });
-        // Retention: keep only what the user confirmed into a task.
-        await db()
-          .update(inboxItem)
-          .set({ state: 'created', rawMessage: null })
-          .where(eq(inboxItem.id, id));
         await planRemindersForTask(taskId);
         return { id: taskId };
       },
     );
 
     if (replayedId) return NextResponse.json({ id: replayedId, replayed: true });
-    return NextResponse.json({ id: result!.id }, { status: 201 });
+    if (!result) {
+      // Same key, and the first request is still running. Not a failure.
+      return NextResponse.json({ error: 'กำลังบันทึกอยู่ ลองอีกครั้งในอีกครู่' }, { status: 409 });
+    }
+    return NextResponse.json({ id: result.id }, { status: 201 });
   } catch (error) {
     return errorResponse(error);
   }

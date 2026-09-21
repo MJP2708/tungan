@@ -22,9 +22,9 @@ function authorised(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
   const header = req.headers.get('authorization') ?? '';
-  const provided = header.startsWith('Bearer ')
-    ? header.slice(7)
-    : (new URL(req.url).searchParams.get('key') ?? '');
+  // Header only. A ?key= fallback put the secret into URLs, and URLs end up
+  // in access logs and in the scheduler's run history.
+  const provided = header.startsWith('Bearer ') ? header.slice(7) : '';
   if (provided.length !== secret.length) return false;
   return timingSafeEqual(Buffer.from(provided), Buffer.from(secret));
 }

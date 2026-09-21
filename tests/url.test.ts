@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isSafeHttpUrl } from '../lib/url.ts';
+import { isPrivateHost, isSafeHttpUrl } from '../lib/url.ts';
 
 /**
  * Which links we will store and render.
@@ -39,5 +39,14 @@ test('schemes that are dangerous in an href are refused', () => {
 test('things that are not URLs at all are refused, not thrown on', () => {
   for (const url of ['', '   ', 'example.com', 'not a url', '//example.com', 'http://']) {
     assert.equal(isSafeHttpUrl(url), false, JSON.stringify(url));
+  }
+});
+
+test('the link checker never fetches private or internal hosts', () => {
+  for (const h of ['localhost', '127.0.0.1', '10.1.2.3', '172.16.0.1', '172.31.255.255', '192.168.1.1', '169.254.169.254', '100.64.0.1', '[::1]', 'fd00::1', 'fe80::1', 'metadata.internal']) {
+    assert.equal(isPrivateHost(h), true, h);
+  }
+  for (const h of ['drive.google.com', '172.32.0.1', '8.8.8.8', 'example.com']) {
+    assert.equal(isPrivateHost(h), false, h);
   }
 });

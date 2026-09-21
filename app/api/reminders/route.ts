@@ -2,9 +2,10 @@ import { NextResponse } from 'next/server';
 import { and, eq, asc } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
 import { reminder, task } from '@/lib/db/schema.ts';
-import { requireMembership } from '@/lib/auth/session.ts';
+import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { errorResponse, withIdempotency } from '@/lib/api/handler.ts';
 import { scheduleReminder } from '@/lib/reminders/schedule.ts';
+import { assertAssignable } from '@/lib/auth/assignable.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,6 +44,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'ต้องระบุเวลาที่ถูกต้อง' }, { status: 400 });
     }
 
+    // The reminder DMs the recipient the task's title. Both ids come from the
+    // client, so both are checked against this workspace: a task from another
+    // company, or a person outside this one, would otherwise leak its title.
+    const recipientUserId =
+      (await assertAssignable(workspaceId, body.recipientUserId)) ?? membership.userId;
+    const taskId = typeof body.taskId === 'string' && body.taskId ? body.taskId : null;
+    if (taskId) {
+      const [owned] = await db()
+        .select({ id: task.id })
+        .from(task)
+        .where(and(eq(task.id, taskId), eq(task.workspaceId, workspaceId)))
+        .limit(1);
+      if (!owned) throw new HttpError(404, 'ไม่พบงานนี้');
+    }
     // Quiet hours are applied here, and originalSendAt keeps the unshifted
     // time so a shift cannot create a second reminder for the same deadline.
     const decision = scheduleReminder({
@@ -63,9 +78,11 @@ export async function POST(req: Request) {
           await db().insert(reminder).values({
             id,
             workspaceId,
-            taskId: body.taskId ?? null,
+            taskId,
             // Reminders go to a person, never to a group.
-            recipientUserId: String(body.recipientUserId ?? membership.userId),
+            recipientUserId,
+            // Set by a person, so re-planning the task must leave it alone.
+            kind: 'manual',
             sendAt: decision.sendAt,
             originalSendAt: decision.originalSendAt,
           });

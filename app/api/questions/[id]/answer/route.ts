@@ -42,10 +42,15 @@ export async function POST(
     const answer = String((await req.json().catch(() => ({}))).answer ?? '').trim();
     if (!answer) return NextResponse.json({ error: 'พิมพ์คำตอบก่อน' }, { status: 400 });
 
-    await db()
+    // Conditional, so two people answering at once record one answer.
+    const recorded = await db()
       .update(taskQuestion)
       .set({ answer, answeredAt: new Date() })
-      .where(eq(taskQuestion.id, id));
+      .where(and(eq(taskQuestion.id, id), isNull(taskQuestion.answeredAt)))
+      .returning({ id: taskQuestion.id });
+    if (!recorded.length) {
+      return NextResponse.json({ error: 'คำถามนี้ตอบไปแล้ว' }, { status: 409 });
+    }
 
     // The task only resumes when nothing else is still waiting on someone.
     const others = await db()
@@ -63,7 +68,12 @@ export async function POST(
       detail: `ตอบแล้ว: ${answer}`,
     });
     if (!stillOpen) {
-      await db().update(task).set({ status: 'progress', updatedAt: new Date() }).where(eq(task.id, q.taskId));
+      // Resume only work that is still on hold. Answering used to force the
+      // task back to กำลังทำ even if it had been submitted or approved since.
+      await db()
+        .update(task)
+        .set({ status: 'progress', statusChangedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(task.id, q.taskId), eq(task.status, 'blocked')));
     }
     await planRemindersForTask(q.taskId);
 

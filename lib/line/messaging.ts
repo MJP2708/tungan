@@ -127,18 +127,80 @@ export async function pushToUser(
 export async function isFriendOfOa(
   lineUserId: string,
   options: { fetchImpl?: typeof fetch } = {},
-): Promise<boolean> {
+): Promise<boolean | null> {
   const doFetch = options.fetchImpl ?? fetch;
   try {
     const res = await doFetch(
       `https://api.line.me/v2/bot/profile/${encodeURIComponent(lineUserId)}`,
       { headers: { authorization: `Bearer ${accessToken()}` } },
     );
-    return res.ok;
+    if (res.ok) return true;
+    // 404 is LINE's answer for "not a friend, or blocked". Anything else
+    // (429, 5xx) is not an answer about this person at all.
+    return res.status === 404 ? false : null;
   } catch {
-    // A network failure is not proof of anything; leave the flag as it was.
-    return false;
+    // A network failure is not proof of anything: null means "leave the flag
+    // as it was". Returning false here used to mark a reachable person
+    // unreachable, and their reminders then stopped.
+    return null;
   }
+}
+
+export type LineProfile = { displayName: string; pictureUrl: string | null };
+
+async function getJson<T>(url: string, fetchImpl?: typeof fetch): Promise<T | null> {
+  try {
+    const res = await (fetchImpl ?? fetch)(url, {
+      headers: { authorization: `Bearer ${accessToken()}` },
+    });
+    return res.ok ? ((await res.json()) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A group member's name, as LINE shows it in that group.
+ *
+ * Works on every account type and without friendship, unlike the member-ID
+ * list (Verified/Premium only). This is what gives people who have never
+ * opened the app a real name in the assignee picker instead of a blank.
+ */
+export async function groupMemberProfile(
+  groupOrRoomId: string,
+  lineUserId: string,
+  kind: 'group' | 'room' = 'group',
+  options: { fetchImpl?: typeof fetch } = {},
+): Promise<LineProfile | null> {
+  const body = await getJson<{ displayName?: string; pictureUrl?: string }>(
+    `https://api.line.me/v2/bot/${kind}/${encodeURIComponent(groupOrRoomId)}/member/${encodeURIComponent(lineUserId)}`,
+    options.fetchImpl,
+  );
+  return body?.displayName ? { displayName: body.displayName, pictureUrl: body.pictureUrl ?? null } : null;
+}
+
+/** A friend's profile, for someone who messaged the OA directly. */
+export async function userProfile(
+  lineUserId: string,
+  options: { fetchImpl?: typeof fetch } = {},
+): Promise<LineProfile | null> {
+  const body = await getJson<{ displayName?: string; pictureUrl?: string }>(
+    `https://api.line.me/v2/bot/profile/${encodeURIComponent(lineUserId)}`,
+    options.fetchImpl,
+  );
+  return body?.displayName ? { displayName: body.displayName, pictureUrl: body.pictureUrl ?? null } : null;
+}
+
+/** A group's own name, so the app can tell two groups apart. */
+export async function groupName(
+  groupId: string,
+  options: { fetchImpl?: typeof fetch } = {},
+): Promise<string | null> {
+  const body = await getJson<{ groupName?: string }>(
+    `https://api.line.me/v2/bot/group/${encodeURIComponent(groupId)}/summary`,
+    options.fetchImpl,
+  );
+  return body?.groupName || null;
 }
 
 /** Counted messages used this month, by recipient count rather than calls. */

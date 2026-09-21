@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import { reminder, task, workspace } from '../db/schema.ts';
 import {
@@ -10,6 +10,9 @@ import {
 } from './policy.ts';
 import { inQuietHours, scheduleReminder } from './schedule.ts';
 import { workingHoursFor } from './schedule-learning.ts';
+
+/** Kinds this planner owns. A person's own reminder is 'manual' and survives. */
+export const PLANNED_KINDS = ['task_due', 'owner_overdue', 'review_due'] as const;
 
 /**
  * Put a task's reminders in place, replacing whatever was there.
@@ -47,10 +50,18 @@ export async function planRemindersForTask(taskId: string, now = new Date()) {
     return { assignee: null as Date | null, owner: null as Date | null, reviewer: null as Date | null };
   }
 
-  // Clear the plan, keep the history.
+  // Clear the plan, keep the history — and keep what people set themselves.
+  // Deleting every pending row used to wipe a personal "เตือนฉัน" reminder
+  // whenever anyone edited the task.
   await db()
     .delete(reminder)
-    .where(and(eq(reminder.taskId, taskId), eq(reminder.state, 'pending')));
+    .where(
+      and(
+        eq(reminder.taskId, taskId),
+        eq(reminder.state, 'pending'),
+        inArray(reminder.kind, [...PLANNED_KINDS]),
+      ),
+    );
 
   // A closed task reminds nobody.
   if (t.status === 'done') return { assignee: null, owner: null, reviewer: null };

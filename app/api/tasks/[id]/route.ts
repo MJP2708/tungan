@@ -8,6 +8,8 @@ import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
 import { isSafeHttpUrl } from '@/lib/url.ts';
+import { assertAssignable } from '@/lib/auth/assignable.ts';
+import { mayEditTaskFields } from '@/lib/tasks/permissions.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -49,6 +51,11 @@ export async function PATCH(
     const { id } = await params;
     const found = await loadTask(id);
     const membership = await requireMembership(found.workspaceId);
+    // Same rule as the status buttons. This route used to check only that the
+    // caller was in the workspace, so the edit form could change anyone's task.
+    if (!mayEditTaskFields(found, { userId: membership.userId, role: membership.role })) {
+      throw new HttpError(403, 'งานนี้ดูได้อย่างเดียว เพราะคุณไม่ใช่ผู้รับผิดชอบ');
+    }
     const body = await req.json().catch(() => ({}));
 
     const patch: Record<string, unknown> = { updatedAt: new Date() };
@@ -78,7 +85,7 @@ export async function PATCH(
       changed.push('กำหนดส่ง');
     }
     if (body.assigneeUserId !== undefined) {
-      patch.assigneeUserId = body.assigneeUserId || null;
+      patch.assigneeUserId = await assertAssignable(found.workspaceId, body.assigneeUserId);
       changed.push('ผู้รับผิดชอบ');
     }
     if (typeof body.priority === 'string') {

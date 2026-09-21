@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from 'next/server';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
 import {
   lineEvent,
@@ -18,8 +18,14 @@ import { verifyLineSignature } from '@/lib/line/verify.ts';
 import { extractDraft, mayStoreEventPayload, shouldProcessGroupMessage, splitInstructions } from '@/lib/line/extract.ts';
 import { fromZonedWallClock } from '@/lib/deadline.ts';
 import { isHelpRequest, helpMessage, joinMessage } from '@/lib/line/help.ts';
-import { confirmMessage, confirmBody, assigneePicker } from '@/lib/line/confirm-message.ts';
-import { replyMessage, isFriendOfOa } from '@/lib/line/messaging.ts';
+import { confirmMessage, assigneePicker } from '@/lib/line/confirm-message.ts';
+import {
+  replyMessage,
+  isFriendOfOa,
+  groupMemberProfile,
+  groupName,
+  userProfile,
+} from '@/lib/line/messaging.ts';
 import { applyTransition, isTransition, type TransitionAction } from '@/lib/tasks/transitions.ts';
 import { HttpError } from '@/lib/auth/session.ts';
 import { undoTaskEvent } from '@/lib/tasks/undo.ts';
@@ -27,6 +33,8 @@ import {
   statusActions, withActions, reasonPrompt, handoffPicker, evidencePrompt, undoAction,
 } from '@/lib/line/status-buttons.ts';
 import { appLink } from '@/lib/deep-link.ts';
+import { isAssignable } from '@/lib/auth/assignable.ts';
+import { applyMentions, mentionedPeople, type Mentionee } from '@/lib/line/mentions.ts';
 
 // Signature verification needs node crypto's timingSafeEqual.
 export const runtime = 'nodejs';
@@ -46,7 +54,13 @@ type LineEventPayload = {
   replyToken?: string;
   timestamp?: number;
   source?: LineSource;
-  message?: { id?: string; type?: string; text?: string; quotedMessageId?: string };
+  message?: {
+    id?: string;
+    type?: string;
+    text?: string;
+    quotedMessageId?: string;
+    mention?: { mentionees?: Mentionee[] };
+  };
   unsend?: { messageId?: string };
   postback?: { data?: string; params?: { datetime?: string; date?: string; time?: string } };
   joined?: { members?: Array<{ userId?: string }> };
@@ -202,6 +216,8 @@ async function handleEvent(event: LineEventPayload) {
 async function syncFriendship(lineUserId: string | undefined) {
   if (!lineUserId) return;
   const friend = await isFriendOfOa(lineUserId);
+  // null = LINE did not answer about this person; keep what we had.
+  if (friend === null) return;
   await setFriendship(lineUserId, friend);
 }
 
@@ -229,14 +245,23 @@ async function handleJoin(event: LineEventPayload) {
   }
 }
 
-/** Returns our internal id for a LINE group, creating the row if needed. */
+/**
+ * Returns our internal id for a LINE group, creating the row if needed.
+ *
+ * Also gives it its real name. Groups were stored nameless, so every group in
+ * the app read "กลุ่ม LINE" and someone in two groups could not tell which one
+ * they were connecting.
+ */
 async function ensureGroupKnown(lineGroupId: string): Promise<string> {
   const existing = await db()
-    .select({ id: lineGroup.id })
+    .select({ id: lineGroup.id, name: lineGroup.name })
     .from(lineGroup)
     .where(eq(lineGroup.lineGroupId, lineGroupId))
     .limit(1);
-  if (existing[0]) return existing[0].id;
+  if (existing[0]) {
+    if (!existing[0].name) await fillGroupName(existing[0].id, lineGroupId);
+    return existing[0].id;
+  }
   const id = crypto.randomUUID();
   await db()
     .insert(lineGroup)
@@ -247,13 +272,20 @@ async function ensureGroupKnown(lineGroupId: string): Promise<string> {
     .from(lineGroup)
     .where(eq(lineGroup.lineGroupId, lineGroupId))
     .limit(1);
-  return row[0]?.id ?? id;
+  await fillGroupName(row[0].id, lineGroupId);
+  return row[0].id;
 }
 
-/** Record that we have seen this person in this group. */
-async function noteGroupMember(lineGroupId: string, lineUserId: string) {
+async function fillGroupName(rowId: string, lineGroupId: string) {
+  // Rooms (multi-person chats) have no summary endpoint and no name.
+  if (!lineGroupId.startsWith('C')) return;
+  const name = await groupName(lineGroupId);
+  if (name) await db().update(lineGroup).set({ name }).where(eq(lineGroup.id, rowId));
+}
+
+async function noteGroupMember(lineGroupId: string, lineUserId: string): Promise<string> {
   const groupRowId = await ensureGroupKnown(lineGroupId);
-  const userRowId = await ensureUserKnown(lineUserId);
+  const userRowId = await ensureUserKnown(lineUserId, { groupOrRoomId: lineGroupId });
   await db()
     .insert(lineGroupMember)
     .values({ lineGroupId: groupRowId, userId: userRowId })
@@ -261,6 +293,7 @@ async function noteGroupMember(lineGroupId: string, lineUserId: string) {
       target: [lineGroupMember.lineGroupId, lineGroupMember.userId],
       set: { lastSeenAt: new Date() },
     });
+  return userRowId;
 }
 
 async function handleLeave(event: LineEventPayload) {
@@ -292,19 +325,52 @@ async function handleMemberJoined(event: LineEventPayload) {
 }
 
 /** Record a LINE user we have seen, so the assignee picker can offer them. */
-async function ensureUserKnown(lineUserId: string) {
+/**
+ * Our id for a LINE user, creating the row if needed, with a real name.
+ *
+ * People seen only in a group used to be stored with an empty name, so the
+ * assignee picker listed every one of them as "สมาชิกในกลุ่ม". The group
+ * member profile works on every account type and without friendship; in a
+ * 1:1 chat the person is a friend, so their own profile works.
+ */
+async function ensureUserKnown(
+  lineUserId: string,
+  where: { groupOrRoomId?: string } = {},
+): Promise<string> {
   const existing = await db()
+    .select({ id: lineUser.id, displayName: lineUser.displayName })
+    .from(lineUser)
+    .where(eq(lineUser.lineUserId, lineUserId))
+    .limit(1);
+  if (existing[0]) {
+    if (!existing[0].displayName) await fillUserName(existing[0].id, lineUserId, where);
+    return existing[0].id;
+  }
+  await db()
+    .insert(lineUser)
+    .values({ id: crypto.randomUUID(), lineUserId, displayName: '', isOaFriend: false })
+    .onConflictDoNothing();
+  // Read back rather than trust our own id: two events for a new person can
+  // race, and the loser's id never made it into the table.
+  const row = await db()
     .select({ id: lineUser.id })
     .from(lineUser)
     .where(eq(lineUser.lineUserId, lineUserId))
     .limit(1);
-  if (existing[0]) return existing[0].id;
-  const id = crypto.randomUUID();
+  await fillUserName(row[0].id, lineUserId, where);
+  return row[0].id;
+}
+
+async function fillUserName(rowId: string, lineUserId: string, where: { groupOrRoomId?: string }) {
+  const id = where.groupOrRoomId;
+  const profile = id
+    ? await groupMemberProfile(id, lineUserId, id.startsWith('R') ? 'room' : 'group')
+    : await userProfile(lineUserId);
+  if (!profile) return;
   await db()
-    .insert(lineUser)
-    .values({ id, lineUserId, displayName: '', isOaFriend: false })
-    .onConflictDoNothing();
-  return id;
+    .update(lineUser)
+    .set({ displayName: profile.displayName, pictureUrl: profile.pictureUrl, updatedAt: new Date() })
+    .where(eq(lineUser.id, rowId));
 }
 
 /**
@@ -328,6 +394,21 @@ async function handleUndo(event: LineEventPayload, params: URLSearchParams) {
   const rows = await db().select().from(task).where(eq(task.id, taskId)).limit(1);
   const t = rows[0];
   if (!t) return;
+  // Anyone in the group sees this button. Only the person who confirmed the
+  // task — or a workspace owner/admin — may take it back; it used to delete
+  // for whoever tapped.
+  const actorUserId = await actorFor(event);
+  const role = actorUserId ? await roleIn(t.workspaceId, actorUserId) : null;
+  const mayUndo =
+    !!actorUserId && (t.createdByUserId === actorUserId || role === 'owner' || role === 'admin');
+  if (!mayUndo) {
+    if (event.replyToken) {
+      await replyMessage(event.replyToken,
+        [{ type: 'text', text: 'ยกเลิกได้เฉพาะคนที่ยืนยันงานนี้' }],
+        { workspaceId: t.workspaceId }).catch(() => {});
+    }
+    return;
+  }
   const withinWindow = Date.now() - t.createdAt.getTime() <= UNDO_WINDOW_MS;
   if (!withinWindow) {
     if (event.replyToken) {
@@ -356,6 +437,15 @@ async function actorFor(event: LineEventPayload): Promise<string | null> {
     .where(eq(lineUser.lineUserId, lineUserId))
     .limit(1);
   return rows[0]?.id ?? null;
+}
+
+async function roleIn(workspaceId: string, userId: string): Promise<string | null> {
+  const rows = await db()
+    .select({ role: workspaceMember.role })
+    .from(workspaceMember)
+    .where(and(eq(workspaceMember.workspaceId, workspaceId), eq(workspaceMember.userId, userId)))
+    .limit(1);
+  return rows[0]?.role ?? null;
 }
 
 async function replyTo(event: LineEventPayload, workspaceId: string, messages: unknown[]) {
@@ -505,17 +595,19 @@ async function handlePostback(event: LineEventPayload) {
   const item = rows[0];
   if (!item) return;
 
-  // The tapper must be a member of the workspace the draft belongs to.
-  const actorLineUserId = event.source?.userId;
-  let actorUserId: string | null = null;
-  if (actorLineUserId) {
-    const who = await db()
-      .select({ userId: workspaceMember.userId })
-      .from(lineUser)
-      .innerJoin(workspaceMember, eq(workspaceMember.userId, lineUser.id))
-      .where(eq(lineUser.lineUserId, actorLineUserId))
-      .limit(1);
-    actorUserId = who[0]?.userId ?? null;
+  // The tapper must be someone in the workspace the draft belongs to: a
+  // member, or a person seen in one of its bound groups. This used to look
+  // them up in ANY workspace and never refused, so a confirm by a stranger
+  // went through with no creator recorded.
+  const tapper = await actorFor(event);
+  const actorUserId = tapper && (await isAssignable(item.workspaceId, tapper)) ? tapper : null;
+  if (!actorUserId) {
+    if (event.replyToken) {
+      await replyMessage(event.replyToken,
+        [{ type: 'text', text: 'เฉพาะคนในทีมนี้ที่จัดการข้อความนี้ได้' }],
+        { workspaceId: item.workspaceId }).catch(() => {});
+    }
+    return;
   }
 
   // Editing the draft in place. Each of these is idempotent: they set a value
@@ -597,17 +689,23 @@ async function handlePostback(event: LineEventPayload) {
   if (!claimed.length) return;
 
   const taskId = crypto.randomUUID();
-  await db().insert(task).values({
-    id: taskId,
-    workspaceId: item.workspaceId,
-    title: item.suggestedTitle || 'งานจาก LINE',
-    note: '',
-    assigneeUserId: item.suggestedAssigneeUserId,
-    primaryAssigneeUserId: item.suggestedAssigneeUserId,
-    source: item.lineGroupId ? 'LINE · กลุ่ม' : 'LINE · DM',
-    dueAt: item.suggestedDueAt,
-    createdByUserId: actorUserId,
-  });
+  try {
+    await db().insert(task).values({
+      id: taskId,
+      workspaceId: item.workspaceId,
+      title: item.suggestedTitle || 'งานจาก LINE',
+      note: '',
+      assigneeUserId: item.suggestedAssigneeUserId,
+      primaryAssigneeUserId: item.suggestedAssigneeUserId,
+      source: item.lineGroupId ? 'LINE · กลุ่ม' : 'LINE · DM',
+      dueAt: item.suggestedDueAt,
+      createdByUserId: actorUserId,
+    });
+  } catch (error) {
+    // Hand the draft back rather than leave it claimed with no task behind it.
+    await db().update(inboxItem).set({ state: 'pending' }).where(eq(inboxItem.id, inboxId));
+    throw error;
+  }
   await db().insert(taskEvent).values({
     id: crypto.randomUUID(),
     taskId,
@@ -746,7 +844,7 @@ async function handleMessage(event: LineEventPayload) {
 
   // One message can contain more than one instruction.
   const instructions = splitInstructions(sourceText);
-  const drafts = instructions.map((part) =>
+  const extracted = instructions.map((part) =>
     extractDraft(part, {
       members: resolved.members,
       senderUserId: resolved.senderUserId,
@@ -754,7 +852,17 @@ async function handleMessage(event: LineEventPayload) {
       isGroup,
     }),
   );
-  const draft = drafts[0];
+  // Exact @mentions beat name matching: LINE tells us who was tagged.
+  const people: Array<{ userId: string; text: string }> = [];
+  for (const m of mentionedPeople(text, event.message?.mention?.mentionees)) {
+    // Being tagged in the group is proof they are in it, so record them as a
+    // group member — which also makes them assignable here.
+    const userId = isGroup && groupId
+      ? (await noteGroupMember(groupId, m.lineUserId))
+      : await ensureUserKnown(m.lineUserId);
+    if (await isAssignable(resolved.workspaceId, userId)) people.push({ userId, text: m.text });
+  }
+  const drafts = applyMentions(extracted, people);
 
   const draftIds: string[] = [];
   for (const d of drafts) {
@@ -781,7 +889,6 @@ async function handleMessage(event: LineEventPayload) {
       })
       .onConflictDoNothing();
   }
-  const draftId = draftIds[0];
 
 
   // Confirmations go back as a REPLY, which is not counted against the plan
@@ -790,8 +897,23 @@ async function handleMessage(event: LineEventPayload) {
   // The card shows what was read next to the words it was read from, and the
   // two things most often wrong are correctable without leaving the chat.
   if (event.replyToken) {
+    // Someone tagged for the first time was not in the member list built
+    // above; look their name up so the card does not say "ยังไม่ระบุ".
+    const extraIds = people.map((p) => p.userId).filter(
+      (id) => !resolved.members.some((m) => m.userId === id),
+    );
+    const extraNames = extraIds.length
+      ? await db()
+          .select({ id: lineUser.id, name: lineUser.displayName })
+          .from(lineUser)
+          .where(inArray(lineUser.id, extraIds))
+      : [];
     const nameOf = (userId: string | null) =>
-      userId ? (resolved.members.find((m) => m.userId === userId)?.names[0] ?? null) : null;
+      userId
+        ? (resolved.members.find((m) => m.userId === userId)?.names[0] ??
+          extraNames.find((n) => n.id === userId)?.name ??
+          null)
+        : null;
     // One reply call carries every card. A reply is free whatever it holds,
     // so two instructions cost the same as one.
     await replyMessage(
@@ -841,17 +963,44 @@ async function learnedNames(workspaceId: string) {
   return rows;
 }
 
-/** People we know in this workspace, for the assignee picker. */
-async function knownMembers(workspaceId: string) {
-  const rows = await db()
+/**
+ * Everyone who can be given work here: members, plus people seen in the
+ * workspace's bound groups who have not signed in yet.
+ *
+ * The app's picker already listed both; the LINE picker and @name matching
+ * listed members only, so "@เมย์" found nobody until May had logged in.
+ */
+async function teamMembers(workspaceId: string) {
+  const members = await db()
     .select({
       userId: lineUser.id,
+      lineUserId: lineUser.lineUserId,
       displayName: lineUser.displayName,
       nickname: workspaceMember.nickname,
     })
     .from(workspaceMember)
     .innerJoin(lineUser, eq(lineUser.id, workspaceMember.userId))
     .where(eq(workspaceMember.workspaceId, workspaceId));
+  const seen = await db()
+    .selectDistinct({
+      userId: lineUser.id,
+      lineUserId: lineUser.lineUserId,
+      displayName: lineUser.displayName,
+    })
+    .from(lineGroupMember)
+    .innerJoin(groupWorkspace, eq(groupWorkspace.lineGroupId, lineGroupMember.lineGroupId))
+    .innerJoin(lineUser, eq(lineUser.id, lineGroupMember.userId))
+    .where(eq(groupWorkspace.workspaceId, workspaceId));
+  const known = new Set(members.map((m) => m.userId));
+  return [
+    ...members,
+    ...seen.filter((g) => !known.has(g.userId)).map((g) => ({ ...g, nickname: '' })),
+  ];
+}
+
+/** People we know in this workspace, for the assignee picker. */
+async function knownMembers(workspaceId: string) {
+  const rows = await teamMembers(workspaceId);
   return rows.map((r) => ({ userId: r.userId, name: r.nickname || r.displayName || 'ไม่ทราบชื่อ' }));
 }
 
@@ -929,16 +1078,7 @@ async function resolveWorkspace(event: LineEventPayload) {
 
   if (!workspaceId) return null;
 
-  const members = await db()
-    .select({
-      userId: lineUser.id,
-      lineUserId: lineUser.lineUserId,
-      displayName: lineUser.displayName,
-      nickname: workspaceMember.nickname,
-    })
-    .from(workspaceMember)
-    .innerJoin(lineUser, eq(lineUser.id, workspaceMember.userId))
-    .where(eq(workspaceMember.workspaceId, workspaceId));
+  const members = await teamMembers(workspaceId);
 
   const sender = members.find((m) => m.lineUserId === senderLineUserId);
 

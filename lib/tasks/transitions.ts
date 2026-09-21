@@ -11,6 +11,8 @@ import { isSafeHttpUrl } from '../url.ts';
 import { audienceLabel, defaultVisibilityFor, normalizeVisibility } from '../events/visibility.ts';
 import { BLOCKED_REASONS, isBlockedReason } from './reasons.ts';
 import { appLink } from '@/lib/deep-link.ts';
+import { assertAssignable } from '../auth/assignable.ts';
+import { mayActOnTask } from './permissions.ts';
 
 /**
  * Every way a task can move, in one place.
@@ -153,23 +155,11 @@ export async function applyTransition(params: {
   if (!membership) throw new HttpError(404, 'ไม่พบงานนี้');
   const actor: TransitionActor = { userId: actorUserId, role: membership.role };
 
-  // Only the assignee or the primary owner may move a task, which is the
-  // same rule the UI shows as the lock icon.
-  const mayEdit =
-    found.assigneeUserId === actor.userId ||
-    found.primaryAssigneeUserId === actor.userId ||
-    // The person a handoff was offered to has to be able to answer it.
-    // They are deliberately not the assignee yet — that is the whole point
-    // of an offer — so the ordinary check would lock them out of the only
-    // two actions they are allowed.
-    found.pendingAssigneeUserId === actor.userId ||
-    // The person who ASKED for the work has to be able to sign it off, and
-    // in an agency that is usually an account manager holding a plain
-    // member role, not a workspace admin. Without this the review right
-    // below could never be reached by the one person it names.
-    found.createdByUserId === actor.userId ||
-    actor.role === 'owner' ||
-    actor.role === 'admin';
+  // Only the assignee, the primary owner, the person offered a handoff, the
+  // person who asked for the work, or a workspace manager may move a task —
+  // the same rule the UI shows as the lock icon, shared with the edit route
+  // through lib/tasks/permissions.ts.
+  const mayEdit = mayActOnTask(found, actor);
   if (!mayEdit) throw new HttpError(403, 'งานนี้ดูได้อย่างเดียว เพราะคุณไม่ใช่ผู้รับผิดชอบ');
 
   // ...but that only unlocks answering the offer, nothing else.
@@ -265,6 +255,9 @@ export async function applyTransition(params: {
   if (action === 'handoff') {
     const to = text(input.assigneeUserId) || null;
     if (!to) throw new HttpError(400, 'ต้องระบุผู้รับงานต่อ');
+    // The offer DMs the receiver the task title, so they must be someone in
+    // this workspace — never an id from another company.
+    await assertAssignable(found.workspaceId, to);
     if (to === found.assigneeUserId) {
       throw new HttpError(400, 'งานนี้อยู่กับผู้รับคนนี้แล้ว');
     }

@@ -299,9 +299,19 @@ function EmptyState({ title, body }: { title: string; body: string }) {
     </div>
   );
 }
-/** Where a task came from, in words. The raw value is an internal code. */
+/**
+ * Where a task came from, in words.
+ *
+ * Stored values are 'LINE · กลุ่ม', 'LINE · DM' and 'สร้างในทันงาน' (plus the
+ * bare 'line'/'manual' older rows used). Anything else is shown as written
+ * rather than mislabelled.
+ */
 function sourceLabel(source: string) {
-  return source === 'line' ? 'จาก LINE' : 'สร้างเอง';
+  if (source === 'LINE · กลุ่ม') return 'จากกลุ่ม LINE';
+  if (source === 'LINE · DM') return 'จากแชท LINE';
+  if (/^line\b/i.test(source)) return 'จาก LINE';
+  if (source === 'สร้างในทันงาน' || source === 'manual' || !source) return 'สร้างในแอป';
+  return source;
 }
 
 function deadlineRank(task: Task) {

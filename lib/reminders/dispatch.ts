@@ -1,8 +1,8 @@
 import 'server-only';
-import { and, eq, lte, sql, inArray, isNull, or } from 'drizzle-orm';
+import { eq, sql, inArray } from 'drizzle-orm';
 import { db } from '../db/index.ts';
-import { reminder, task, lineUser, workspace } from '../db/schema.ts';
-import { pushToUser, usedThisMonth, billingMonth } from '../line/messaging.ts';
+import { reminder, task, workspace } from '../db/schema.ts';
+import { pushToUser, usedThisMonth } from '../line/messaging.ts';
 import { formatDeadline } from '../deadline.ts';
 import { appLink } from '../deep-link.ts';
 
@@ -173,7 +173,12 @@ export async function dispatchDueReminders(
     else if (outcome.reason === 'over_cap') result.skippedOverCap += 1;
     else result.failed += 1;
 
-    const permanent = outcome.reason === 'not_friend' || outcome.reason === 'over_cap';
+    // Out of attempts is permanent too: left 'pending', the row would never be
+    // claimed again and never show as failed — a reminder silently lost.
+    const permanent =
+      outcome.reason === 'not_friend' ||
+      outcome.reason === 'over_cap' ||
+      rows[0].attempts >= MAX_ATTEMPTS;
     await db()
       .update(reminder)
       .set({

@@ -1,5 +1,5 @@
 import 'server-only';
-import { isSafeHttpUrl } from '../url.ts';
+import { isPrivateHost, isSafeHttpUrl } from '../url.ts';
 
 /**
  * Check an evidence link at the moment it is submitted.
@@ -33,7 +33,7 @@ export async function checkEvidenceLink(
   }
   const parsed = new URL(url);
   // Never let a submitted link make the server fetch its own network.
-  if (/^(localhost|127\.|0\.|10\.|192\.168\.|169\.254\.|\[?::1)/i.test(parsed.hostname)) {
+  if (isPrivateHost(parsed.hostname)) {
     return { ok: false, status: null, warning: 'ลิงก์ภายในเครื่อง คนอื่นเปิดไม่ได้' };
   }
 
@@ -43,7 +43,10 @@ export async function checkEvidenceLink(
   try {
     const res = await doFetch(parsed.toString(), {
       method: 'GET',
-      redirect: 'follow',
+      // Not followed: a public link that redirects to an internal address
+      // would otherwise walk the check straight past isPrivateHost. A 3xx is
+      // reported as fine — people's links redirect all the time.
+      redirect: 'manual',
       signal: controller.signal,
       headers: { 'user-agent': 'tungan-link-check' },
     });
@@ -69,3 +72,4 @@ export async function checkEvidenceLink(
     clearTimeout(timer);
   }
 }
+

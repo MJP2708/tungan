@@ -8,6 +8,8 @@ import { errorResponse } from '@/lib/api/handler.ts';
 import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { nextWorkingMorning } from '@/lib/reminders/policy.ts';
 import { appLink } from '@/lib/deep-link.ts';
+import { assertAssignable } from '@/lib/auth/assignable.ts';
+import { mayActOnTask } from '@/lib/tasks/permissions.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -70,6 +72,13 @@ export async function POST(
     if (askedOfUserId === membership.userId) {
       return NextResponse.json({ error: 'ถามตัวเองไม่ได้' }, { status: 400 });
     }
+    // Asking puts the task on hold, so it is an action on the task: a
+    // bystander could otherwise mark anyone's work ติดปัญหา.
+    if (!mayActOnTask(found, { userId: membership.userId, role: membership.role })) {
+      throw new HttpError(403, 'งานนี้ดูได้อย่างเดียว เพราะคุณไม่ใช่ผู้รับผิดชอบ');
+    }
+    // The question is DMed to them, so they must be in this workspace.
+    await assertAssignable(found.workspaceId, askedOfUserId);
 
     // Asking the same person the same thing twice, while the first is still
     // unanswered, is never intentional — it is a double tap or a retry. It
@@ -108,7 +117,18 @@ export async function POST(
     });
 
     // The task waits on the person being asked, not on the assignee.
-    await db().update(task).set({ status: 'blocked', updatedAt: new Date() }).where(eq(task.id, id));
+    // Only open work can be put on hold. A task already submitted or closed
+    // keeps its state; the question still reaches the person.
+    if (found.status === 'todo' || found.status === 'progress' || found.status === 'blocked') {
+      await db()
+        .update(task)
+        .set({
+          status: 'blocked',
+          updatedAt: new Date(),
+          ...(found.status !== 'blocked' ? { statusChangedAt: new Date() } : {}),
+        })
+        .where(eq(task.id, id));
+    }
     await db().insert(taskEvent).values({
       id: crypto.randomUUID(),
       taskId: id,
