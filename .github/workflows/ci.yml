@@ -1,0 +1,39 @@
+# Tests, types and a production build on every push and pull request.
+#
+# A push to main deploys to production, and until this existed nothing
+# stopped a broken commit from getting there. Free on a public repository.
+#
+# The build runs with placeholder values: `next build` must succeed without
+# real secrets, and no step here talks to the database or to LINE.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Unit tests
+        run: npm test
+      - name: Type check
+        run: npx tsc --noEmit --incremental false --pretty false
+      - name: Production build
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          NEXT_PUBLIC_LIFF_ID: ci-placeholder
