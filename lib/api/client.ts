@@ -127,6 +127,13 @@ export const api = {
       body: JSON.stringify({ workspaceId }),
     }),
 
+  /** Create a workspace named after the group, owned by the caller, and bind it. */
+  createGroupWorkspace: (groupId: string) =>
+    request<{ workspaceId: string; name: string; membersGranted: number }>(
+      `/api/groups/${encodeURIComponent(groupId)}/workspace`,
+      { method: 'POST' },
+    ),
+
   unbindGroup: (groupId: string) =>
     request<{ ok: true }>(`/api/groups/${encodeURIComponent(groupId)}/bind`, {
       method: 'DELETE',

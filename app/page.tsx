@@ -937,6 +937,51 @@ export default function Home() {
     }
   }
 
+  /** Reload the workspace list, keeping members already fetched. */
+  async function reloadWorkspaces() {
+    const res = await api.workspaces();
+    setProjects((current) =>
+      res.workspaces.map(
+        (w) =>
+          current.find((p) => p.id === w.id) ?? {
+            id: w.id,
+            name: w.name,
+            source: 'manual' as const,
+            groupLabel: w.name,
+            members: [],
+            teams: [],
+          },
+      ),
+    );
+    return res.workspaces;
+  }
+
+  /**
+   * One tap: a workspace named after the LINE group, owned by me, with the
+   * group connected and everyone already seen in it given access.
+   */
+  async function createGroupWorkspace(groupId: string) {
+    setBusy(true);
+    try {
+      const created = await api.createGroupWorkspace(groupId);
+      await reloadWorkspaces();
+      await refreshGroups();
+      chooseProject(created.workspaceId);
+      setNotice(
+        `สร้าง “${created.name}” แล้ว · ข้อความที่ติด @ทันงาน ในกลุ่มนี้จะเข้ามาที่นี่`,
+      );
+    } catch (error) {
+      // Already connected by someone else: we now have access to it.
+      if (error instanceof ApiError && error.status === 409) {
+        await reloadWorkspaces().catch(() => {});
+        await refreshGroups();
+      }
+      reportError(error, 'สร้างพื้นที่งานไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function answerQuestion(questionId: string) {
     const q = questions.find((item) => item.id === questionId);
     openActionSheet({ kind: 'answer', questionId, question: q?.question ?? '' });
@@ -2213,6 +2258,30 @@ export default function Home() {
           สร้างงาน
         </Button>
       </section>
+      {lineGroups.some((group) => !group.bound) && (
+        // First run: the bot is in a group nobody has connected yet. Setting
+        // it up used to mean finding it in Settings; it is one tap here.
+        <section className="panel group-setup-card">
+          <div>
+            <strong>เชื่อมกลุ่ม LINE ของทีม</strong>
+            <small>ข้อความที่ติด @ทันงาน ในกลุ่มจะกลายเป็นงานในพื้นที่งานของกลุ่มนั้น</small>
+          </div>
+          {lineGroups
+            .filter((group) => !group.bound)
+            .slice(0, 3)
+            .map((group) => (
+              <div className="connection-row" key={group.id}>
+                <span>
+                  <Users />
+                  {group.name}
+                </span>
+                <Button disabled={busy} onClick={() => createGroupWorkspace(group.id)}>
+                  สร้างพื้นที่งานของกลุ่มนี้
+                </Button>
+              </div>
+            ))}
+        </section>
+      )}
       <section className="home-shortcuts">
         <button
           className="line-attention-card"
@@ -3125,13 +3194,19 @@ export default function Home() {
               {group.bound ? (
                 <Badge variant="outline">เชื่อมกับ {group.workspaceName}</Badge>
               ) : (
-                <Button
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => connectGroup(group.id)}
-                >
-                  เชื่อมกับพื้นที่งานนี้
-                </Button>
+                <span className="group-connect-actions">
+                  <Button disabled={busy} onClick={() => createGroupWorkspace(group.id)}>
+                    สร้างพื้นที่งานของกลุ่มนี้
+                  </Button>
+                  <button
+                    type="button"
+                    className="text-link"
+                    disabled={busy}
+                    onClick={() => connectGroup(group.id)}
+                  >
+                    หรือเชื่อมกับ “{selectedProject.name}”
+                  </button>
+                </span>
               )}
             </div>
           ))}
