@@ -87,7 +87,25 @@ export type FlushResult = {
  * the order the person made them, or the last thing they did is not the state
  * they end up in.
  */
+let flushing: Promise<FlushResult> | null = null;
+
 export async function flush(now = Date.now()): Promise<FlushResult> {
+  // One run at a time. Two overlapping runs read the same queue and sent
+  // every action twice; the server's guards absorbed it, but the history and
+  // the toasts did not.
+  if (flushing) return flushing;
+  flushing = flushOnce(now).finally(() => {
+    flushing = null;
+  });
+  return flushing;
+}
+
+/** Drop everything queued — on logout, so the next person never sends it. */
+export function clear() {
+  write([]);
+}
+
+async function flushOnce(now: number): Promise<FlushResult> {
   const items = read();
   const result: FlushResult = { sent: 0, failed: [], stillQueued: 0 };
   if (!items.length) return result;

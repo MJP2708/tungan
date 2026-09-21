@@ -7,6 +7,8 @@
 // Everything crossing this boundary is server-owned; nothing here invents data.
 
 import { api, type ApiTask, type ApiMember, type ApiWorkspace, type ApiInboxItem } from './client.ts';
+import { formatDeadline } from '../deadline.ts';
+import { initialsFor } from '../initials.ts';
 
 export type UiMember = {
   id: string;
@@ -28,11 +30,7 @@ export type UiProject = {
   teams: { id: string; name: string; memberIds: string[] }[];
 };
 
-export function initialsFor(name: string) {
-  const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
-  if (parts.length > 1) return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
-  return (name ?? '').trim().slice(0, 2).toUpperCase() || '?';
-}
+export { initialsFor };
 
 export function toUiMember(m: ApiMember): UiMember {
   const nickname = m.nickname || m.displayName || 'ไม่ทราบชื่อ';
@@ -142,10 +140,12 @@ export function toUiCapture(item: ApiInboxItem): UiCapture {
     assigneeId: item.suggestedAssigneeUserId ?? '',
     // The confirmation screen shows what was read, and low confidence is
     // shown as such rather than presented as a decision already made.
+    // Formatted the same way everywhere else shows a deadline. It used to be
+    // the raw ISO string, so the inbox read "2026-09-22T09:00:00.000Z".
     dueText:
-      item.confidence === 'fallback'
+      item.confidence === 'fallback' || !item.suggestedDueAt
         ? 'ยังไม่ระบุเวลา'
-        : (item.suggestedDueAt ?? 'ยังไม่ระบุเวลา'),
+        : formatDeadline(item.suggestedDueAt),
     dueAt: item.suggestedDueAt,
     confidence: item.confidence,
     state: 'pending',

@@ -96,6 +96,8 @@ import {
 import { th } from 'date-fns/locale';
 import { api, ApiError, newIdempotencyKey } from '@/lib/api/client';
 import { taskIdFromSearch } from '@/lib/deep-link.ts';
+import { BLOCKED_REASONS } from '@/lib/tasks/reasons';
+import { initialsFor } from '@/lib/initials';
 import { useToast, ToastHost } from '@/components/toast-host';
 import * as queue from '@/lib/api/queue';
 import { toUiTask, toUiCapture, toUiMember } from '@/lib/api/adapters';
@@ -299,6 +301,10 @@ function EmptyState({ title, body }: { title: string; body: string }) {
     </div>
   );
 }
+
+/** Device preferences, saved per phone. */
+const SETTINGS_KEY = 'tungan-device-settings-v1';
+
 /**
  * Where a task came from, in words.
  *
@@ -318,13 +324,6 @@ function deadlineRank(task: Task) {
   if (!task.dueAt) return Number.MAX_SAFE_INTEGER;
   const at = new Date(task.dueAt).getTime();
   return Number.isFinite(at) ? at : Number.MAX_SAFE_INTEGER;
-}
-
-function initialsFor(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length > 1)
-    return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
-  return name.trim().slice(0, 2).toUpperCase();
 }
 
 function nicknameAcrossProjects(
@@ -393,6 +392,27 @@ export default function Home() {
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  // Device preferences only (start page, show completed, reduced motion).
+  // They were never saved, so every reload reset them while the page said
+  // "บันทึกในอุปกรณ์นี้". A fresh key: prototype data is never read back.
+  const settingsLoaded = useRef(false);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SETTINGS_KEY);
+      if (raw) setSettings(normalizeSettings(JSON.parse(raw)));
+    } catch {
+      // Blocked or corrupt storage: defaults are fine.
+    }
+    settingsLoaded.current = true;
+  }, []);
+  useEffect(() => {
+    if (!settingsLoaded.current) return;
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch {
+      // Private mode or full storage: the setting still applies this session.
+    }
+  }, [settings]);
   const [menuOpen, setMenuOpen] = useState(false);
   // Filled from the server session. Nothing here is trusted from the browser.
   const [account, setAccount] = useState<Account>({
@@ -475,8 +495,8 @@ export default function Home() {
     'today' | 'tomorrow'
   >('today');
   const [quickReminderTime, setQuickReminderTime] = useState('17:00');
-  const [forwardProjectId, setForwardProjectId] = useState('ops');
-  const [forwardAssignee, setForwardAssignee] = useState('member:may');
+  const [forwardProjectId, setForwardProjectId] = useState('');
+  const [forwardAssignee, setForwardAssignee] = useState('');
   const [forwardDueDay, setForwardDueDay] = useState<
     'today' | 'tomorrow' | 'later'
   >('today');
@@ -1186,6 +1206,9 @@ export default function Home() {
   }
   async function logout() {
     setNotificationOpen(false);
+    // Actions queued offline belong to this person. Left behind, they would
+    // be sent under whoever signs in next on this phone.
+    queue.clear();
     try {
       await api.logout();
     } finally {
@@ -1453,7 +1476,7 @@ export default function Home() {
     if (status === 'blocked') {
       // A preset, so blocked work is countable. Free text stays optional:
       // a required prose field becomes "-" and stops meaning anything.
-      const reasons = ['รอลูกค้า', 'รอของ', 'รอคนอื่น', 'อื่นๆ'];
+      const reasons: readonly string[] = BLOCKED_REASONS;
       const pick = window.prompt(
         `ติดเพราะอะไร\n${reasons.map((r, i) => `${i + 1}. ${r}`).join('\n')}`,
       );
@@ -1633,7 +1656,9 @@ export default function Home() {
           assigneeUserId: capture.assigneeId || null,
           dueAt: capture.dueAt ?? null,
         },
-        newIdempotencyKey(),
+        // One key per draft, so a second tap — or a retry after a dropped
+        // connection — is recognised as the same request.
+        `inbox-confirm:${capture.id}`,
       );
       await refreshWorkspace(capture.projectId);
       setNotice('สร้างงานและมอบหมายแล้ว');
@@ -2183,7 +2208,9 @@ export default function Home() {
                 </div>
                 <p>{capture.message}</p>
                 <span className="mention-pill">
-                  เข้าใจแท็ก · @{assignee.label}
+                  {capture.assigneeId
+                    ? `เข้าใจแท็ก · @${assignee.label}`
+                    : 'ยังไม่รู้ว่าให้ใคร'}
                 </span>
               </div>
               <div className="capture-draft">
@@ -2209,7 +2236,7 @@ export default function Home() {
                   </div>
                 </dl>
                 <div className="capture-actions">
-                  <Button onClick={() => confirmCapture(capture)}>
+                  <Button disabled={busy} onClick={() => confirmCapture(capture)}>
                     <Check />
                     ยืนยันสร้างงาน
                   </Button>
@@ -2496,9 +2523,11 @@ export default function Home() {
           </div>
           <Button className="share-button" disabled={busy} onClick={shareSummary}>
             <Share2 />
-            แชร์ Work Story
+            คัดลอกสรุปงานที่เสร็จ
           </Button>
-          <p className="privacy-note">แชร์เฉพาะตัวเลขสรุป ไม่มีชื่อลูกค้าหรือเนื้องาน</p>
+          <p className="privacy-note">
+            รวมชื่องานและลิงก์หลักฐานที่เสร็จใน 30 วัน ไม่มีชื่อคนทำ · ตรวจก่อนส่งให้ลูกค้า
+          </p>
         </aside>
       </div>
     </section>
