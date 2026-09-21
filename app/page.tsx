@@ -467,6 +467,10 @@ export default function Home() {
       visibility?: string; actorUserId?: string | null;
     }[]
   >([]);
+  // My open tasks in every workspace, so nobody has to switch to find them.
+  const [myTasksEverywhere, setMyTasksEverywhere] = useState<
+    Awaited<ReturnType<typeof api.myTasks>>['tasks']
+  >([]);
   const [lineGroups, setLineGroups] = useState<
     { id: string; name: string; bound: boolean; workspaceName: string | null }[]
   >([]);
@@ -602,6 +606,7 @@ export default function Home() {
           api.tasks(current.id),
           api.inbox(current.id),
           refreshGroups(),
+          refreshMyTasks(),
           refreshReminders(current.id),
           refreshBlocked(current.id),
           refreshUsage(current.id),
@@ -788,6 +793,7 @@ export default function Home() {
     const [tasksRes, inboxRes] = await Promise.all([
       api.tasks(workspaceId),
       api.inbox(workspaceId),
+      refreshMyTasks(),
     ]);
     setTasks(tasksRes.tasks.map(toUiTask) as Task[]);
     setCaptures(inboxRes.items.map(toUiCapture) as unknown as Capture[]);
@@ -877,6 +883,26 @@ export default function Home() {
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [hydrated, selectedProject.id]);
+
+  async function refreshMyTasks() {
+    try {
+      setMyTasksEverywhere((await api.myTasks()).tasks);
+    } catch {
+      // Non-fatal: the current workspace still shows everything it has.
+    }
+  }
+
+  /** Open a task that lives in another workspace. */
+  async function openTaskElsewhere(workspaceId: string, taskId: string) {
+    setSelectedProjectId(workspaceId);
+    setPage('home');
+    try {
+      await refreshWorkspace(workspaceId);
+      setSelectedTaskId(taskId);
+    } catch (error) {
+      reportError(error, 'เปิดงานไม่สำเร็จ');
+    }
+  }
 
   async function refreshUsage(workspaceId = selectedProject.id) {
     if (!workspaceId) return;
@@ -2279,6 +2305,41 @@ export default function Home() {
                   สร้างพื้นที่งานของกลุ่มนี้
                 </Button>
               </div>
+            ))}
+        </section>
+      )}
+      {myTasksEverywhere.some((t) => t.workspaceId !== selectedProject.id) && (
+        <section className="panel elsewhere-card">
+          <div className="elsewhere-heading">
+            <strong>งานของคุณในพื้นที่งานอื่น</strong>
+            <small>
+              {myTasksEverywhere.filter((t) => t.workspaceId !== selectedProject.id).length} งาน
+            </small>
+          </div>
+          {myTasksEverywhere
+            .filter((t) => t.workspaceId !== selectedProject.id)
+            .slice(0, 5)
+            .map((t) => (
+              <button
+                type="button"
+                key={t.id}
+                className="elsewhere-row"
+                onClick={() => openTaskElsewhere(t.workspaceId, t.id)}
+              >
+                <span>
+                  <strong>{t.title}</strong>
+                  <small>
+                    {t.workspaceName}
+                    {' · '}
+                    {t.pendingAssigneeUserId === meUserId
+                      ? 'รอคุณกดรับ'
+                      : t.dueAt
+                        ? formatDeadline(t.dueAt, { now })
+                        : 'ไม่มีกำหนด'}
+                  </small>
+                </span>
+                <ChevronRight />
+              </button>
             ))}
         </section>
       )}

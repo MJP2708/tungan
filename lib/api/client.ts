@@ -127,6 +127,15 @@ export const api = {
       body: JSON.stringify({ workspaceId }),
     }),
 
+  /** My open tasks in every workspace I belong to. */
+  myTasks: () =>
+    request<{
+      tasks: Array<{
+        id: string; workspaceId: string; workspaceName: string; title: string;
+        dueAt: string | null; status: string; pendingAssigneeUserId: string | null;
+      }>;
+    }>('/api/tasks?mine=1'),
+
   /** Create a workspace named after the group, owned by the caller, and bind it. */
   createGroupWorkspace: (groupId: string) =>
     request<{ workspaceId: string; name: string; membersGranted: number }>(

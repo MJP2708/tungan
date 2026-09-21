@@ -305,3 +305,72 @@
   white-space: normal;
   text-align: right;
 }
+
+/* My tasks in other workspaces (วันนี้). */
+.elsewhere-card {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 14px;
+  padding: 14px 16px;
+}
+
+.elsewhere-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 4px;
+}
+
+.elsewhere-heading strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.elsewhere-heading small {
+  color: #5c5c58;
+  font-size: 12px;
+}
+
+.elsewhere-row {
+  display: flex;
+  min-height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border: 0;
+  border-top: 1px solid #deded9;
+  background: transparent;
+  color: #090909;
+  text-align: left;
+}
+
+.elsewhere-row > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.elsewhere-row strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.elsewhere-row small {
+  overflow: hidden;
+  color: #5c5c58;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.elsewhere-row svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: #9a9a95;
+}

@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { eq, desc } from 'drizzle-orm';
+import { and, eq, desc, ne, or, sql } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
-import { task, taskEvent } from '@/lib/db/schema.ts';
-import { requireMembership } from '@/lib/auth/session.ts';
+import { task, taskEvent, workspace, workspaceMember } from '@/lib/db/schema.ts';
+import { requireMembership, requireSession } from '@/lib/auth/session.ts';
 import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { errorResponse, withIdempotency } from '@/lib/api/handler.ts';
 import { assertAssignable } from '@/lib/auth/assignable.ts';
@@ -12,6 +12,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   try {
+    if (new URL(req.url).searchParams.get('mine') === '1') return await myOpenTasks();
     const workspaceId = new URL(req.url).searchParams.get('workspaceId') ?? '';
     await requireMembership(workspaceId);
     const rows = await db()
@@ -90,4 +91,40 @@ export async function POST(req: Request) {
   } catch (error) {
     return errorResponse(error);
   }
+}
+
+/**
+ * Open work that is mine, across every workspace I belong to.
+ *
+ * Someone in two teams had to switch workspace to see everything assigned to
+ * them. Scoped by joining workspace_member on the session's own user id, so
+ * a task in a workspace the person has left never appears.
+ */
+async function myOpenTasks() {
+  const user = await requireSession();
+  const rows = await db()
+    .select({
+      id: task.id,
+      workspaceId: task.workspaceId,
+      workspaceName: workspace.name,
+      title: task.title,
+      dueAt: task.dueAt,
+      status: task.status,
+      pendingAssigneeUserId: task.pendingAssigneeUserId,
+    })
+    .from(task)
+    .innerJoin(
+      workspaceMember,
+      and(eq(workspaceMember.workspaceId, task.workspaceId), eq(workspaceMember.userId, user.userId)),
+    )
+    .innerJoin(workspace, eq(workspace.id, task.workspaceId))
+    .where(
+      and(
+        ne(task.status, 'done'),
+        or(eq(task.assigneeUserId, user.userId), eq(task.pendingAssigneeUserId, user.userId)),
+      ),
+    )
+    .orderBy(sql`${task.dueAt} asc nulls last`)
+    .limit(50);
+  return NextResponse.json({ tasks: rows });
 }
