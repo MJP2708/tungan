@@ -13,6 +13,7 @@ import {
   task,
   taskEvent,
   nameCorrection,
+  memberSchedule,
 } from '@/lib/db/schema.ts';
 import { verifyLineSignature } from '@/lib/line/verify.ts';
 import { extractDraft, mayStoreEventPayload, shouldProcessGroupMessage, splitInstructions } from '@/lib/line/extract.ts';
@@ -926,6 +927,7 @@ async function handleMessage(event: LineEventPayload) {
           dueSource: d.dueSource,
           assigneeName: nameOf(d.assigneeUserId),
           assigneeSource: d.assigneeSource,
+          workspaceName: resolved.dmWorkspaceName,
         }),
       ),
       { workspaceId: resolved.workspaceId },
@@ -1047,6 +1049,8 @@ async function resolveWorkspace(event: LineEventPayload) {
 
   let workspaceId: string | null = null;
   let cutoff = '17:00';
+  // Named on the card in a 1:1 chat, where it was chosen rather than implied.
+  let dmWorkspaceName: string | null = null;
 
   if (groupId) {
     const rows = await db()
@@ -1063,16 +1067,38 @@ async function resolveWorkspace(event: LineEventPayload) {
   } else if (senderLineUserId) {
     // DM fallback: required, not optional, because a group that already has
     // another OA cannot add ทันงาน at all.
+    //
+    // Which workspace? It used to be whichever row came back first — with a
+    // personal and a team workspace, a coin toss. Now: where this person
+    // last worked (member_schedule is touched on every status change), then
+    // the workspace they joined most recently (a team is joined after the
+    // personal one made at first sign-in). The card says which one it chose.
     const rows = await db()
-      .select({ workspaceId: workspaceMember.workspaceId, cutoff: workspace.cutoff })
+      .select({
+        workspaceId: workspaceMember.workspaceId,
+        cutoff: workspace.cutoff,
+        workspaceName: workspace.name,
+      })
       .from(lineUser)
       .innerJoin(workspaceMember, eq(workspaceMember.userId, lineUser.id))
       .innerJoin(workspace, eq(workspace.id, workspaceMember.workspaceId))
+      .leftJoin(
+        memberSchedule,
+        and(
+          eq(memberSchedule.workspaceId, workspaceMember.workspaceId),
+          eq(memberSchedule.userId, workspaceMember.userId),
+        ),
+      )
       .where(eq(lineUser.lineUserId, senderLineUserId))
+      .orderBy(
+        sql`${memberSchedule.updatedAt} desc nulls last`,
+        sql`${workspaceMember.createdAt} desc`,
+      )
       .limit(1);
     if (rows[0]) {
       workspaceId = rows[0].workspaceId;
       cutoff = rows[0].cutoff;
+      dmWorkspaceName = rows[0].workspaceName;
     }
   }
 
@@ -1088,6 +1114,7 @@ async function resolveWorkspace(event: LineEventPayload) {
 
   return {
     workspaceId,
+    dmWorkspaceName,
     cutoff,
     senderUserId: sender?.userId,
     senderName: sender?.nickname || sender?.displayName || '',

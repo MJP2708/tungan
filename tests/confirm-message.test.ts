@@ -91,3 +91,9 @@ test('an empty group explains how to make members known', () => {
   const msg = assigneePicker('d1', [], 'https://x.test') as any;
   assert.match(msg.text, /พิมพ์อะไรก็ได้ในกลุ่ม/);
 });
+
+test('a 1:1 chat card says which workspace the draft went to; a group card does not', () => {
+  const base = { id: 'd', title: 'ส่งรายงาน', dueAt: null, dueSource: null, assigneeName: null, assigneeSource: null };
+  assert.match(confirmBody({ ...base, workspaceName: 'ทีม Ops' }), /ที่: ทีม Ops/);
+  assert.doesNotMatch(confirmBody(base), /ที่:/);
+});

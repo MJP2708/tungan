@@ -16,6 +16,8 @@ export type ConfirmDraft = {
   dueSource: string | null;
   assigneeName: string | null;
   assigneeSource: string | null;
+  /** Set in a 1:1 chat, where the workspace was chosen rather than implied. */
+  workspaceName?: string | null;
 };
 
 /** LINE shows at most 13 quick reply items. */
@@ -33,7 +35,12 @@ export function confirmBody(draft: ConfirmDraft, now = new Date()): string {
   const who = draft.assigneeName
     ? derivation(draft.assigneeSource, draft.assigneeName)
     : 'ยังไม่ระบุ · แตะ เปลี่ยนผู้รับผิดชอบ';
-  return [`งาน: ${draft.title}`, `ใคร: ${who}`, `เมื่อไหร่: ${due}`].join('\n');
+  return [
+    `งาน: ${draft.title}`,
+    `ใคร: ${who}`,
+    `เมื่อไหร่: ${due}`,
+    ...(draft.workspaceName ? [`ที่: ${draft.workspaceName}`] : []),
+  ].join('\n');
 }
 
 function isoLocal(at: Date, timeZone = PRODUCT_TIME_ZONE): string {
