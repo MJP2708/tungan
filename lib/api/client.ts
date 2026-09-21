@@ -127,6 +127,13 @@ export const api = {
       body: JSON.stringify({ workspaceId }),
     }),
 
+  /** Confirm several drafts exactly as read. Each is claimed, so none doubles. */
+  confirmInboxBatch: (ids: string[]) =>
+    request<{ created: number; skipped: number }>('/api/inbox/confirm-batch', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    }),
+
   /** My open tasks in every workspace I belong to. */
   myTasks: () =>
     request<{

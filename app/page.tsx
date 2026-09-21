@@ -1865,6 +1865,25 @@ export default function Home() {
     }
   }
 
+  /** Several drafts that were read correctly: one tap instead of one each. */
+  async function confirmAllCaptures() {
+    const ids = projectCaptures.map((c) => c.id);
+    if (!ids.length) return;
+    setBusy(true);
+    try {
+      const res = await api.confirmInboxBatch(ids);
+      await refreshWorkspace(selectedProject.id);
+      setNotice(
+        res.skipped
+          ? `สร้าง ${res.created} งาน · ${res.skipped} รายการถูกจัดการไปแล้ว`
+          : `สร้าง ${res.created} งานแล้ว`,
+      );
+    } catch (error) {
+      reportError(error, 'ยืนยันไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
+  }
   async function dismissCapture(capture: Capture) {
     setBusy(true);
     try {
@@ -2505,6 +2524,15 @@ export default function Home() {
           นำข้อความเข้า
         </Button>
       </div>
+      {projectCaptures.length >= 2 && (
+        <div className="confirm-all-row">
+          <span>ตรวจแล้วถูกทุกรายการ?</span>
+          <Button variant="outline" disabled={busy} onClick={confirmAllCaptures}>
+            <Check />
+            ยืนยันทั้งหมด {projectCaptures.length} รายการ
+          </Button>
+        </div>
+      )}
       <div className="capture-list">
         {projectCaptures.map((capture) => {
           const assignee = getAssignee(capture);

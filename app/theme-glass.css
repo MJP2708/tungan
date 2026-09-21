@@ -374,3 +374,22 @@
   flex: none;
   color: #9a9a95;
 }
+
+.confirm-all-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 0 0 12px;
+}
+
+.confirm-all-row > span {
+  color: #5c5c58;
+  font-size: 13px;
+}
+
+.confirm-all-row button {
+  min-height: 44px;
+  gap: 6px;
+}
