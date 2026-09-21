@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractDraft, shouldProcessGroupMessage, splitInstructions, TITLE_MAX_LENGTH } from '../lib/line/extract.ts';
+import { extractDraft, mayStoreEventPayload, shouldProcessGroupMessage, splitInstructions, TITLE_MAX_LENGTH } from '../lib/line/extract.ts';
 
 const NOW = new Date('2026-09-01T03:00:00.000Z'); // Tue 1 Sep, 10:00 Bangkok
 const MEMBERS = [
@@ -123,4 +123,19 @@ test('an ordinary title is not truncated', () => {
   const normal = extractDraft('@ทันงาน แก้ artwork ลูกค้า A ส่งศุกร์', { members: [], now: new Date() });
   assert.ok(normal.title.includes('artwork'));
   assert.ok(normal.title.length < 60);
+});
+
+test('a group message that does not tag the bot is never stored, only deduplicated', () => {
+  const group = { type: 'group' };
+  assert.equal(mayStoreEventPayload({ type: 'message', source: group, message: { type: 'text', text: 'ใครว่างบ้าง' } }), false);
+  assert.equal(mayStoreEventPayload({ type: 'message', source: { type: 'room' }, message: { type: 'text', text: 'เดี๋ยวโทรหา' } }), false);
+  assert.equal(mayStoreEventPayload({ type: 'message', source: group, message: { type: 'sticker' } }), false);
+  assert.equal(mayStoreEventPayload({ type: 'message', source: group, message: { type: 'image' } }), false);
+});
+
+test('messages addressed to the bot, DMs and non-message events are kept', () => {
+  assert.equal(mayStoreEventPayload({ type: 'message', source: { type: 'group' }, message: { type: 'text', text: '@ทันงาน ส่งรายงานพรุ่งนี้' } }), true);
+  assert.equal(mayStoreEventPayload({ type: 'message', source: { type: 'user' }, message: { type: 'text', text: 'ส่งรายงานพรุ่งนี้' } }), true);
+  assert.equal(mayStoreEventPayload({ type: 'join', source: { type: 'group' } }), true);
+  assert.equal(mayStoreEventPayload({ type: 'postback', source: { type: 'group' } }), true);
 });

@@ -1,0 +1,64 @@
+/* Scoped to this page so app/globals.css stays untouched. Colours are the
+   brand tokens from CLAUDE.md; light scheme only. */
+.page {
+  min-height: 100dvh;
+  padding: 24px 16px 48px;
+  background: #f7f7f5;
+  color: #090909;
+  color-scheme: light;
+}
+
+.card {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px 20px;
+  background: #ffffff;
+  border: 1px solid #deded9;
+  border-radius: 12px;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.logo {
+  display: block;
+  width: 132px;
+  height: 66px;
+  object-fit: cover;
+  margin-bottom: 12px;
+}
+
+.card h1 {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.meta {
+  margin: 4px 0 8px;
+  font-size: 13px;
+  color: #5c5c58;
+}
+
+.card h2 {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 24px 0 6px;
+}
+
+.card p,
+.card ul {
+  margin: 0;
+}
+
+.card ul {
+  padding-left: 20px;
+}
+
+.card li + li {
+  margin-top: 4px;
+}
+
+.card strong {
+  color: #0080ff;
+  font-weight: 600;
+}

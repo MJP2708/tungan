@@ -15,9 +15,9 @@ import {
   nameCorrection,
 } from '@/lib/db/schema.ts';
 import { verifyLineSignature } from '@/lib/line/verify.ts';
-import { extractDraft, shouldProcessGroupMessage, splitInstructions } from '@/lib/line/extract.ts';
+import { extractDraft, mayStoreEventPayload, shouldProcessGroupMessage, splitInstructions } from '@/lib/line/extract.ts';
 import { fromZonedWallClock } from '@/lib/deadline.ts';
-import { isHelpRequest, helpMessage } from '@/lib/line/help.ts';
+import { isHelpRequest, helpMessage, joinMessage } from '@/lib/line/help.ts';
 import { confirmMessage, confirmBody, assigneePicker } from '@/lib/line/confirm-message.ts';
 import { replyMessage, isFriendOfOa } from '@/lib/line/messaging.ts';
 import { applyTransition, isTransition, type TransitionAction } from '@/lib/tasks/transitions.ts';
@@ -26,6 +26,7 @@ import { undoTaskEvent } from '@/lib/tasks/undo.ts';
 import {
   statusActions, withActions, reasonPrompt, handoffPicker, evidencePrompt, undoAction,
 } from '@/lib/line/status-buttons.ts';
+import { appLink } from '@/lib/deep-link.ts';
 
 // Signature verification needs node crypto's timingSafeEqual.
 export const runtime = 'nodejs';
@@ -137,7 +138,10 @@ async function handleEvent(event: LineEventPayload) {
         sourceId: sourceIdOf(source),
         senderUserId: source?.userId ?? null,
         isRedelivery: Boolean(event.deliveryContext?.isRedelivery),
-        payload: event as unknown as Record<string, unknown>,
+        // The dedup row always; the text only when the message was for us.
+        payload: mayStoreEventPayload(event)
+          ? (event as unknown as Record<string, unknown>)
+          : null,
       });
     } catch {
       // Already seen: a duplicate is a no-op, never a second task.
@@ -214,6 +218,15 @@ async function handleJoin(event: LineEventPayload) {
   const groupId = event.source?.groupId ?? event.source?.roomId;
   if (!groupId) return;
   await ensureGroupKnown(groupId);
+  // Say what the bot reads, keeps and deletes, before anyone has to ask.
+  if (event.replyToken) {
+    const base = (process.env.APP_BASE_URL ?? '').replace(/\/$/, '');
+    await replyMessage(
+      event.replyToken,
+      [{ type: 'text', text: joinMessage({ appUrl: appLink(), privacyUrl: `${base}/privacy` }) }],
+      {},
+    ).catch((error) => console.error('[webhook][processing-error] join reply failed', error));
+  }
 }
 
 /** Returns our internal id for a LINE group, creating the row if needed. */
@@ -377,7 +390,8 @@ async function handleStatusPostback(event: LineEventPayload, params: URLSearchPa
     return;
   }
 
-  const appUrl = (process.env.APP_BASE_URL ?? '').replace(/\/$/, '');
+  // Opens this task in LIFF, already signed in.
+  const appUrl = appLink({ task: taskId });
 
   // Two of the five ask what is wanted before they do anything. Presets, so
   // the answer is still one tap.
@@ -527,7 +541,7 @@ async function handlePostback(event: LineEventPayload) {
     if (event.replyToken) {
       await replyMessage(
         event.replyToken,
-        [assigneePicker(inboxId, members, (process.env.APP_BASE_URL ?? '').replace(/\/$/, ''))],
+        [assigneePicker(inboxId, members, appLink())],
         { workspaceId: item.workspaceId },
       ).catch(() => {});
     }
@@ -646,6 +660,13 @@ async function handleUnsend(event: LineEventPayload) {
     .update(inboxItem)
     .set({ rawMessage: null })
     .where(eq(inboxItem.lineMessageId, messageId));
+  // The webhook event holds the same text verbatim. Clearing only the inbox
+  // copy left it readable for up to seven more days after the person took
+  // the message back.
+  await db()
+    .update(lineEvent)
+    .set({ payload: null })
+    .where(sql`${lineEvent.payload} -> 'message' ->> 'id' = ${messageId}`);
 }
 
 async function handleMessage(event: LineEventPayload) {
@@ -683,7 +704,7 @@ async function handleMessage(event: LineEventPayload) {
         text: helpMessage({
           isGroup,
           bound: Boolean(resolved),
-          appUrl: (process.env.APP_BASE_URL ?? '').replace(/\/$/, ''),
+          appUrl: appLink(),
         }),
       }],
       { workspaceId: resolved?.workspaceId },

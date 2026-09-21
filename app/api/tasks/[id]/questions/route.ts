@@ -7,6 +7,7 @@ import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
 import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { nextWorkingMorning } from '@/lib/reminders/policy.ts';
+import { appLink } from '@/lib/deep-link.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -142,7 +143,7 @@ export async function POST(
           type: 'text',
           text:
             (pending.length > 1 ? `มีคำถามรอคุณ ${pending.length} ข้อ` : 'มีคำถามถึงคุณ') +
-            `\n${lines.join('\n')}\n\nตอบในแอป: ${(process.env.APP_BASE_URL ?? '').replace(/\/$/, '')}`,
+            `\n${lines.join('\n')}\n\nตอบในแอป: ${pending.length > 1 ? appLink() : appLink({ task: id })}`,
         }],
       },
     ).catch((error) => console.error('[questions] notify failed', error));

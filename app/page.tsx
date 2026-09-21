@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import {
   AlertCircle,
@@ -95,6 +95,7 @@ import {
 } from '@/lib/deadline';
 import { th } from 'date-fns/locale';
 import { api, ApiError, newIdempotencyKey } from '@/lib/api/client';
+import { taskIdFromSearch } from '@/lib/deep-link.ts';
 import { useToast, ToastHost } from '@/components/toast-host';
 import * as queue from '@/lib/api/queue';
 import { toUiTask, toUiCapture, toUiMember } from '@/lib/api/adapters';
@@ -410,7 +411,11 @@ export default function Home() {
     { id: string; name: string; bound: boolean; workspaceName: string | null }[]
   >([]);
   const [hydrated, setHydrated] = useState(false);
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  // An id, not a copy. A copy went stale the moment the list refreshed, and
+  // every action then wrote that stale object back (BUG-7).
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
+  const setSelectedTask = (task: Task | null) => setSelectedTaskId(task?.id ?? null);
   const [taskDialog, setTaskDialog] = useState(false);
   const [forwardDialog, setForwardDialog] = useState(false);
   const [clientApprovalOpen, setClientApprovalOpen] = useState(false);
@@ -531,6 +536,15 @@ export default function Home() {
         setCaptures(inboxRes.items.map(toUiCapture) as unknown as Capture[]);
       } catch (error) {
         if (cancelled) return;
+        // The cookie was there but the session behind it has ended. Go and
+        // sign in again, and come back to the same place afterwards.
+        if (error instanceof ApiError && error.status === 401) {
+          const here = window.location.pathname + window.location.search;
+          window.location.replace(
+            here === '/' ? '/login' : `/login?next=${encodeURIComponent(here)}`,
+          );
+          return;
+        }
         setLoadError(
           error instanceof ApiError ? error.message : 'โหลดข้อมูลไม่สำเร็จ',
         );
@@ -545,6 +559,36 @@ export default function Home() {
       cancelled = true;
     };
   }, []);
+
+  // A LINE link to one task: `?task=<id>`, or the same wrapped in liff.state
+  // on the first hop through LIFF. Opened once, after the first load.
+  const deepLinkHandled = useRef(false);
+  useEffect(() => {
+    if (!hydrated || deepLinkHandled.current) return;
+    deepLinkHandled.current = true;
+    const taskId = taskIdFromSearch(window.location.search);
+    if (!taskId) return;
+    // Drop it from the address so a refresh or Back does not reopen it.
+    window.history.replaceState(null, '', window.location.pathname);
+    if (tasks.some((task) => task.id === taskId)) {
+      setSelectedTaskId(taskId);
+      return;
+    }
+    // It lives in another workspace. The server decides whether this person
+    // may see it; the id in the link grants nothing by itself.
+    void (async () => {
+      try {
+        const res = await api.task(taskId);
+        const workspaceId = String(res.task.workspaceId ?? '');
+        if (!workspaceId) return;
+        setSelectedProjectId(workspaceId);
+        await refreshWorkspace(workspaceId);
+        setSelectedTaskId(taskId);
+      } catch (error) {
+        reportError(error, 'เปิดงานจากลิงก์ไม่สำเร็จ');
+      }
+    })();
+  }, [hydrated, tasks]);
 
   useEffect(() => {
     document.documentElement.dataset.motion = settings.reducedMotion
@@ -1111,8 +1155,14 @@ export default function Home() {
     setSelectedProjectId(id);
     setPage('home');
     const nextProject = projects.find((project) => project.id === id);
-    // Fetched on switch, not only at login.
-    if (nextProject && !nextProject.members.length) void loadMembers(id);
+    // Tasks, inbox and members are fetched on switch, not only at login. Only
+    // the workspace open at login used to be loaded, so every other workspace
+    // showed an empty task list.
+    if (id !== 'mine') {
+      void refreshWorkspace(id).catch((error) =>
+        reportError(error, 'โหลดพื้นที่งานไม่สำเร็จ'),
+      );
+    }
     setNotice(`เปลี่ยนเป็น ${nextProject?.name || 'พื้นที่งานใหม่'} แล้ว`);
   }
   function loginWithLine() {
@@ -2665,7 +2715,10 @@ export default function Home() {
           <span>
             <Sparkles />
           </span>
-          <h3>เร็ว ๆ นี้</h3>
+          <h3>AI ยังไม่เชื่อมต่อ</h3>
+          <p>
+            เมื่อเปิดใช้ AI จะช่วยอ่านข้อความที่ระบบอ่านไม่ออก แล้วให้คุณยืนยันก่อนสร้างงานทุกครั้ง
+          </p>
           {schedule && (
             <div className="connection-row">
               <span>
@@ -2688,18 +2741,7 @@ export default function Home() {
               </Badge>
             </div>
           )}
-          <p className="connection-notice">ยังไม่ส่งข้อความหรือเรียกใช้ AI</p>
-          <div className="ai-suggestions">
-            <button disabled>สรุปงานที่ต้องทำวันนี้</button>
-            <button disabled>มีงานไหนเสี่ยงเกินกำหนด</button>
-            <button disabled>ช่วยแบ่งงานให้ทีม</button>
-          </div>
-        </div>
-        <div className="ai-composer">
-          <Input disabled placeholder="รอเชื่อมต่อ AI จริงก่อนเริ่มคุย" />
-          <Button disabled aria-label="ส่งข้อความ">
-            <Send />
-          </Button>
+          <p className="connection-notice">ยังไม่ส่งข้อความใดไปให้ AI</p>
         </div>
       </section>
     </section>

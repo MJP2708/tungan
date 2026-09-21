@@ -6,7 +6,8 @@ import { lineUser, workspace, workspaceMember } from '@/lib/db/schema.ts';
 import { exchangeCode, verifyLineIdToken } from '@/lib/line/verify.ts';
 import { createSession } from '@/lib/auth/session.ts';
 import { syncGroupMemberships } from '@/lib/auth/membership.ts';
-import { callbackUrl } from '../start/route.ts';
+import { callbackUrl, NEXT_COOKIE } from '../start/route.ts';
+import { safeNextPath } from '@/lib/deep-link.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,7 +30,8 @@ export async function GET(req: Request) {
   const expectedState = jar.get(STATE_COOKIE)?.value;
   const expectedNonce = jar.get(NONCE_COOKIE)?.value;
   const codeVerifier = jar.get(VERIFIER_COOKIE)?.value;
-  for (const name of [STATE_COOKIE, NONCE_COOKIE, VERIFIER_COOKIE]) jar.delete(name);
+  const next = safeNextPath(jar.get(NEXT_COOKIE)?.value);
+  for (const name of [STATE_COOKIE, NONCE_COOKIE, VERIFIER_COOKIE, NEXT_COOKIE]) jar.delete(name);
 
   // The user pressed cancel, or LINE returned an error.
   const lineError = url.searchParams.get('error');
@@ -76,7 +78,7 @@ export async function GET(req: Request) {
         : 'session_failed';
     return backToLogin(req, reason);
   }
-  return NextResponse.redirect(new URL('/', req.url));
+  return NextResponse.redirect(new URL(next, req.url));
 }
 
 async function upsertUserAndSession(identity: {

@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { safeNextPath } from '@/lib/deep-link.ts';
+import { LiffSignIn } from './liff-sign-in.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,9 +17,10 @@ const MESSAGES: Record<string, string> = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; next?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, next: rawNext } = await searchParams;
+  const next = safeNextPath(rawNext);
   const message = error ? (MESSAGES[error] ?? error) : null;
 
   return (
@@ -35,12 +38,18 @@ export default async function LoginPage({
           <h1>งานจาก LINE ไม่หล่น</h1>
         </div>
         <p>เข้าสู่ระบบด้วยบัญชี LINE เพื่อดูงานของคุณ</p>
+        {!message && <LiffSignIn next={next} />}
         {message && (
           <p className="entry-error" role="alert">
             {message}
           </p>
         )}
-        <Link className="auth-line-button" href="/api/auth/line/start">
+        <Link className="auth-line-button" href={
+            next === '/'
+              ? '/api/auth/line/start'
+              : `/api/auth/line/start?next=${encodeURIComponent(next)}`
+          }
+        >
           เข้าสู่ระบบด้วย LINE
         </Link>
       </section>

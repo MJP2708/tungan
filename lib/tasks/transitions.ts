@@ -10,6 +10,7 @@ import { checkEvidenceLink } from '../evidence/check-link.ts';
 import { isSafeHttpUrl } from '../url.ts';
 import { audienceLabel, defaultVisibilityFor, normalizeVisibility } from '../events/visibility.ts';
 import { BLOCKED_REASONS, isBlockedReason } from './reasons.ts';
+import { appLink } from '@/lib/deep-link.ts';
 
 /**
  * Every way a task can move, in one place.
@@ -481,7 +482,7 @@ export async function applyTransition(params: {
         text:
           (waiting.length > 1 ? `มีงานส่งต่อรอคุณรับ ${waiting.length} งาน` : 'มีงานส่งต่อถึงคุณ') +
           `\n${waiting.map((w) => `• ${w.title}`).join('\n')}` +
-          `\n\nกดรับหรือปฏิเสธในแอป: ${(process.env.APP_BASE_URL ?? '').replace(/\/$/, '')}`,
+          `\n\nกดรับหรือปฏิเสธในแอป: ${waiting.length > 1 ? appLink() : appLink({ task: taskId })}`,
       }],
     }).catch((error) => console.error('[handoff] notify failed', error));
   }

@@ -4,6 +4,7 @@ import { db } from '../db/index.ts';
 import { reminder, task, lineUser, workspace } from '../db/schema.ts';
 import { pushToUser, usedThisMonth, billingMonth } from '../line/messaging.ts';
 import { formatDeadline } from '../deadline.ts';
+import { appLink } from '../deep-link.ts';
 
 /** How long a runner owns the rows it claimed. */
 const LEASE_MINUTES = 5;
@@ -134,11 +135,16 @@ export async function dispatchDueReminders(
       );
     }
     const notice = capNotices.get(workspaceId);
+    // One task opens straight onto it; a digest opens the app. Same message,
+    // so the link costs nothing extra against the quota.
+    const taskIds = [...new Set(rows.map((r) => r.task_id).filter(Boolean))] as string[];
+    const link = taskIds.length === 1 ? appLink({ task: taskIds[0] }) : appLink();
     const text =
       sections.join('\n\n') +
       // Say it in the message itself. A quieter bot with no explanation reads
       // as a broken bot.
-      (notice ? `\n\n(${notice})` : '');
+      (notice ? `\n\n(${notice})` : '') +
+      `\n\nเปิดในแอป: ${link}`;
 
     const outcome = await pushToUser(
       { workspaceId, recipientUserId, messages: [{ type: 'text', text }], taskId: rows[0].task_id ?? undefined },

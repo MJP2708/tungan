@@ -10,11 +10,13 @@ const SESSION_COOKIE = 'tungan_session';
  * in the route handlers by requireSession(), which is the real boundary. A
  * middleware database call would run on every asset request.
  */
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   const isPublic =
     pathname === '/login' ||
+    // Linked from the bot's join message; people read it before signing in.
+    pathname === '/privacy' ||
     pathname.startsWith('/api/auth/line') ||
     // LINE calls this one with a signature, not a session.
     pathname.startsWith('/api/webhooks/') ||
@@ -35,6 +37,10 @@ export function middleware(req: NextRequest) {
     const url = req.nextUrl.clone();
     url.pathname = '/login';
     url.search = '';
+    // Keep where they were going: a LINE link to one task must still open
+    // that task after signing in. /login validates it before using it.
+    const destination = pathname + req.nextUrl.search;
+    if (destination !== '/') url.searchParams.set('next', destination);
     return NextResponse.redirect(url);
   }
 

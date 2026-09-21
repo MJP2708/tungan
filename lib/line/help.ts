@@ -73,3 +73,28 @@ export function helpMessage(ctx: HelpContext): string {
     'ดูงานทั้งหมด: ' + ctx.appUrl,
   ].join('\n');
 }
+
+/**
+ * The first thing the bot says in a new group, answered with the join event's
+ * reply token so it costs nothing against the quota.
+ *
+ * A bot that joins silently reads as a bot that is quietly listening. The
+ * three promises here are the ones the code keeps: only tagged messages are
+ * stored, their text goes within seven days or on unsend, and reminders are
+ * private. Say nothing here that the webhook does not actually do.
+ */
+export function joinMessage(ctx: { appUrl: string; privacyUrl: string }): string {
+  return [
+    'สวัสดีครับ ผมคือทันงาน',
+    'ผมเปลี่ยนข้อความที่ติด @ทันงาน ให้เป็นงานที่มีคนรับผิดชอบและกำหนดส่ง',
+    '',
+    '• อ่านและเก็บเฉพาะข้อความที่ติด @ทันงาน ข้อความอื่นในกลุ่มไม่เก็บ',
+    '• ข้อความต้นฉบับลบภายใน 7 วัน หรือทันทีที่ยกเลิกการส่ง',
+    '• เตือนงานทางแชทส่วนตัว ไม่ประกาศในกลุ่ม',
+    '',
+    'เริ่มใช้: เปิดแอปแล้วเชื่อมกลุ่มนี้กับพื้นที่งาน',
+    ctx.appUrl,
+    '',
+    'ความเป็นส่วนตัว: ' + ctx.privacyUrl,
+  ].join('\n');
+}

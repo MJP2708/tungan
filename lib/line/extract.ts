@@ -152,6 +152,26 @@ export function shouldProcessGroupMessage(
   return BOT_MENTION.test(text ?? '');
 }
 
+/**
+ * May the raw webhook event be kept at all?
+ *
+ * LINE delivers every message in a group the bot has joined. The dedup row
+ * has to be written for all of them, but the text of a group message that
+ * does not tag the bot is none of our business: it is never read back, so
+ * keeping it for seven days is liability with no use. Only the text of
+ * messages addressed to us is stored. Stickers and images cannot tag anyone,
+ * so in a group they are never kept either.
+ */
+export function mayStoreEventPayload(event: {
+  type?: string;
+  source?: { type?: string };
+  message?: { type?: string; text?: string };
+}): boolean {
+  const inGroup = event.source?.type === 'group' || event.source?.type === 'room';
+  if (event.type !== 'message' || !inGroup) return true;
+  return event.message?.type === 'text' && shouldProcessGroupMessage(event.message.text ?? '');
+}
+
 
 /**
  * Split a message that contains more than one instruction.

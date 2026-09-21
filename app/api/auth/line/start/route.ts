@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { randomBytes, createHash } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { buildAuthorizeUrl } from '@/lib/line/verify.ts';
+import { safeNextPath } from '@/lib/deep-link.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,6 +10,8 @@ export const dynamic = 'force-dynamic';
 const STATE_COOKIE = 'tungan_oauth_state';
 const NONCE_COOKIE = 'tungan_oauth_nonce';
 const VERIFIER_COOKIE = 'tungan_oauth_verifier';
+/** Where to land after login. Validated here and again in the callback. */
+export const NEXT_COOKIE = 'tungan_oauth_next';
 
 /** Web LINE Login, for a normal browser outside LIFF. */
 export async function GET(req: Request) {
@@ -35,6 +38,9 @@ export async function GET(req: Request) {
   jar.set(STATE_COOKIE, state, opts);
   jar.set(NONCE_COOKIE, nonce, opts);
   jar.set(VERIFIER_COOKIE, codeVerifier, opts);
+  const next = safeNextPath(new URL(req.url).searchParams.get('next'));
+  if (next !== '/') jar.set(NEXT_COOKIE, next, opts);
+  else jar.delete(NEXT_COOKIE);
 
   const url = buildAuthorizeUrl({
     channelId,
