@@ -1,0 +1,29 @@
+<!doctype html><html lang="th"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@500;600&display=block" rel="stylesheet">
+<style>
+  html,body{margin:0;width:2500px;height:843px;overflow:hidden}
+  body{font-family:Prompt,sans-serif;color:#090909;
+    background:
+      radial-gradient(900px 600px at 8% 10%, #cfe6ff 0%, transparent 60%),
+      radial-gradient(800px 560px at 55% 110%, #e6dcff 0%, transparent 62%),
+      radial-gradient(760px 520px at 96% 0%, #ffe1d2 0%, transparent 60%),
+      #f7f7f5;}
+  .dots{position:absolute;inset:0;opacity:.35;
+    background-image:radial-gradient(#0080ff 1.6px, transparent 1.8px);background-size:22px 22px;
+    -webkit-mask-image:linear-gradient(115deg, transparent 35%, #000 70%, transparent 95%);}
+  .grid{position:absolute;inset:44px;display:grid;grid-template-columns:repeat(3,1fr);gap:40px}
+  .tile{border-radius:56px;background:rgba(255,255,255,.72);border:3px solid rgba(255,255,255,.9);
+    box-shadow:0 30px 70px rgba(9,9,9,.10), inset 0 3px 0 rgba(255,255,255,.95);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:38px}
+  .icon{width:190px;height:190px;border-radius:52px;display:grid;place-items:center;background:rgba(0,128,255,.10)}
+  svg{width:112px;height:112px;stroke:#0080ff;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .label{font-size:96px;font-weight:600;letter-spacing:0;line-height:1}
+  .sub{font-size:52px;font-weight:500;color:#5c5c58;margin-top:-14px}
+</style></head><body><div class="dots"></div><div class="grid">
+  <div class="tile"><div class="icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M8 2v4M16 2v4M3 10h18M8 15l2.5 2.5L16 13"/></svg></div>
+    <div class="label">งานของฉัน</div><div class="sub">เปิดแอป</div></div>
+  <div class="tile"><div class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 1 1 3.6 2.4c-.7.3-1.1.9-1.1 1.6v.6M12 17h.01"/></svg></div>
+    <div class="label">วิธีใช้</div><div class="sub">พิมพ์งานยังไง</div></div>
+  <div class="tile"><div class="icon"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+    <div class="label">ความเป็นส่วนตัว</div><div class="sub">บอทอ่านอะไร</div></div>
+</div></body></html>
