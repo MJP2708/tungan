@@ -11,6 +11,14 @@ export const appNavigation = [
 ] as const;
 
 export type Page = (typeof appNavigation)[number]['page'];
+/**
+ * Shorter labels for the phone's bottom bar only (master plan §4/§5). Five
+ * items share ~350px there; the sidebar keeps the full wording.
+ */
+export const mobileNavLabels: Partial<Record<Page, string>> = {
+  inbox: 'LINE',
+  reminders: 'เตือน',
+};
 export const mobilePrimaryPages: readonly Page[] = [
   'home',
   'inbox',

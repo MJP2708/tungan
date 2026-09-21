@@ -36,9 +36,23 @@ LINE channels, the Neon project, and all cloud resources, then hands over IDs.
 
 ## Visual constraints — treat any difference as a bug
 
-- Brand blue **#0080ff only**. No other blue or violet.
-- bg `#f7f7f5`, fg `#090909`, card `#ffffff`, border `#deded9`.
+- Brand blue **#0080ff** is the only blue for anything interactive or stateful:
+  buttons, links, focus rings, active nav, selected states, badges' brand uses.
+  *Relaxed 2026-09-21:* pastel blues and violets are allowed in **decoration
+  only** — backdrop gradients, heat-map / airbrush washes, halftone, soft-focus
+  shapes. Never on text, controls or state.
+- bg `#f7f7f5`, fg `#090909`, card `#ffffff`, border `#deded9` remain the base
+  tokens. Glass surfaces are translucent versions of card over the backdrop.
 - Light `color-scheme` only. **No dark mode.**
+- **Glass redesign (decided 2026-09-21, ships before 30 Sep):** frosted/liquid
+  glass surfaces, halftone, soft airbrush, soft-focus pastel, heat-map
+  gradients — built in **CSS/SVG only**, no image assets. Lives in
+  `app/theme-glass.css`, imported **after** `globals.css`; removing that import
+  must restore the old look exactly. Every `backdrop-filter` needs a solid
+  fallback (`@supports not (backdrop-filter: blur(1px))`) for low-end LINE
+  WebViews. Mobile nav: floating frosted capsule, icon over bold label, active
+  item on an inner pill, red count badges — the five items stay วันนี้ / LINE /
+  งาน / เตือน / เพิ่มเติม.
 - `app/globals.css` stays untouched: override order, specificity, layers and
   `!important` all matter. It is 5,663 lines with 127 `!important` and **zero
   `@layer`**, so the cascade rests entirely on source order and the three

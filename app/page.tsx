@@ -102,6 +102,7 @@ import { toUiTask, toUiCapture, toUiMember } from '@/lib/api/adapters';
 import {
   appNavigation,
   mobilePrimaryPages,
+  mobileNavLabels,
   defaultSettings,
   normalizeSettings,
   visibleInTaskList,
@@ -3417,9 +3418,11 @@ export default function Home() {
                 onClick={() => navigate(item)}
               >
                 <Icon />
-                {label}
+                <span>{mobileNavLabels[item] ?? label}</span>
                 {item === 'inbox' && projectCaptures.length > 0 && (
-                  <i>{projectCaptures.length}</i>
+                  <i aria-label={`${projectCaptures.length} ข้อความรอตรวจ`}>
+                    {projectCaptures.length > 99 ? '99+' : projectCaptures.length}
+                  </i>
                 )}
               </button>
             );
@@ -3433,7 +3436,7 @@ export default function Home() {
           aria-label="เมนูทั้งหมด"
         >
           <Menu />
-          เพิ่มเติม
+          <span>เพิ่มเติม</span>
         </button>
       </nav>
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
