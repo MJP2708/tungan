@@ -133,3 +133,80 @@
     background: rgba(255, 255, 255, 0.97);
   }
 }
+
+/* ── Edit entry points ─────────────────────────────────────────────────── */
+.edit-task-button {
+  width: 100%;
+  min-height: 48px;
+  gap: 8px;
+  border-radius: 14px;
+  font-weight: 600;
+}
+
+.capture-edit-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.capture-edit-link svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+/* Toasts sit above the floating nav, not the old full-width bar. */
+@media (max-width: 760px) {
+  :root {
+    --mobile-nav-height: calc(var(--nav-height) + var(--nav-float-gap));
+  }
+}
+
+/* ── Action sheet (replaces window.prompt) ─────────────────────────────── */
+.action-sheet-dialog .day-presets button {
+  min-height: 48px;
+}
+
+.action-sheet-dialog .schedule-fields {
+  display: grid;
+  gap: 12px;
+}
+
+.stack-form .share-toggle-row {
+  display: flex;
+  /* .stack-form label stacks its children; this row puts the switch beside
+     its text. */
+  flex-direction: row;
+  text-align: left;
+  min-height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid #deded9;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.stack-form .share-toggle-row > span {
+  display: grid;
+  gap: 2px;
+}
+
+.share-toggle-row strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.share-toggle-row small {
+  color: #5c5c58;
+  font-size: 12px;
+}

@@ -39,6 +39,7 @@ import {
   UserRound,
   X,
   Hourglass,
+  PencilLine,
 } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -98,6 +99,7 @@ import { api, ApiError, newIdempotencyKey } from '@/lib/api/client';
 import { taskIdFromSearch } from '@/lib/deep-link.ts';
 import { BLOCKED_REASONS } from '@/lib/tasks/reasons';
 import { initialsFor } from '@/lib/initials';
+import { mayEditTaskFields } from '@/lib/tasks/permissions';
 import { useToast, ToastHost } from '@/components/toast-host';
 import * as queue from '@/lib/api/queue';
 import { toUiTask, toUiCapture, toUiMember } from '@/lib/api/adapters';
@@ -302,6 +304,28 @@ function EmptyState({ title, body }: { title: string; body: string }) {
   );
 }
 
+/** A stored instant as the date and HH:MM a person in Bangkok would read. */
+function bangkokWallClock(iso: string) {
+  const at = new Date(iso);
+  if (!Number.isFinite(at.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Bangkok',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(at);
+  const n = (type: string) => parts.find((p) => p.type === type)?.value ?? '00';
+  return {
+    year: Number(n('year')),
+    month: Number(n('month')),
+    day: Number(n('day')),
+    time: `${n('hour')}:${n('minute')}`,
+  };
+}
+
 /** Device preferences, saved per phone. */
 const SETTINGS_KEY = 'tungan-device-settings-v1';
 
@@ -453,6 +477,34 @@ export default function Home() {
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
   const setSelectedTask = (task: Task | null) => setSelectedTaskId(task?.id ?? null);
   const [taskDialog, setTaskDialog] = useState(false);
+  // The same entry sheet edits an existing task or corrects a LINE draft
+  // before it becomes one. Null means "create a new task".
+  const [editTarget, setEditTarget] = useState<
+    { kind: 'task'; task: Task } | { kind: 'capture'; capture: Capture } | null
+  >(null);
+  // Editing must not invent a deadline: it is only sent if the person
+  // actually touched the deadline controls.
+  const [dueTouched, setDueTouched] = useState(false);
+  // One themed sheet for the small decisions that used to be window.prompt:
+  // ติดปัญหา, ขอข้อมูล, ขอแก้ไข, answering, working hours. In LINE's WebView
+  // those were grey browser boxes asking people to type a NUMBER to pick a
+  // reason or a person.
+  const [actionSheet, setActionSheet] = useState<
+    | { kind: 'blocked'; task: Task }
+    | { kind: 'ask'; task: Task }
+    | { kind: 'revision'; task: Task }
+    | { kind: 'answer'; questionId: string; question: string }
+    | { kind: 'schedule' }
+    | null
+  >(null);
+  const [sheetReason, setSheetReason] = useState('');
+  const [sheetShare, setSheetShare] = useState(false);
+  const [sheetPerson, setSheetPerson] = useState('');
+  const [sheetDays, setSheetDays] = useState(2);
+  const [sheetStart, setSheetStart] = useState('09:00');
+  const [sheetEnd, setSheetEnd] = useState('18:00');
+  const [sheetText, setSheetText] = useState('');
+  const [sheetError, setSheetError] = useState('');
   const [forwardDialog, setForwardDialog] = useState(false);
   const [clientApprovalOpen, setClientApprovalOpen] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
@@ -635,19 +687,49 @@ export default function Home() {
     };
   }, [settings.reducedMotion]);
   useEffect(() => {
-    if (taskDialog) {
-      setTaskError(null);
-      setTaskAssignee(
-        taskProject.members[0] ? `member:${taskProject.members[0].id}` : '',
-      );
-      setTaskPriority('normal');
-      setTaskDueDay('today');
-      setTaskTime(settings.cutoff);
-      setTaskDate(undefined);
-      setDeadlineMode('picker');
-      setNaturalDeadline('');
+    if (!taskDialog) {
+      // Cleared after the close animation, so the closing sheet does not
+      // flash "สร้างงาน" over the task that was just edited.
+      const t = window.setTimeout(() => setEditTarget(null), 300);
+      return () => window.clearTimeout(t);
     }
-  }, [taskDialog, taskProject.id, settings.cutoff]);
+    setTaskError(null);
+    setDeadlineMode('picker');
+    setNaturalDeadline('');
+    setDueTouched(false);
+    const editing =
+      editTarget?.kind === 'task'
+        ? { assignee: editTarget.task.assigneeId, dueAt: editTarget.task.dueAt, priority: editTarget.task.priority }
+        : editTarget?.kind === 'capture'
+          ? { assignee: editTarget.capture.assigneeId, dueAt: editTarget.capture.dueAt, priority: 'normal' as Priority }
+          : null;
+    if (editing) {
+      setTaskAssignee(editing.assignee ? `member:${editing.assignee}` : '');
+      setTaskPriority(editing.priority);
+      const wall = editing.dueAt ? bangkokWallClock(editing.dueAt) : null;
+      // Shown as the date it already has, so saving without touching it
+      // changes nothing.
+      // Highlight a quick button when the date is one of them, rather than
+      // opening the full calendar for "tomorrow".
+      const preset = wall
+        ? (['today', 'tomorrow', 'friday', 'nextweek'] as const).find((key) => {
+            const d = quickDayDate(key, { now, endOfDay: settings.cutoff });
+            return d.year === wall.year && d.month === wall.month && d.day === wall.day;
+          })
+        : undefined;
+      setTaskDueDay(preset ?? (wall ? 'later' : 'today'));
+      setTaskDate(wall && !preset ? new Date(wall.year, wall.month - 1, wall.day) : undefined);
+      setTaskTime(wall ? wall.time : settings.cutoff);
+      return;
+    }
+    setTaskAssignee(
+      taskProject.members[0] ? `member:${taskProject.members[0].id}` : '',
+    );
+    setTaskPriority('normal');
+    setTaskDueDay('today');
+    setTaskTime(settings.cutoff);
+    setTaskDate(undefined);
+  }, [taskDialog, taskProject.id, settings.cutoff, editTarget]);
   useEffect(() => {
     if (!selectedTask) {
       setHistory([]);
@@ -815,22 +897,11 @@ export default function Home() {
   }
 
   /** Your own hours only — a schedule you cannot see or change is surveillance. */
-  async function editSchedule() {
+  function editSchedule() {
     if (!schedule) return;
-    const startsAt = window.prompt('เริ่มทำงานกี่โมง (HH:MM)', schedule.startsAt);
-    if (!startsAt) return;
-    const endsAt = window.prompt('เลิกงานกี่โมง (HH:MM)', schedule.endsAt);
-    if (!endsAt) return;
-    setBusy(true);
-    try {
-      await api.setSchedule(selectedProject.id, startsAt, endsAt);
-      await refreshSchedule();
-      setNotice('บันทึกเวลาทำงานแล้ว · การเตือนจะใช้เวลานี้');
-    } catch (error) {
-      reportError(error, 'บันทึกเวลาทำงานไม่สำเร็จ');
-    } finally {
-      setBusy(false);
-    }
+    openActionSheet({ kind: 'schedule' });
+    setSheetStart(schedule.startsAt);
+    setSheetEnd(schedule.endsAt);
   }
 
   async function refreshBlocked(workspaceId = selectedProject.id) {
@@ -866,23 +937,9 @@ export default function Home() {
     }
   }
 
-  async function answerQuestion(questionId: string) {
-    const answer = window.prompt('ตอบว่าอะไร');
-    if (!answer?.trim()) return;
-    setBusy(true);
-    try {
-      await api.answerQuestion(questionId, answer.trim());
-      if (selectedTask) {
-        const res = await api.questions(selectedTask.id);
-        setQuestions(res.questions);
-        await refreshWorkspace(selectedTask.projectId);
-      }
-      setNotice('ตอบแล้ว · งานกลับไปที่ผู้รับผิดชอบ');
-    } catch (error) {
-      reportError(error, 'ตอบไม่สำเร็จ');
-    } finally {
-      setBusy(false);
-    }
+  function answerQuestion(questionId: string) {
+    const q = questions.find((item) => item.id === questionId);
+    openActionSheet({ kind: 'answer', questionId, question: q?.question ?? '' });
   }
 
   function openTaskById(id: string) {
@@ -1045,6 +1102,23 @@ export default function Home() {
       assigneeType: task.primaryAssigneeType || task.assigneeType,
       assigneeId: task.primaryAssigneeId || task.assigneeId,
     });
+  }
+  /**
+   * May this person change the task's details (title, deadline, assignee)?
+   * The server's rule, shared from lib/tasks/permissions.ts, so the button
+   * is offered to exactly the people the edit route accepts — including the
+   * person who assigned it and workspace managers, who do not do the work.
+   */
+  function canEditFields(task: Task) {
+    const role = selectedProject.members.find((m) => m.id === meUserId)?.role ?? 'member';
+    return mayEditTaskFields(
+      {
+        assigneeUserId: task.assigneeId || null,
+        primaryAssigneeUserId: task.primaryAssigneeId || null,
+        createdByUserId: task.createdById ?? null,
+      },
+      { userId: meUserId, role },
+    );
   }
   function canEditTask(task: Task) {
     const primaryType = task.primaryAssigneeType || task.assigneeType;
@@ -1394,8 +1468,21 @@ export default function Home() {
     } = {},
     successText = 'อัปเดตแล้ว',
   ) {
-    if (!canEditTask(task) && task.pendingAssigneeId !== meUserId)
-      return setNotice('งานนี้ดูได้อย่างเดียว เพราะคุณไม่ใช่ผู้รับผิดชอบ');
+    // Reviewing is a different right from doing the work: the person who
+    // approves or asks for changes is normally NOT the assignee. This guard
+    // used to require the assignee for every action, so อนุมัติ and ขอแก้
+    // never reached the server for the reviewer they are meant for.
+    const isReview = action === 'approve' || action === 'revision';
+    const allowed = isReview
+      ? canReviewTask(task)
+      : canEditTask(task) || task.pendingAssigneeId === meUserId;
+    if (!allowed) {
+      return setNotice(
+        isReview
+          ? 'ตรวจงานได้เฉพาะผู้สั่งงานหรือผู้ดูแลพื้นที่งาน'
+          : 'งานนี้ดูได้อย่างเดียว เพราะคุณไม่ใช่ผู้รับผิดชอบ',
+      );
+    }
 
     const OPTIMISTIC_STATUS: Partial<Record<typeof action, Status>> = {
       accept: 'progress',
@@ -1474,30 +1561,11 @@ export default function Home() {
 
   function updateStatus(task: Task, status: Status) {
     if (status === 'blocked') {
-      // A preset, so blocked work is countable. Free text stays optional:
-      // a required prose field becomes "-" and stops meaning anything.
-      const reasons: readonly string[] = BLOCKED_REASONS;
-      const pick = window.prompt(
-        `ติดเพราะอะไร\n${reasons.map((r, i) => `${i + 1}. ${r}`).join('\n')}`,
-      );
-      const reason = reasons[Number(pick) - 1];
-      if (!reason) return;
-      const note = window.prompt('เพิ่มรายละเอียด (ไม่ใส่ก็ได้)') ?? '';
-      // Private by default, and the person writing it is told so before they
-      // write. Asked as an opt-IN to sharing rather than an opt-out of
-      // privacy: the default has to be the one you get by saying nothing.
-      const share = window.confirm(
-        'บันทึกนี้จะเห็นเฉพาะคุณกับหัวหน้า\n\n' +
-          'กด OK ถ้าอยากให้ทุกคนในพื้นที่งานเห็นด้วย\n' +
-          'กด Cancel เพื่อเก็บเป็นส่วนตัว (แนะนำ)\n\n' +
-          'ไม่ว่าเลือกแบบไหน ทีมจะเห็นว่างานนี้ติดปัญหาอยู่ แต่ไม่เห็นเหตุผล',
-      );
-      return moveTask(
-        task,
-        'blocked',
-        { reason, note: note.trim(), visibility: share ? 'workspace' : 'private' },
-        share ? 'แจ้งว่าติดปัญหาแล้ว · ทุกคนในพื้นที่งานเห็นเหตุผล' : 'แจ้งว่าติดปัญหาแล้ว · เห็นเฉพาะคุณกับหัวหน้า',
-      );
+      // Preset reasons as one tap each, so blocked work is countable. Free
+      // text stays optional, and the note is private unless the person opts
+      // in to sharing it — the default is the one you get by doing nothing.
+      openActionSheet({ kind: 'blocked', task });
+      return;
     }
     return moveTask(task, 'accept', {}, 'อัปเดตสถานะเรียบร้อย');
   }
@@ -1527,29 +1595,13 @@ export default function Home() {
    * Without a name it is the old behaviour: a label that reaches nobody, and
    * the delay reads as the assignee's fault.
    */
-  async function requestMoreInfo(task: Task) {
+  function requestMoreInfo(task: Task) {
     const others = selectedProject.members.filter((m) => m.id !== meUserId);
     if (!others.length) {
       return setNotice('ยังไม่รู้จักใครในพื้นที่งานนี้ ให้เขาพิมพ์ในกลุ่มหรือเข้าแอปก่อน');
     }
-    const list = others.map((m, i) => `${i + 1}. ${m.nickname}`).join('\n');
-    const pick = window.prompt(`ถามใคร\n${list}`);
-    const index = Number(pick) - 1;
-    const target = others[index];
-    if (!target) return;
-    const question = window.prompt(`ถาม ${target.nickname} ว่าอะไร`);
-    if (!question?.trim()) return;
-    setBusy(true);
-    try {
-      await api.askQuestion(task.id, target.id, question.trim());
-      await refreshWorkspace(task.projectId);
-      setSelectedTask(null);
-      setNotice(`ส่งคำถามถึง ${target.nickname} แล้ว · งานนี้รอเขาอยู่`);
-    } catch (error) {
-      reportError(error, 'ส่งคำถามไม่สำเร็จ');
-    } finally {
-      setBusy(false);
-    }
+    openActionSheet({ kind: 'ask', task });
+    setSheetPerson(`member:${others[0].id}`);
   }
   function submitForReview(task: Task) {
     const evidenceUrl = task.evidence[0]?.url;
@@ -1566,18 +1618,91 @@ export default function Home() {
       setClientApprovalOpen(false),
     );
   }
-  function requestRevision(task: Task, client = false) {
-    const note = window.prompt('ต้องแก้อะไร');
-    if (!note?.trim()) return;
-    // A new deadline is required: reopening on the old one means the task is
-    // born overdue, which makes every "เกินกำหนด" number untrustworthy.
-    const days = window.prompt('ให้เวลาแก้กี่วัน', '2');
-    const n = Number(days);
-    if (!Number.isFinite(n) || n <= 0) return setNotice('ใส่จำนวนวันเป็นตัวเลข');
-    const dueAt = new Date(now.getTime() + n * 86400000).toISOString();
-    return moveTask(
-      task, 'revision', { note: note.trim(), dueAt } as never, 'ส่งกลับพร้อมกำหนดใหม่แล้ว',
-    ).then(() => setClientApprovalOpen(false));
+  function requestRevision(task: Task, _client = false) {
+    openActionSheet({ kind: 'revision', task });
+  }
+
+  function openActionSheet(next: NonNullable<typeof actionSheet>) {
+    setSheetReason('');
+    setSheetShare(false);
+    setSheetPerson('');
+    setSheetDays(2);
+    setSheetText('');
+    setSheetError('');
+    setActionSheet(next);
+  }
+
+  /** The new deadline a revision gets: N days out, at the end of that day. */
+  function revisionDueAt(days: number) {
+    const target = zonedDateParts(new Date(now.getTime() + days * 86400000));
+    const [hour, minute] = settings.cutoff.split(':').map(Number);
+    return fromZonedWallClock(target.year, target.month, target.day, hour, minute);
+  }
+
+  async function submitActionSheet(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const sheet = actionSheet;
+    if (!sheet) return;
+    const text = sheetText.trim();
+    const fail = (message: string) => setSheetError(message);
+
+    if (sheet.kind === 'blocked') {
+      if (!sheetReason) return fail('เลือกว่าติดเพราะอะไร');
+      setActionSheet(null);
+      return moveTask(
+        sheet.task,
+        'blocked',
+        { reason: sheetReason, note: text, visibility: sheetShare ? 'workspace' : 'private' },
+        sheetShare
+          ? 'แจ้งว่าติดปัญหาแล้ว · ทุกคนในพื้นที่งานเห็นเหตุผล'
+          : 'แจ้งว่าติดปัญหาแล้ว · เห็นเฉพาะคุณกับหัวหน้า',
+      );
+    }
+    if (sheet.kind === 'revision') {
+      if (!text) return fail('บอกด้วยว่าต้องแก้อะไร');
+      setActionSheet(null);
+      return moveTask(
+        sheet.task,
+        'revision',
+        { note: text, dueAt: revisionDueAt(sheetDays).toISOString() } as never,
+        'ส่งกลับพร้อมกำหนดใหม่แล้ว',
+      ).then(() => setClientApprovalOpen(false));
+    }
+
+    setBusy(true);
+    try {
+      if (sheet.kind === 'ask') {
+        const targetId = sheetPerson.split(':')[1];
+        const target = selectedProject.members.find((m) => m.id === targetId);
+        if (!target) return fail('เลือกว่าจะถามใคร');
+        if (!text) return fail('พิมพ์คำถามก่อน');
+        await api.askQuestion(sheet.task.id, target.id, text);
+        await refreshWorkspace(sheet.task.projectId);
+        setActionSheet(null);
+        setSelectedTask(null);
+        setNotice(`ส่งคำถามถึง ${target.nickname} แล้ว · งานนี้รอเขาอยู่`);
+      } else if (sheet.kind === 'answer') {
+        if (!text) return fail('พิมพ์คำตอบก่อน');
+        await api.answerQuestion(sheet.questionId, text);
+        if (selectedTask) {
+          const res = await api.questions(selectedTask.id);
+          setQuestions(res.questions);
+          await refreshWorkspace(selectedTask.projectId);
+        }
+        setActionSheet(null);
+        setNotice('ตอบแล้ว · งานกลับไปที่ผู้รับผิดชอบ');
+      } else if (sheet.kind === 'schedule') {
+        if (sheetStart >= sheetEnd) return fail('เวลาเลิกงานต้องหลังเวลาเริ่มงาน');
+        await api.setSchedule(selectedProject.id, sheetStart, sheetEnd);
+        await refreshSchedule();
+        setActionSheet(null);
+        setNotice('บันทึกเวลาทำงานแล้ว · การเตือนจะใช้เวลานี้');
+      }
+    } catch (error) {
+      fail(error instanceof ApiError ? error.message : 'บันทึกไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
   }
 
   /** Completed work with its links, ready to paste to a client. */
@@ -1702,6 +1827,8 @@ export default function Home() {
     const assignee = (taskAssignee || '').split(':')[1] || null;
     const note = String(form.get('note') || '');
 
+    if (editTarget) return saveEdit(editTarget, { title, note, assignee, dueAt });
+
     setBusy(true);
     try {
       await api.createTask(
@@ -1726,6 +1853,61 @@ export default function Home() {
     } finally {
       setBusy(false);
     }
+  }
+  /** Save the entry sheet when it was opened on an existing task or a draft. */
+  async function saveEdit(
+    target: NonNullable<typeof editTarget>,
+    values: { title: string; note: string; assignee: string | null; dueAt: string },
+  ) {
+    setBusy(true);
+    try {
+      if (target.kind === 'task') {
+        const t = target.task;
+        const patch: Parameters<typeof api.updateTask>[1] = {};
+        if (values.title !== t.title) patch.title = values.title;
+        if (values.note !== t.note) patch.note = values.note;
+        if ((values.assignee ?? '') !== (t.assigneeId ?? '')) patch.assigneeUserId = values.assignee;
+        if (taskPriority !== t.priority) patch.priority = taskPriority;
+        if (dueTouched) patch.dueAt = values.dueAt;
+        if (Object.keys(patch).length) {
+          await api.updateTask(t.id, patch);
+          await refreshWorkspace(t.projectId);
+        }
+        setTaskDialog(false);
+        setNotice(Object.keys(patch).length ? 'บันทึกการแก้ไขแล้ว' : 'ไม่มีอะไรเปลี่ยน');
+        return;
+      }
+      const c = target.capture;
+      await api.confirmInbox(
+        c.id,
+        {
+          title: values.title,
+          assigneeUserId: values.assignee,
+          // Untouched means "keep what was read from the message".
+          dueAt: dueTouched ? values.dueAt : (c.dueAt ?? null),
+        },
+        `inbox-confirm:${c.id}`,
+      );
+      await refreshWorkspace(c.projectId);
+      setTaskDialog(false);
+      setNotice('สร้างงานและมอบหมายแล้ว');
+    } catch (err) {
+      reportError(err, target.kind === 'task' ? 'บันทึกไม่สำเร็จ' : 'ยืนยันไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
+  }
+  function openCreateTask() {
+    setEditTarget(null);
+    setTaskDialog(true);
+  }
+    function openEditTask(task: Task) {
+    setEditTarget({ kind: 'task', task });
+    setTaskDialog(true);
+  }
+  function openEditCapture(capture: Capture) {
+    setEditTarget({ kind: 'capture', capture });
+    setTaskDialog(true);
   }
   async function addEvidence(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2025,7 +2207,7 @@ export default function Home() {
         </div>
         <Button
           className="primary-action desktop-create"
-          onClick={() => setTaskDialog(true)}
+          onClick={() => openCreateTask()}
         >
           <Plus />
           สร้างงาน
@@ -2235,6 +2417,14 @@ export default function Home() {
                     </dd>
                   </div>
                 </dl>
+                <button
+                  type="button"
+                  className="text-link capture-edit-link"
+                  onClick={() => openEditCapture(capture)}
+                >
+                  <PencilLine />
+                  แก้ชื่อ ผู้รับผิดชอบ หรือกำหนดส่งก่อนสร้าง
+                </button>
                 <div className="capture-actions">
                   <Button disabled={busy} onClick={() => confirmCapture(capture)}>
                     <Check />
@@ -2270,7 +2460,7 @@ export default function Home() {
         </div>
         <Button
           className="primary-action desktop-create"
-          onClick={() => setTaskDialog(true)}
+          onClick={() => openCreateTask()}
         >
           <Plus />
           สร้างงาน
@@ -3516,11 +3706,17 @@ export default function Home() {
       <Dialog open={taskDialog} onOpenChange={setTaskDialog}>
         <TaskEntryDialog
           open={taskDialog}
-          key={`${taskProject.id}-${settings.cutoff}`}
+          key={`${taskProject.id}-${settings.cutoff}-${editTarget?.kind === 'task' ? editTarget.task.id : editTarget?.kind === 'capture' ? editTarget.capture.id : 'new'}`}
           className="form-dialog task-create-dialog"
         >
           <DialogHeader>
-            <DialogTitle>สร้างงาน</DialogTitle>
+            <DialogTitle>
+              {editTarget?.kind === 'task'
+                ? 'แก้ไขงาน'
+                : editTarget?.kind === 'capture'
+                  ? 'ตรวจแล้วสร้างงาน'
+                  : 'สร้างงาน'}
+            </DialogTitle>
             <DialogDescription className="sr-only">
               ใส่ข้อมูลสำคัญก่อน
             </DialogDescription>
@@ -3537,6 +3733,13 @@ export default function Home() {
                 <Input
                   name="title"
                   required
+                  defaultValue={
+                    editTarget?.kind === 'task'
+                      ? editTarget.task.title
+                      : editTarget?.kind === 'capture'
+                        ? editTarget.capture.title
+                        : undefined
+                  }
                   aria-invalid={taskError?.field === 'title'}
                   aria-describedby={
                     taskError?.field === 'title'
@@ -3554,12 +3757,21 @@ export default function Home() {
                   onChange={setTaskAssignee}
                 />
               </label>
-              <section className="deadline-composer">
+              <section
+                className="deadline-composer"
+                // Any tap or change in here — including the time menu, whose
+                // popup is portalled but still a React child — means the
+                // person is setting a deadline on purpose.
+                onClickCapture={() => setDueTouched(true)}
+                onChangeCapture={() => setDueTouched(true)}
+              >
                 <div className="deadline-composer-heading">
                   <div>
                     <span>กำหนดส่ง</span>
                     <strong>
-                      {deadlineMode === 'natural'
+                      {editTarget && !dueTouched && !(editTarget.kind === 'task' ? editTarget.task.dueAt : editTarget.capture.dueAt)
+                        ? 'ไม่มีกำหนด · แตะเพื่อตั้ง'
+                        : deadlineMode === 'natural'
                         ? formatDeadline(
                             resolveDeadline(naturalDeadline, {
                               now,
@@ -3696,6 +3908,7 @@ export default function Home() {
                   </>
                 )}
               </section>
+              {editTarget?.kind !== 'capture' && (
               <div className="optional-fields">
                 <label>
                   <span>ความสำคัญ</span>
@@ -3731,9 +3944,14 @@ export default function Home() {
                   <span>
                     รายละเอียด <small>ไม่บังคับ</small>
                   </span>
-                  <Textarea name="note" placeholder="เพิ่มบริบทสั้น ๆ" />
+                  <Textarea
+                    name="note"
+                    placeholder="เพิ่มบริบทสั้น ๆ"
+                    defaultValue={editTarget?.kind === 'task' ? editTarget.task.note : undefined}
+                  />
                 </label>
               </div>
+              )}
             </div>
             {taskError && (
               <p className="entry-error" id="task-entry-error" role="alert">
@@ -3748,7 +3966,191 @@ export default function Home() {
               >
                 ยกเลิก
               </Button>
-              <Button type="submit">สร้างงาน</Button>
+              <Button type="submit" disabled={busy}>
+                {editTarget?.kind === 'task' ? 'บันทึก' : 'สร้างงาน'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </TaskEntryDialog>
+      </Dialog>
+      <Dialog open={!!actionSheet} onOpenChange={(open) => !open && setActionSheet(null)}>
+        <TaskEntryDialog open={!!actionSheet} className="form-dialog action-sheet-dialog">
+          <DialogHeader>
+            <DialogTitle>
+              {actionSheet?.kind === 'blocked'
+                ? 'ติดปัญหาเพราะอะไร'
+                : actionSheet?.kind === 'ask'
+                  ? 'ขอข้อมูลจากใคร'
+                  : actionSheet?.kind === 'revision'
+                    ? 'ขอแก้ไขงาน'
+                    : actionSheet?.kind === 'answer'
+                      ? 'ตอบคำถาม'
+                      : 'เวลาทำงานของคุณ'}
+            </DialogTitle>
+            <DialogDescription>
+              {actionSheet?.kind === 'blocked'
+                ? 'ทีมจะเห็นว่างานนี้ติดอยู่ ส่วนเหตุผลเห็นเฉพาะคุณกับหัวหน้า เว้นแต่คุณเลือกแชร์'
+                : actionSheet?.kind === 'ask'
+                  ? 'คำถามจะส่งเป็นแชทส่วนตัวถึงคนนั้น และงานจะรอเขาตอบ'
+                  : actionSheet?.kind === 'revision'
+                    ? 'งานจะกลับไปที่ผู้รับผิดชอบพร้อมกำหนดส่งใหม่'
+                    : actionSheet?.kind === 'answer'
+                      ? actionSheet.question
+                      : 'การเตือนจะส่งในช่วงเวลานี้เท่านั้น'}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={submitActionSheet} noValidate className="task-entry-form">
+            <div className="stack-form task-entry-fields">
+              {actionSheet?.kind === 'blocked' && (
+                <div className="day-presets" role="radiogroup" aria-label="เหตุผล">
+                  {BLOCKED_REASONS.map((reason) => (
+                    <button
+                      type="button"
+                      key={reason}
+                      role="radio"
+                      aria-checked={sheetReason === reason}
+                      className={sheetReason === reason ? 'active' : ''}
+                      onClick={() => {
+                        setSheetReason(reason);
+                        setSheetError('');
+                      }}
+                    >
+                      {reason}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {actionSheet?.kind === 'ask' && (
+                <label>
+                  <span>ถามใคร</span>
+                  <AssignmentPicker
+                    project={{
+                      ...selectedProject,
+                      members: selectedProject.members.filter((m) => m.id !== meUserId),
+                      teams: [],
+                    }}
+                    value={sheetPerson}
+                    onChange={setSheetPerson}
+                    label="ถามใคร"
+                  />
+                </label>
+              )}
+              {actionSheet?.kind === 'revision' && (
+                <div className="day-presets" role="radiogroup" aria-label="ให้เวลาแก้">
+                  {[1, 2, 3, 7].map((days) => (
+                    <button
+                      type="button"
+                      key={days}
+                      role="radio"
+                      aria-checked={sheetDays === days}
+                      className={sheetDays === days ? 'active' : ''}
+                      onClick={() => setSheetDays(days)}
+                    >
+                      {days === 7 ? '1 สัปดาห์' : `${days} วัน`}
+                      <small>{formatDeadline(revisionDueAt(days), { now })}</small>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {actionSheet?.kind === 'schedule' ? (
+                <div className="schedule-fields">
+                  {(
+                    [
+                      ['เริ่มงาน', sheetStart, setSheetStart],
+                      ['เลิกงาน', sheetEnd, setSheetEnd],
+                    ] as const
+                  ).map(([label, value, set]) => (
+                    <label className="time-select-row" key={label}>
+                      <span>{label}</span>
+                      <Select value={value} onValueChange={(next) => set(next as string)}>
+                        <SelectTrigger className="themed-field-trigger time-trigger">
+                          <Clock3 />
+                          <strong>{value}</strong>
+                        </SelectTrigger>
+                        <SelectContent
+                          align="start"
+                          alignItemWithTrigger={false}
+                          className="themed-select-content time-menu"
+                        >
+                          <SelectGroup>
+                            {timeOptions.map((time) => (
+                              <SelectItem key={time} value={time}>
+                                <Clock3 />
+                                {time}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                actionSheet && (
+                  <label>
+                    <span>
+                      {actionSheet.kind === 'blocked' ? (
+                        <>
+                          รายละเอียด <small>ไม่บังคับ</small>
+                        </>
+                      ) : actionSheet.kind === 'ask' ? (
+                        'ถามว่าอะไร'
+                      ) : actionSheet.kind === 'revision' ? (
+                        'ต้องแก้อะไร'
+                      ) : (
+                        'คำตอบ'
+                      )}
+                    </span>
+                    <Textarea
+                      value={sheetText}
+                      onChange={(event) => {
+                        setSheetText(event.target.value);
+                        setSheetError('');
+                      }}
+                      placeholder={
+                        actionSheet.kind === 'blocked'
+                          ? 'เช่น รอไฟล์ขนาดบูธจากลูกค้า'
+                          : actionSheet.kind === 'ask'
+                            ? 'เช่น ขอไฟล์โลโก้ความละเอียดสูง'
+                            : actionSheet.kind === 'revision'
+                              ? 'เช่น เปลี่ยนสีโลโก้ให้ตรงแบรนด์'
+                              : 'พิมพ์คำตอบ'
+                      }
+                      maxLength={300}
+                    />
+                  </label>
+                )
+              )}
+              {actionSheet?.kind === 'blocked' && (
+                <label className="share-toggle-row">
+                  <span>
+                    <strong>ให้ทุกคนในพื้นที่งานเห็นเหตุผล</strong>
+                    <small>ปิดไว้ = เห็นเฉพาะคุณกับหัวหน้า (แนะนำ)</small>
+                  </span>
+                  <Switch checked={sheetShare} onCheckedChange={(on) => setSheetShare(Boolean(on))} />
+                </label>
+              )}
+            </div>
+            {sheetError && (
+              <p className="entry-error" role="alert">
+                {sheetError}
+              </p>
+            )}
+            <DialogFooter className="task-entry-actions">
+              <Button type="button" variant="outline" onClick={() => setActionSheet(null)}>
+                ยกเลิก
+              </Button>
+              <Button type="submit" disabled={busy}>
+                {actionSheet?.kind === 'blocked'
+                  ? 'แจ้งว่าติดปัญหา'
+                  : actionSheet?.kind === 'ask'
+                    ? 'ส่งคำถาม'
+                    : actionSheet?.kind === 'revision'
+                      ? 'ส่งกลับให้แก้'
+                      : actionSheet?.kind === 'answer'
+                        ? 'ส่งคำตอบ'
+                        : 'บันทึก'}
+              </Button>
             </DialogFooter>
           </form>
         </TaskEntryDialog>
@@ -3994,7 +4396,17 @@ export default function Home() {
                     : 'ไม่มีกำหนด'}
                 </strong>
               </section>
-              {!canEditTask(selectedTask) && (
+              {canEditFields(selectedTask) && selectedTask.status !== 'done' && (
+                <Button
+                  variant="outline"
+                  className="edit-task-button"
+                  onClick={() => openEditTask(selectedTask)}
+                >
+                  <PencilLine />
+                  แก้ไขงาน · ชื่อ กำหนดส่ง ผู้รับผิดชอบ
+                </Button>
+              )}
+              {!canEditTask(selectedTask) && !canEditFields(selectedTask) && (
                 <section className="read-only-banner">
                   <LockKeyhole />
                   <div>
