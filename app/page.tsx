@@ -298,6 +298,11 @@ function EmptyState({ title, body }: { title: string; body: string }) {
     </div>
   );
 }
+/** Where a task came from, in words. The raw value is an internal code. */
+function sourceLabel(source: string) {
+  return source === 'line' ? 'จาก LINE' : 'สร้างเอง';
+}
+
 function deadlineRank(task: Task) {
   if (!task.dueAt) return Number.MAX_SAFE_INTEGER;
   const at = new Date(task.dueAt).getTime();
@@ -1950,11 +1955,10 @@ export default function Home() {
         onClick={() => setSelectedTask(task)}
       >
         <div className="task-row-main">
-          <span className="task-code">{task.id}</span>
           <h3>{task.title}</h3>
           <p>
             <MessageCircle />
-            {task.source}
+            {sourceLabel(task.source)}
           </p>
         </div>
         <div className="task-owner">
@@ -2011,6 +2015,9 @@ export default function Home() {
         <div className="home-side-shortcuts">
           <button
             className="forward-shortcut-card"
+            // The AI card that shared this grid is gone until AI is connected;
+            // span the whole grid rather than sit at half width beside a gap.
+            style={{ gridColumn: '1 / -1', gridRow: '1 / -1' }}
             onClick={() => setForwardDialog(true)}
           >
             <span className="shortcut-icon">
@@ -2020,15 +2027,6 @@ export default function Home() {
               <strong>นำข้อความจาก LINE</strong>
             </span>
             <ArrowRight />
-          </button>
-          <button className="ai-shortcut-card" onClick={() => navigate('ai')}>
-            <span className="shortcut-icon">
-              <Bot />
-            </span>
-            <span className="shortcut-copy">
-              <strong>AI ช่วยอ่านข้อความ</strong>
-            </span>
-            <span className="soon-pill">เร็ว ๆ นี้</span>
           </button>
         </div>
       </section>
@@ -2126,7 +2124,7 @@ export default function Home() {
           <Badge>FREE BETA</Badge>
           <div>
             <strong>ใช้ฟรีช่วงทดสอบ · ไม่ต้องใส่บัตร</strong>
-            <small>ช่วงทดสอบยังไม่คิดเงิน · AI ทดลอง 50 ครั้ง</small>
+            <small>ช่วงทดสอบยังไม่คิดเงิน</small>
           </div>
         </div>
         <div className="beta-unlock">
@@ -3935,7 +3933,7 @@ export default function Home() {
         <SheetContent className="task-detail">
           <SheetHeader>
             <SheetDescription>
-              {selectedTask?.id} · {selectedTask?.source}
+              {selectedTask ? sourceLabel(selectedTask.source) : ''}
             </SheetDescription>
             <SheetTitle>{selectedTask?.title}</SheetTitle>
           </SheetHeader>
