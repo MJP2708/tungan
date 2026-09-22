@@ -567,3 +567,25 @@
   gap: 8px;
   text-decoration: none;
 }
+
+/* ══ Touch targets ════════════════════════════════════════════════════════
+   The master plan's floor is 44×44px. These were measured under it on a
+   320–430px phone: reminder actions 42px, the task sheet's close 28px, the
+   evidence "เพิ่ม" 34×24, "พิมพ์เหมือนใน LINE" 34px, the reminder "เพิ่ม" 38px. */
+.next-reminder-actions button,
+.reminder-list .panel-heading button,
+.natural-deadline-button,
+.detail-section-heading button,
+.reminder-composer-controls button {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.detail-section-heading button {
+  padding-inline: 10px;
+}
+
+[data-slot='sheet-close'] {
+  min-width: 44px;
+  min-height: 44px;
+}
