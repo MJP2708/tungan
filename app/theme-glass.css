@@ -393,3 +393,177 @@
   min-height: 44px;
   gap: 6px;
 }
+
+/* ══ Backdrop ═════════════════════════════════════════════════════════════
+   One fixed decorative layer behind the app: heat-map and airbrush washes,
+   soft-focus pastel shapes, and a halftone field. Gradients only — no blur
+   filter on a full-screen layer — so it costs nothing on low-end phones.
+   Pastel blue/violet here is decoration, never a control or a state. */
+.app-shell,
+.auth-page {
+  isolation: isolate;
+  background: transparent;
+}
+
+.app-shell::before,
+.auth-page::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    /* heat map: a hot core fading through amber, top right */
+    radial-gradient(34vmax 26vmax at 100% 0%, rgba(255, 120, 96, 0.55), transparent 62%),
+    radial-gradient(60vmax 46vmax at 104% -6%, rgba(255, 168, 120, 0.5), transparent 64%),
+    radial-gradient(52vmax 40vmax at 92% 30%, rgba(255, 214, 140, 0.42), transparent 62%),
+    /* soft-focus pastel shapes, cool side */
+    radial-gradient(56vmax 46vmax at -14% 72%, rgba(160, 200, 255, 0.62), transparent 62%),
+    radial-gradient(46vmax 36vmax at 30% 110%, rgba(212, 194, 255, 0.6), transparent 60%),
+    radial-gradient(30vmax 24vmax at 88% 78%, rgba(206, 190, 255, 0.45), transparent 64%),
+    /* airbrush: a warm haze drifting across the left */
+    radial-gradient(40vmax 22vmax at -4% 26%, rgba(255, 190, 170, 0.36), transparent 68%),
+    #f7f7f5;
+}
+
+.app-shell::after,
+.auth-page::after {
+  /* Halftone: a dot field that fades out across the screen. */
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(112, 100, 214, 0.3) 1.2px, transparent 1.6px);
+  background-size: 13px 13px;
+  /* Two halftone fields: dense top right, a lighter drift bottom left. */
+  -webkit-mask-image:
+    radial-gradient(ellipse 62% 48% at 92% 8%, #000 0%, transparent 72%),
+    radial-gradient(ellipse 50% 36% at 6% 90%, rgba(0, 0, 0, 0.55) 0%, transparent 70%);
+  mask-image:
+    radial-gradient(ellipse 62% 48% at 92% 8%, #000 0%, transparent 72%),
+    radial-gradient(ellipse 50% 36% at 6% 90%, rgba(0, 0, 0, 0.55) 0%, transparent 70%);
+}
+
+/* ══ Glass surfaces ═══════════════════════════════════════════════════════ */
+.topbar {
+  border-bottom-color: rgba(255, 255, 255, 0.7);
+  /* Whiter than the panels on purpose: the logo PNG has a white field, and
+     a backdrop-filtered bar is an isolated blending group, so the white can
+     only disappear against a near-white bar. The image itself stays as is. */
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 1px 0 rgba(9, 9, 9, 0.04);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+.panel,
+.line-attention-card,
+.forward-shortcut-card,
+.beta-strip,
+.auth-card {
+  border-color: rgba(255, 255, 255, 0.78);
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.18) 60%),
+    rgba(255, 255, 255, 0.46);
+  box-shadow: 0 12px 30px rgba(60, 40, 90, 0.08), var(--glass-highlight);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+  backdrop-filter: blur(18px) saturate(170%);
+}
+
+/* The one card that asks for attention keeps its brand edge. */
+.line-attention-card,
+.group-setup-card {
+  border-color: rgba(0, 128, 255, 0.45);
+}
+
+/* Rows inside a glass panel let the glass show instead of stacking whites. */
+.panel .task-row {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* Header controls on phones: frosted, like the bar they sit on. Matched to
+   the specificity of the mobile rules in globals.css rather than forced. */
+@media (max-width: 760px) {
+  .mobile-project.themed-workspace-trigger,
+  .topbar .top-actions > button,
+  .topbar .bell-button {
+    border-color: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.55);
+    box-shadow: 0 4px 14px rgba(60, 40, 90, 0.06), var(--glass-highlight);
+  }
+}
+
+/* Dialogs and sheets: glass, but opaque enough to read and type on.
+   Colours only — positioning and transforms (the v18 mobile fix) untouched. */
+[data-slot='dialog-content'],
+[data-slot='sheet-content'] {
+  border-color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 24px 60px rgba(9, 9, 9, 0.16), var(--glass-highlight);
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
+  backdrop-filter: blur(24px) saturate(170%);
+}
+
+[data-slot='dialog-overlay'],
+[data-slot='sheet-overlay'] {
+  background: rgba(9, 9, 9, 0.18);
+}
+
+/* ══ Fallbacks ════════════════════════════════════════════════════════════
+   No backdrop-filter, or a person who asked for less transparency: every
+   glass surface becomes the solid card it used to be. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .topbar {
+    background: rgba(255, 255, 255, 0.97);
+  }
+
+  .panel,
+  .line-attention-card,
+  .forward-shortcut-card,
+  .beta-strip,
+  .auth-card,
+  [data-slot='dialog-content'],
+  [data-slot='sheet-content'] {
+    background: #ffffff;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .topbar,
+  .panel,
+  .line-attention-card,
+  .forward-shortcut-card,
+  .beta-strip,
+  .auth-card,
+  [data-slot='dialog-content'],
+  [data-slot='sheet-content'] {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: #ffffff;
+  }
+
+  .app-shell::after,
+  .auth-page::after {
+    display: none;
+  }
+}
+
+/* ══ Login ════════════════════════════════════════════════════════════════ */
+/* The card holds the logo, whose PNG has a white field: whiter glass, and the
+   brand edge it had before. (Its bottom placement on phones is deliberate —
+   thumb reach — and stays.) */
+.auth-card {
+  border-color: rgba(0, 128, 255, 0.3);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+/* The sign-in link rendered as a plain block, so its label sat at the top of
+   the 52px button. Centred, as every other button is. */
+.auth-line-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-decoration: none;
+}
