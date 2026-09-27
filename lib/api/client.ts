@@ -365,7 +365,10 @@ export const api = {
     ),
 
   usage: (workspaceId: string) =>
-    request<{ month: string; used: number; cap: number; remaining: number }>(
+    request<{
+      month: string; used: number; cap: number; remaining: number;
+      ai?: { enabled: boolean; remaining: number; allowance: number; usedToday: number; dailyCap: number };
+    }>(
       `/api/usage?workspaceId=${encodeURIComponent(workspaceId)}`,
     ),
 };

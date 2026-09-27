@@ -78,6 +78,13 @@
       "when": 1788536271934,
       "tag": "0010_robust_captain_britain",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790498841899,
+      "tag": "0011_hot_microchip",
+      "breakpoints": true
     }
   ]
 }

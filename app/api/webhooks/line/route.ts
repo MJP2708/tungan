@@ -36,6 +36,7 @@ import {
 import { appLink } from '@/lib/deep-link.ts';
 import { isAssignable } from '@/lib/auth/assignable.ts';
 import { applyMentions, mentionedPeople, type Mentionee } from '@/lib/line/mentions.ts';
+import { assistDraft } from '@/lib/ai/assist-draft.ts';
 
 // Signature verification needs node crypto's timingSafeEqual.
 export const runtime = 'nodejs';
@@ -864,6 +865,37 @@ async function handleMessage(event: LineEventPayload) {
     if (await isAssignable(resolved.workspaceId, userId)) people.push({ userId, text: m.text });
   }
   const drafts = applyMentions(extracted, people);
+
+  // Where the rules came up short, ask the model — once, about this message,
+  // and only for the fields still missing. Off unless the workspace turned it
+  // on and a key exists; when it is off, or out of allowance, or unsure, the
+  // draft stays exactly as the rules read it. The person confirms either way.
+  const only = drafts.length === 1 ? drafts[0] : null;
+  if (only && event.message?.id && (!only.assigneeUserId || !only.dueAt)) {
+    const assisted = await assistDraft({
+      workspaceId: resolved.workspaceId,
+      // The LINE message id: a redelivery must not be charged twice.
+      sourceId: event.message.id,
+      text: sourceText,
+      members: resolved.members.map((m) => ({ userId: m.userId, name: m.names[0] ?? '' })),
+      needAssignee: !only.assigneeUserId,
+      needDueDate: !only.dueAt,
+      cutoff: resolved.cutoff,
+    }).catch((error) => {
+      // AI must never take the webhook down with it.
+      console.warn('[ai] assist failed', (error as Error).message);
+      return null;
+    });
+    if (assisted?.assigneeUserId) {
+      only.assigneeUserId = assisted.assigneeUserId;
+      only.assigneeSource = assisted.source;
+    }
+    if (assisted?.dueAt) {
+      only.dueAt = assisted.dueAt;
+      only.dueSource = assisted.source;
+      only.confidence = 'inferred';
+    }
+  }
 
   const draftIds: string[] = [];
   for (const d of drafts) {

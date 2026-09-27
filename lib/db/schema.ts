@@ -57,8 +57,47 @@ export const workspace = pgTable('workspace', {
    *  One working day by default. There is deliberately no auto-approve
    *  setting: an approval nobody made is a record that proves nothing. */
   reviewNudgeHours: integer('review_nudge_hours').notNull().default(24),
+  /** AI help with reading messages. Off until a team turns it on: the rules
+   *  decide almost everything, and a model call is only a fallback. */
+  aiEnabled: boolean('ai_enabled').notNull().default(false),
+  /** Hard caps, as the AI scope requires: one for a runaway day, one for the
+   *  whole allowance. Nothing is ever spent past them, and they never go
+   *  negative — a refused read simply falls back to the rules. */
+  aiDailyCap: integer('ai_daily_cap').notNull().default(20),
+  aiAllowance: integer('ai_allowance').notNull().default(50),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * One AI read that was actually spent.
+ *
+ * Rows, not a counter: a counter cannot tell you what was charged, and cannot
+ * refuse to charge the same thing twice. `sourceId` is the thing being read
+ * (an inbox draft), so a retry under the same id inserts nothing and costs
+ * nothing — the AI scope's "a retry under the same idempotency key is never
+ * charged twice".
+ *
+ * `units` is the weighted cost: text 1, image 2-3, voice per 30 seconds.
+ * Only text exists today.
+ */
+export const aiUsage = pgTable(
+  'ai_usage',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull().references(() => workspace.id, { onDelete: 'cascade' }),
+    /** What was read, once. Unique per workspace. */
+    sourceId: text('source_id').notNull(),
+    kind: text('kind').notNull().default('text'),
+    units: integer('units').notNull().default(1),
+    /** Calendar day in Asia/Bangkok, "YYYY-MM-DD", for the daily cap. */
+    day: text('day').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('ai_usage_source_key').on(t.workspaceId, t.sourceId),
+    index('ai_usage_day_idx').on(t.workspaceId, t.day),
+  ],
+);
 
 /** Membership is the only proof of access. A workspace id from the client is
  *  never sufficient — every route resolves this row server-side. */

@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db/index.ts';
 import { requireMembership } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
 import { usedThisMonth, billingMonth } from '@/lib/line/messaging.ts';
+import { aiAllowanceFor } from '@/lib/ai/allowance.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,6 +20,9 @@ export async function GET(req: Request) {
       used,
       cap: membership.monthlyMessageCap,
       remaining: Math.max(0, membership.monthlyMessageCap - used),
+      // How many messages AI may still read for this workspace. Shown as
+      // "ครั้ง" — never the words token or credit.
+      ai: await aiAllowanceFor(workspaceId),
     });
   } catch (error) {
     return errorResponse(error);

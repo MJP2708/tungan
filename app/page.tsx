@@ -449,7 +449,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [usage, setUsage] = useState<{ used: number; cap: number; remaining: number } | null>(null);
+  const [usage, setUsage] = useState<Awaited<ReturnType<typeof api.usage>> | null>(null);
   const [schedule, setSchedule] = useState<{ startsAt: string; endsAt: string; note: string } | null>(null);
   const [online, setOnline] = useState(true);
   const [queued, setQueued] = useState<queue.QueuedAction[]>([]);
@@ -3151,10 +3151,23 @@ export default function Home() {
           <span>
             <Sparkles />
           </span>
-          <h3>AI ยังไม่เชื่อมต่อ</h3>
+          <h3>{usage?.ai?.enabled ? 'AI ช่วยอ่านข้อความ' : 'AI ยังไม่เชื่อมต่อ'}</h3>
           <p>
-            เมื่อเปิดใช้ AI จะช่วยอ่านข้อความที่ระบบอ่านไม่ออก แล้วให้คุณยืนยันก่อนสร้างงานทุกครั้ง
+            {usage?.ai?.enabled
+              ? 'ใช้เมื่อระบบอ่านข้อความไม่ออกเท่านั้น และให้คุณยืนยันก่อนสร้างงานทุกครั้ง'
+              : 'เมื่อเปิดใช้ AI จะช่วยอ่านข้อความที่ระบบอ่านไม่ออก แล้วให้คุณยืนยันก่อนสร้างงานทุกครั้ง'}
           </p>
+          {usage?.ai?.enabled && (
+            <div className="connection-row">
+              <span>
+                <Sparkles />
+                AI ช่วยอ่านเหลือ
+              </span>
+              <Badge variant="outline">
+                {usage.ai.remaining} ครั้ง · วันนี้ใช้ไป {usage.ai.usedToday}/{usage.ai.dailyCap}
+              </Badge>
+            </div>
+          )}
           {schedule && (
             <div className="connection-row">
               <span>
@@ -3177,7 +3190,11 @@ export default function Home() {
               </Badge>
             </div>
           )}
-          <p className="connection-notice">ยังไม่ส่งข้อความใดไปให้ AI</p>
+          <p className="connection-notice">
+            {usage?.ai?.enabled
+              ? 'ส่งเฉพาะข้อความที่แท็ก @ทันงาน และอ่านไม่ออกด้วยกฎ'
+              : 'ยังไม่ส่งข้อความใดไปให้ AI'}
+          </p>
         </div>
       </section>
     </section>

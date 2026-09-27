@@ -4,6 +4,9 @@ import { eq } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import { idempotencyKey } from '../db/schema.ts';
 import { HttpError } from '../auth/session.ts';
+import { isUniqueViolation } from '../db/errors.ts';
+
+export { isUniqueViolation };
 
 /** Turn a thrown HttpError into the right status instead of a 500. */
 export function errorResponse(error: unknown) {
@@ -70,12 +73,3 @@ export async function withIdempotency<T extends { id?: string }>(
   return { result, replayedId: null };
 }
 
-/** Postgres unique_violation (23505), however the driver wraps it. */
-export function isUniqueViolation(error: unknown): boolean {
-  let current: unknown = error;
-  for (let depth = 0; current && depth < 4; depth += 1) {
-    if ((current as { code?: unknown }).code === '23505') return true;
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
-}
