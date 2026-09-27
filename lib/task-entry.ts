@@ -27,10 +27,6 @@ export function validateTaskEntry(input: {
 }
 
 // Count-based IDs collided when tasks came from different creation flows.
-export function nextTaskId(tasks: readonly { id: string }[]): string {
-  return `TNG-${Math.max(260, ...tasks.map(({ id }) => Number(/^TNG-(\d+)$/.exec(id)?.[1]) || 0)) + 1}`;
-}
-
 export function visibleFormViewport(viewport: {
   height: number;
   offsetTop: number;

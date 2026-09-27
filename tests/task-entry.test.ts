@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  nextTaskId,
   validateTaskEntry,
   visibleFormViewport,
 } from '../lib/task-entry.ts';
@@ -61,12 +60,6 @@ test('optional evidence accepts valid web links and rejects invalid protocols/ho
         ?.field,
       'evidenceUrl',
     );
-});
-test('mixing creation and import cannot reuse an existing numeric task ID', () => {
-  const tasks = [{ id: 'TNG-266' }, { id: 'TNG-286' }, { id: 'TNG-301' }];
-  assert.equal(nextTaskId(tasks), 'TNG-302');
-  assert.equal(nextTaskId([...tasks, { id: 'TNG-302' }]), 'TNG-303');
-  assert.equal(nextTaskId([]), 'TNG-261');
 });
 test('form tracks keyboard-reduced viewport and Safari viewport panning', () => {
   assert.deepEqual(visibleFormViewport({ height: 844, offsetTop: 0 }), {

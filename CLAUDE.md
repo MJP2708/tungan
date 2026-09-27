@@ -18,8 +18,12 @@ drift — stop and go back to this file. (It has happened once already.)
     Serverless functions open many short-lived connections and exhaust a
     direct connection fast.
   - Migrations use the **direct** connection string.
-  - Development uses a **separate Neon branch** so dev never touches
-    production rows.
+  - Development was meant to use a **separate Neon branch**. *Overridden by
+    the user on 2026-09-21:* `.env.local` holds the PRODUCTION Singapore
+    database and the live LINE channels, deliberately, so there is one env to
+    keep. Do not silently switch it back — but say so before running anything
+    locally that writes rows or sends LINE messages, because it reaches real
+    data and real people.
   - All database access goes through **one data layer module**. No route
     handler talks to the database directly.
 - Cloudflare is **DNS only**. The domain is registered and its DNS is managed
@@ -44,7 +48,7 @@ LINE channels, the Neon project, and all cloud resources, then hands over IDs.
 - bg `#f7f7f5`, fg `#090909`, card `#ffffff`, border `#deded9` remain the base
   tokens. Glass surfaces are translucent versions of card over the backdrop.
 - Light `color-scheme` only. **No dark mode.**
-- **Glass redesign (decided 2026-09-21, ships before 30 Sep):** frosted/liquid
+- **Glass redesign (decided 2026-09-21, shipped 2026-09-23):** frosted/liquid
   glass surfaces, halftone, soft airbrush, soft-focus pastel, heat-map
   gradients — built in **CSS/SVG only**, no image assets. Lives in
   `app/theme-glass.css`, imported **after** `globals.css`; removing that import
@@ -182,13 +186,16 @@ https://claude.ai/code/artifact/9e52bb8a-29ef-44f7-944b-42ec432e2147
 
 ### P0
 
+*Status reviewed 2026-09-27: every item below is annotated with what is true
+now. Nothing here is a pending task unless it says so.*
+
 - **SEC-1** Identity hardcoded. `assignmentIsMine` compares against a literal
   list `['pim','pim-nami','me','me-view']` plus `id.startsWith('owner-')`.
-  Every permission decision derives from it. *Fix belongs to the LINE Login
-  task — patching it client-side first is wasted work.*
+  Every permission decision derives from it. **FIXED** — `assignmentIsMine`
+  compares against the id the server put in the session.
 - **SEC-2** `loggedIn` / `lineConnected` restored from `localStorage`
-  unvalidated; the login button just flips booleans. *Same — fixed by real
-  sessions.*
+  unvalidated; the login button just flips booleans. **FIXED** — real LINE
+  Login and an httpOnly session cookie; nothing is restored from the browser.
 - **SEC-3** Approval had **no permission check at all**, not even the
   client-side one every other mutation performs; the client review screen
   called straight through. **FIXED** — `approveTask` / `requestRevision` now
@@ -205,22 +212,34 @@ https://claude.ai/code/artifact/9e52bb8a-29ef-44f7-944b-42ec432e2147
 - **SEC-4** Restored `localStorage` is trusted wholesale: only `tasks` and
   `settings` are normalized; `projects`, `captures`, `reminders` and `account`
   are set raw. Empty/malformed `projects` crashes the app, and there is **no
-  error boundary** (`app/error.tsx` does not exist).
+  error boundary** (`app/error.tsx` does not exist). **FIXED** — the server is
+  the only source; prototype `localStorage` is never imported, and
+  `app/error.tsx` exists. Device preferences are the only thing stored, under
+  their own key, through `normalizeSettings`.
 - **BUG-3/BUG-4** Natural-language deadlines never became timestamps;
   `ก่อนบ่าย 12` produced `24:00`; `เช้า` only worked alongside `พรุ่งนี้`.
   **FIXED** in `lib/deadline.ts` with tests.
 - **BUG-5** `nextTaskId(tasks)` reads a stale closure while the write uses a
-  functional updater — a fast double submit yields duplicate IDs.
+  functional updater — a fast double submit yields duplicate IDs. **FIXED** —
+  ids are server-side UUIDs; the function was dead code and is deleted.
 - **BUG-6** Capture dedup compares **titles**; editing the title creates a
   duplicate, and two genuinely identical titles get silently swallowed. Real
-  fix is an idempotency key.
+  fix is an idempotency key. **FIXED** — unique `inbox_line_message_key` on
+  the LINE message id, plus an idempotency key on every mutating route, and
+  confirming claims the draft row conditionally.
 - **BUG-7** `selectedTask` holds a **copy**, not an id; every mutation writes
-  the whole stale object back. Becomes a real lost update once an API exists.
+  the whole stale object back. **FIXED** — `selectedTaskId` with the task
+  derived from the current list.
 - **STR-1** All nine "pages" are `useState`, not routes — no URL, no deep
-  link, no back button. **Blocks LIFF deep links** and made visual testing
-  need a localStorage seed to reach 8 of 9 pages.
+  link, no back button. **PARTLY DONE** — LIFF deep links work through
+  `?task=<id>` (`lib/deep-link.ts`), and the visual harness needs no seed
+  (`tools/visual/`). The nine screens are still not routes, so there is still
+  no back button or per-screen URL.
 - **STR-2** Business rules (permission, ranking, parsing, dedup) live in
-  render code and must move to a data layer.
+  render code and must move to a data layer. **MOSTLY DONE** — permission
+  (`lib/tasks/permissions.ts`, `lib/auth/assignable.ts`), transitions,
+  parsing, deadlines, reminders and dedup are all server-side modules. What
+  remains in render code is display logic.
 
 ### P2
 
@@ -228,19 +247,26 @@ https://claude.ai/code/artifact/9e52bb8a-29ef-44f7-944b-42ec432e2147
   overnight still called yesterday "today". **FIXED** via a ticking `useNow()`.
   (This reproduced live during testing when the date rolled 31 Aug → 1 Sep.)
 - **BUG-9** `snoozeReminder` wraps modulo 24h: 23:55 + 10min → 00:05 the same
-  day, never tomorrow.
+  day, never tomorrow. **FIXED** — ten minutes added to an instant, and the
+  server caps snoozes at three.
 - **BUG-10** Workload bar shows the workspace total for every member in the
-  "งานของฉัน" workspace.
+  "งานของฉัน" workspace. **FIXED** — counted per person in every view.
 - **BUG-11** `useEffect` dep `[selectedTask?.id]` omits `selectedTask`; two
   `useMemo`s keyed on a `projectTasks` array rebuilt every render never cache.
+  **FIXED** — `projectTasks` is memoised on its real inputs, and the selected
+  task is derived rather than copied.
 - **BUG-12** Task dialog reads `taskProject.members[0].id` without a guard.
+  **FIXED** — guarded at every call site.
 - **SEC-5** Two different URL validators for the same rule (`new URL()` +
-  protocol allowlist vs a regex).
+  protocol allowlist vs a regex). **FIXED** — one `isSafeHttpUrl` in
+  `lib/url.ts`, with `isPrivateHost` beside it for the link checker.
 - **SEC-6** Evidence links use `rel="noreferrer"`; add explicit `noopener`
-  once URLs come from the server.
+  once URLs come from the server. **FIXED**.
 - **SEC-7** `components/ui/chart.tsx` has a `dangerouslySetInnerHTML` CSS sink.
   Currently unreachable — **49 of 60 `components/ui` files are dead code**,
-  including `native-select.tsx`, which this project forbids using.
+  including `native-select.tsx`, which this project forbids using. **FIXED** —
+  all 49 deleted; the 11 that are reachable remain. The `shadcn` and
+  `tw-animate-css` dependencies stay: `globals.css` imports them.
 
 ## Verification
 
@@ -253,15 +279,41 @@ npx tsc --noEmit --incremental false --pretty false
 npm run build                                     # must pass before any visual claim
 ```
 
-`npm run lint` reports **95 pre-existing oxlint errors** and exits 0. That count
-is the baseline — compare against it rather than assuming a clean slate.
+`npm run lint` exits 0 and reports errors that are pre-existing style, not
+failures. The count moves as code is added and removed — it was 95 at the
+original audit and **267** on 2026-09-27, after deleting 49 dead components.
+Compare against the count on the commit you started from, not a fixed number.
 
-A visual regression harness (Playwright, installed **outside** the repo so it
-never enters `package.json`) covers 9 pages × 10 viewports + dialog states by
-seeding `settings.startPage` into `localStorage`. Gate 1 result: 99.2177% of
-pixels identical, 0.7823% differing by ≤5/255 (antialiasing), **0.0000% above
-that**. When comparing screenshot sets, rebuild both sides **on the same date**
-— otherwise BUG-8-style date rollover shows up as a false regression.
+Database-backed tests (workspace isolation, reminder dispatch, AI allowance)
+skip unless `TEST_DATABASE_URL` is set:
+
+```
+docker run -d --name tungan-test -e POSTGRES_PASSWORD=test \
+  -e POSTGRES_DB=tungan_test -p 55432:5432 postgres:18
+DATABASE_URL_UNPOOLED=postgres://postgres:test@localhost:55432/tungan_test \
+  npx drizzle-kit migrate
+TEST_DATABASE_URL=postgres://postgres:test@localhost:55432/tungan_test npm test
+```
+
+CI runs them on every push with a Postgres service.
+
+The visual harness now lives in `tools/visual/` (Playwright still installed
+**outside** the repo so it never enters `package.json`):
+
+```
+npm i --prefix ~/.cache/tungan-visual playwright-core@1.63.0
+npm run build && npx next start -p 3107
+node tools/visual/check.mjs     # every page at 320/360/390/430: overflow,
+                                # content clipped by a parent, JS errors,
+                                # native dialogs
+node tools/visual/targets.mjs   # touch targets under 44px
+node tools/visual/shots.mjs     # screenshots of the main screens
+```
+
+Every `/api/*` call is answered from `tools/visual/fixtures.mjs`, so no
+database, no LINE and no login are involved. When comparing screenshot sets,
+rebuild both sides **on the same date** — otherwise BUG-8-style date rollover
+shows up as a false regression.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
