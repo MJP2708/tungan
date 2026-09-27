@@ -472,7 +472,14 @@ export default function Home() {
     Awaited<ReturnType<typeof api.myTasks>>['tasks']
   >([]);
   const [lineGroups, setLineGroups] = useState<
-    { id: string; name: string; bound: boolean; workspaceName: string | null }[]
+    {
+      id: string;
+      name: string;
+      bound: boolean;
+      /** Which workspace it belongs to, so only its own can disconnect it. */
+      workspaceId: string | null;
+      workspaceName: string | null;
+    }[]
   >([]);
   const [hydrated, setHydrated] = useState(false);
   // An id, not a copy. A copy went stale the moment the list refreshed, and
@@ -499,6 +506,7 @@ export default function Home() {
     | { kind: 'revision'; task: Task }
     | { kind: 'answer'; questionId: string; question: string }
     | { kind: 'schedule' }
+    | { kind: 'rename' }
     | null
   >(null);
   const [sheetReason, setSheetReason] = useState('');
@@ -1693,6 +1701,31 @@ export default function Home() {
     openActionSheet({ kind: 'revision', task });
   }
 
+  /** Owner or admin of the workspace currently open. */
+  function isWorkspaceManager() {
+    const role = selectedProject.members.find((m) => m.id === meUserId)?.role;
+    return role === 'owner' || role === 'admin';
+  }
+
+  function renameWorkspace() {
+    openActionSheet({ kind: 'rename' });
+    setSheetText(selectedProject.name);
+  }
+
+  /** Stop a group's messages landing here. Tasks already created stay. */
+  async function disconnectGroup(groupId: string) {
+    setBusy(true);
+    try {
+      await api.unbindGroup(groupId);
+      await refreshGroups();
+      setNotice('ยกเลิกการเชื่อมแล้ว · ข้อความจากกลุ่มนี้จะไม่เข้ามาอีก');
+    } catch (error) {
+      reportError(error, 'ยกเลิกการเชื่อมไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function openActionSheet(next: NonNullable<typeof actionSheet>) {
     setSheetReason('');
     setSheetShare(false);
@@ -1762,6 +1795,23 @@ export default function Home() {
         }
         setActionSheet(null);
         setNotice('ตอบแล้ว · งานกลับไปที่ผู้รับผิดชอบ');
+      } else if (sheet.kind === 'rename') {
+        if (!text) return fail('ใส่ชื่อพื้นที่งานก่อน');
+        const renamed = await api.renameWorkspace(selectedProject.id, text);
+        // Prefer what the server stored (it trims and caps the length), but
+        // never blank the name if an older server answers without it.
+        const name = renamed.name || text;
+        setProjects((all) =>
+          all.map((project) =>
+            project.id === selectedProject.id
+              ? { ...project, name, groupLabel: name }
+              : project,
+          ),
+        );
+        // The group list carries the workspace name too.
+        await refreshGroups();
+        setActionSheet(null);
+        setNotice('เปลี่ยนชื่อแล้ว');
       } else if (sheet.kind === 'schedule') {
         if (sheetStart >= sheetEnd) return fail('เวลาเลิกงานต้องหลังเวลาเริ่มงาน');
         await api.setSchedule(selectedProject.id, sheetStart, sheetEnd);
@@ -3274,6 +3324,20 @@ export default function Home() {
               {account.lineConnected ? 'เชื่อมแล้ว' : 'ยังไม่ได้แอดบอท'}
             </Badge>
           </div>
+          <div className="connection-row">
+            <span>
+              <LayoutGrid />
+              {selectedProject.name}
+            </span>
+            {isWorkspaceManager() ? (
+              <Button variant="outline" disabled={busy} onClick={renameWorkspace}>
+                <PencilLine />
+                เปลี่ยนชื่อ
+              </Button>
+            ) : (
+              <Badge variant="outline">พื้นที่งานที่เปิดอยู่</Badge>
+            )}
+          </div>
           {lineGroups.map((group) => (
             <div className="connection-row" key={group.id}>
               <span>
@@ -3281,7 +3345,19 @@ export default function Home() {
                 {group.name}
               </span>
               {group.bound ? (
-                <Badge variant="outline">เชื่อมกับ {group.workspaceName}</Badge>
+                <span className="group-connect-actions">
+                  <Badge variant="outline">เชื่อมกับ {group.workspaceName}</Badge>
+                  {isWorkspaceManager() && group.workspaceId === selectedProject.id && (
+                    <button
+                      type="button"
+                      className="text-link"
+                      disabled={busy}
+                      onClick={() => disconnectGroup(group.id)}
+                    >
+                      ยกเลิกการเชื่อม
+                    </button>
+                  )}
+                </span>
               ) : (
                 <span className="group-connect-actions">
                   <Button disabled={busy} onClick={() => createGroupWorkspace(group.id)}>
@@ -4149,7 +4225,9 @@ export default function Home() {
                     ? 'ขอแก้ไขงาน'
                     : actionSheet?.kind === 'answer'
                       ? 'ตอบคำถาม'
-                      : 'เวลาทำงานของคุณ'}
+                      : actionSheet?.kind === 'rename'
+                        ? 'เปลี่ยนชื่อพื้นที่งาน'
+                        : 'เวลาทำงานของคุณ'}
             </DialogTitle>
             <DialogDescription>
               {actionSheet?.kind === 'blocked'
@@ -4160,7 +4238,9 @@ export default function Home() {
                     ? 'งานจะกลับไปที่ผู้รับผิดชอบพร้อมกำหนดส่งใหม่'
                     : actionSheet?.kind === 'answer'
                       ? actionSheet.question
-                      : 'การเตือนจะส่งในช่วงเวลานี้เท่านั้น'}
+                      : actionSheet?.kind === 'rename'
+                        ? 'ทุกคนในพื้นที่งานนี้จะเห็นชื่อใหม่'
+                        : 'การเตือนจะส่งในช่วงเวลานี้เท่านั้น'}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={submitActionSheet} noValidate className="task-entry-form">
@@ -4216,7 +4296,20 @@ export default function Home() {
                   ))}
                 </div>
               )}
-              {actionSheet?.kind === 'schedule' ? (
+              {actionSheet?.kind === 'rename' ? (
+                <label>
+                  <span>ชื่อพื้นที่งาน</span>
+                  <Input
+                    value={sheetText}
+                    onChange={(event) => {
+                      setSheetText(event.target.value);
+                      setSheetError('');
+                    }}
+                    placeholder="เช่น ทีม Operations"
+                    maxLength={60}
+                  />
+                </label>
+              ) : actionSheet?.kind === 'schedule' ? (
                 <div className="schedule-fields">
                   {(
                     [

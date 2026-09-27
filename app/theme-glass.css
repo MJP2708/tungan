@@ -211,9 +211,12 @@
   font-size: 12px;
 }
 
-/* Unconnected LINE group: create its own workspace (primary) or connect here. */
-.group-connect-actions {
+/* Unconnected LINE group: create its own workspace (primary) or connect here.
+   Selector matches `.connection-row > span` in globals.css, which otherwise
+   forces this wrapper into a row that overflows the panel. */
+.connection-row > span.group-connect-actions {
   display: grid;
+  min-width: 0;
   justify-items: end;
   gap: 2px;
 }
@@ -287,7 +290,7 @@
   flex: 1 1 160px;
 }
 
-.preferences-page .connection-row > [data-slot='badge'] {
+.preferences-page .connection-row [data-slot='badge'] {
   max-width: 100%;
   height: auto;
   padding-block: 4px;
@@ -297,6 +300,7 @@
 }
 
 .preferences-page .group-connect-actions {
+  min-width: 0;
   max-width: 100%;
 }
 

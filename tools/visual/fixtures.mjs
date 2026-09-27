@@ -75,6 +75,9 @@ export function answer(url) {
       { id: 'x1', workspaceId: 'w2', workspaceName: 'งานของฉัน', title: 'ต่อทะเบียนรถ', dueAt: iso(5), status: 'todo', pendingAssigneeUserId: null },
     ] };
   }
+  // Renaming a workspace answers with the stored name.
+  const rename = u.pathname.match(/^\/api\/workspaces\/([^/]+)$/);
+  if (rename) return { ok: true, name: 'ทีม Ops ของเรา' };
   if (fixed[u.pathname]) return fixed[u.pathname];
   const key = Object.keys(bySuffix).find((k) => u.pathname.endsWith('/' + k));
   if (key) return bySuffix[key];

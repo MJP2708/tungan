@@ -249,6 +249,13 @@ export const api = {
   deleteReminder: (id: string) =>
     request<{ ok: true }>(`/api/reminders/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
+  /** Rename a workspace. Owners and admins only (enforced server-side). */
+  renameWorkspace: (workspaceId: string, name: string) =>
+    request<{ ok: true; name: string }>(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    }),
+
   renameMember: (workspaceId: string, userId: string, nickname: string) =>
     request<{ ok: true }>(
       `/api/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(userId)}`,
