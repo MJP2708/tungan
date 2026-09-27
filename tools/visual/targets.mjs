@@ -4,8 +4,16 @@ import { fixturePage } from './fixtures.mjs';
 
 function small() {
   const out = [];
-  for (const el of document.querySelectorAll('button, a[href], [role="button"], [role="radio"], input:not([type=hidden]):not([aria-hidden=true]), [role="combobox"]')) {
-    const r = el.getBoundingClientRect();
+  for (const el of document.querySelectorAll('button, a[href], [role="button"], [role="radio"], [role="switch"], input:not([type=hidden]):not([aria-hidden=true]), [role="combobox"]')) {
+    // A switch draws small on purpose; what must reach 44px is the area that
+    // actually takes the tap, which it extends with an ::after.
+    const after = getComputedStyle(el, '::after');
+    const grow = (v) => Math.abs(parseFloat(v) || 0);
+    const pad = el.getAttribute('role') === 'switch'
+      ? { x: grow(after.insetInlineStart), y: grow(after.insetBlockStart) }
+      : { x: 0, y: 0 };
+    const box = el.getBoundingClientRect();
+    const r = { width: box.width + pad.x * 2, height: box.height + pad.y * 2, top: box.top, bottom: box.bottom };
     if (r.width < 4 || r.height < 4) continue; // visually hidden helpers
     if (getComputedStyle(el).visibility === 'hidden') continue;
     if (r.height < 44 || r.width < 44) {
@@ -16,10 +24,15 @@ function small() {
 }
 const browser = await launch();
 const { page } = await fixturePage(browser, BASE, { width: 360, height: 800 });
-const views = [['home'], ['LINE'], ['งาน'], ['เตือน']];
+const views = [['home'], ['LINE'], ['งาน'], ['เตือน'], ['ตั้งค่า'], ['AI']];
 for (const [label] of views) {
   await page.goto(BASE + '/', { waitUntil: 'networkidle' });
-  if (label !== 'home') await page.locator('nav.mobile-nav button', { hasText: label }).first().click();
+  if (label === 'ตั้งค่า' || label === 'AI') {
+    await page.getByRole('button', { name: 'เมนูทั้งหมด' }).click();
+    await page.locator('.navigation-grid button', { hasText: label }).first().click();
+  } else if (label !== 'home') {
+    await page.locator('nav.mobile-nav button', { hasText: label }).first().click();
+  }
   await page.waitForTimeout(300);
   console.log(label.padEnd(6), JSON.stringify(await page.evaluate(small)));
 }

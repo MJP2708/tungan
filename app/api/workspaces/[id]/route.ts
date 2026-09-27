@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 const MAX_NAME = 60;
 
 /**
- * Rename a workspace.
+ * Rename a workspace, or turn AI help on and off for it.
  *
  * There was no way to do this at all: a workspace created at first sign-in is
  * called "งานของฉัน", and a group connected to it before one-tap setup existed
@@ -28,6 +28,14 @@ export async function PATCH(
     await requireMembership(id, { roles: ['owner', 'admin'] });
 
     const body = await req.json().catch(() => ({}));
+
+    // Turning AI help on or off for this team. The key itself is a
+    // server-only env var; this only says whether this workspace may use it.
+    if (typeof body.aiEnabled === 'boolean') {
+      await db().update(workspace).set({ aiEnabled: body.aiEnabled }).where(eq(workspace.id, id));
+      return NextResponse.json({ ok: true, aiEnabled: body.aiEnabled });
+    }
+
     const name = String(body.name ?? '').trim().slice(0, MAX_NAME);
     if (!name) {
       return NextResponse.json({ error: 'ใส่ชื่อพื้นที่งานก่อน' }, { status: 400 });

@@ -85,6 +85,9 @@ export async function spendAiRead(
 }
 
 export type AiAllowance = {
+  /** A key exists and the kill switch is not thrown. Server-side fact. */
+  configured: boolean;
+  /** Configured AND this team turned it on. */
   enabled: boolean;
   /** Reads left in the whole allowance, never below zero. */
   remaining: number;
@@ -98,7 +101,7 @@ export async function aiAllowanceFor(workspaceId: string, now = new Date()): Pro
   // Answer without touching the database when AI is off. It also means this
   // code is safe to deploy before the migration that adds its columns.
   if (!aiConfigured()) {
-    return { enabled: false, remaining: 0, allowance: 0, usedToday: 0, dailyCap: 0 };
+    return { configured: false, enabled: false, remaining: 0, allowance: 0, usedToday: 0, dailyCap: 0 };
   }
   const [ws] = await db()
     .select({
@@ -121,7 +124,8 @@ export async function aiAllowanceFor(workspaceId: string, now = new Date()): Pro
 
   const allowance = ws?.allowance ?? 0;
   return {
-    enabled: Boolean(ws?.enabled) && aiConfigured(),
+    configured: true,
+    enabled: Boolean(ws?.enabled),
     allowance,
     remaining: Math.max(0, allowance - Number(totals?.spent ?? 0)),
     usedToday: Number(totals?.today ?? 0),

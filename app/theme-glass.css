@@ -593,3 +593,50 @@
   min-width: 44px;
   min-height: 44px;
 }
+
+/* AI switch on the AI page: the same row as the private-note toggle, but it
+   is not inside .stack-form here, so it carries its own layout. */
+.ai-toggle-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin: 4px 0;
+  padding: 12px 14px;
+  border: 1px solid #deded9;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  text-align: left;
+}
+
+.ai-toggle-row > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.ai-toggle-row strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ai-toggle-row small {
+  color: #5c5c58;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Switches draw at 32×18px with an invisible hit area that is still under the
+   44px floor. Widen that area (the visible switch is unchanged). */
+[data-slot='switch']::after {
+  inset-block: -13px;
+  inset-inline: -12px;
+}
+
+/* Buttons in the settings connection rows were 32px tall. */
+.preferences-page .connection-row button,
+.preferences-page .connection-row [role='button'] {
+  min-height: 44px;
+}

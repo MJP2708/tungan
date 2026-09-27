@@ -994,6 +994,20 @@ export default function Home() {
    * One tap: a workspace named after the LINE group, owned by me, with the
    * group connected and everyone already seen in it given access.
    */
+  /** Let this team use AI help, or stop it. The key itself is server-side. */
+  async function setWorkspaceAi(on: boolean) {
+    setBusy(true);
+    try {
+      await api.setWorkspaceAi(selectedProject.id, on);
+      await refreshUsage(selectedProject.id);
+      setNotice(on ? 'เปิดให้ AI ช่วยอ่านแล้ว' : 'ปิด AI แล้ว · ระบบยังอ่านด้วยกฎเหมือนเดิม');
+    } catch (error) {
+      reportError(error, 'เปลี่ยนการตั้งค่า AI ไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function createGroupWorkspace(groupId: string) {
     setBusy(true);
     try {
@@ -3134,7 +3148,13 @@ export default function Home() {
         <div>
           <h2>AI</h2>
         </div>
-        <Badge variant="outline">ยังไม่เชื่อม AI</Badge>
+        <Badge variant="outline">
+          {usage?.ai?.enabled
+            ? `เหลือ ${usage.ai.remaining} ครั้ง`
+            : usage?.ai?.configured
+              ? 'ปิดอยู่'
+              : 'ยังไม่เชื่อม AI'}
+        </Badge>
       </div>
       <section className="ai-chat-shell">
         <div className="ai-chat-header">
@@ -3151,12 +3171,33 @@ export default function Home() {
           <span>
             <Sparkles />
           </span>
-          <h3>{usage?.ai?.enabled ? 'AI ช่วยอ่านข้อความ' : 'AI ยังไม่เชื่อมต่อ'}</h3>
+          <h3>
+            {usage?.ai?.enabled
+              ? 'AI ช่วยอ่านข้อความ'
+              : usage?.ai?.configured
+                ? 'เปิดให้ AI ช่วยอ่านได้'
+                : 'AI ยังไม่เชื่อมต่อ'}
+          </h3>
           <p>
             {usage?.ai?.enabled
               ? 'ใช้เมื่อระบบอ่านข้อความไม่ออกเท่านั้น และให้คุณยืนยันก่อนสร้างงานทุกครั้ง'
-              : 'เมื่อเปิดใช้ AI จะช่วยอ่านข้อความที่ระบบอ่านไม่ออก แล้วให้คุณยืนยันก่อนสร้างงานทุกครั้ง'}
+              : 'AI จะช่วยอ่านเฉพาะข้อความที่ระบบอ่านไม่ออก แล้วให้คุณยืนยันก่อนสร้างงานทุกครั้ง'}
           </p>
+          {usage?.ai?.configured && isWorkspaceManager() && (
+            <label className="share-toggle-row ai-toggle-row">
+              <span>
+                <strong>ให้ AI ช่วยอ่านข้อความที่กฎอ่านไม่ออก</strong>
+                <small>
+                  ส่งเฉพาะข้อความที่แท็ก @ทันงาน · คุณยืนยันก่อนสร้างงานเสมอ
+                </small>
+              </span>
+              <Switch
+                checked={Boolean(usage.ai.enabled)}
+                disabled={busy}
+                onCheckedChange={(on) => void setWorkspaceAi(Boolean(on))}
+              />
+            </label>
+          )}
           {usage?.ai?.enabled && (
             <div className="connection-row">
               <span>

@@ -53,7 +53,11 @@ const fixed = {
     { id: 'r1', title: 'ส่งรายงานประจำสัปดาห์ให้หัวหน้าฝ่าย', sendAt: iso(2), state: 'pending', failureReason: null },
     { id: 'r2', title: null, sendAt: iso(-1), state: 'failed', failureReason: 'ผู้รับยังไม่ได้เพิ่มเพื่อน' },
   ] },
-  '/api/usage': { month: '2026-09', used: 212, cap: 300, remaining: 88 },
+  '/api/usage': {
+    month: '2026-09', used: 212, cap: 300, remaining: 88,
+    // A key exists on the server, but this team has not turned AI on yet.
+    ai: { configured: true, enabled: false, remaining: 50, allowance: 50, usedToday: 0, dailyCap: 20 },
+  },
 };
 const bySuffix = {
   schedule: { startsAt: '09:00', endsAt: '18:00', source: 'learned', note: 'เรียนรู้จากเวลาที่คุณอัปเดตงาน' },

@@ -249,6 +249,13 @@ export const api = {
   deleteReminder: (id: string) =>
     request<{ ok: true }>(`/api/reminders/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
+  /** Turn AI help on or off for a workspace. Owners and admins only. */
+  setWorkspaceAi: (workspaceId: string, aiEnabled: boolean) =>
+    request<{ ok: true; aiEnabled: boolean }>(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ aiEnabled }),
+    }),
+
   /** Rename a workspace. Owners and admins only (enforced server-side). */
   renameWorkspace: (workspaceId: string, name: string) =>
     request<{ ok: true; name: string }>(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
@@ -367,7 +374,10 @@ export const api = {
   usage: (workspaceId: string) =>
     request<{
       month: string; used: number; cap: number; remaining: number;
-      ai?: { enabled: boolean; remaining: number; allowance: number; usedToday: number; dailyCap: number };
+      ai?: {
+        configured: boolean; enabled: boolean; remaining: number;
+        allowance: number; usedToday: number; dailyCap: number;
+      };
     }>(
       `/api/usage?workspaceId=${encodeURIComponent(workspaceId)}`,
     ),
