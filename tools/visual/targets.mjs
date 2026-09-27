@@ -16,7 +16,8 @@ function small() {
     const r = { width: box.width + pad.x * 2, height: box.height + pad.y * 2, top: box.top, bottom: box.bottom };
     if (r.width < 4 || r.height < 4) continue; // visually hidden helpers
     if (getComputedStyle(el).visibility === 'hidden') continue;
-    if (r.height < 44 || r.width < 44) {
+    // Half a pixel of tolerance: a 44px control measures 43.99 after layout.
+    if (r.height < 43.5 || r.width < 43.5) {
       out.push(`${(el.getAttribute('aria-label') || el.textContent || el.tagName).trim().slice(0, 20)} ${Math.round(r.width)}x${Math.round(r.height)}`);
     }
   }

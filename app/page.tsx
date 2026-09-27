@@ -1077,10 +1077,19 @@ export default function Home() {
       )
     );
   };
-  const projectTasks =
-    selectedProjectId === 'mine'
-      ? tasks.filter(belongsToMe)
-      : tasks.filter((task) => task.projectId === selectedProjectId);
+  // Memoised, so the counts and summaries keyed on it can cache at all: it
+  // was rebuilt on every render, which made every useMemo below it pointless
+  // (audit BUG-11). belongsToMe reads projects and meUserId, so both are
+  // dependencies.
+  const projectTasks = useMemo(
+    () =>
+      selectedProjectId === 'mine'
+        ? tasks.filter(belongsToMe)
+        : tasks.filter((task) => task.projectId === selectedProjectId),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- belongsToMe is
+    // recreated each render; its inputs are listed instead.
+    [tasks, selectedProjectId, projects, meUserId],
+  );
   const projectCaptures = captures.filter(
     (capture) =>
       capture.state === 'pending' &&
@@ -2878,16 +2887,15 @@ export default function Home() {
               </div>
             </div>
             {selectedProject.members.map((member) => {
-              const memberTasks =
-                selectedProjectId === 'mine'
-                  ? projectTasks.length
-                  : projectTasks.filter((task) => {
-                      if (task.assigneeType === 'member')
-                        return task.assigneeId === member.id;
-                      return !!getProject(task.projectId)
-                        .teams.find((team) => team.id === task.assigneeId)
-                        ?.memberIds.includes(member.id);
-                    }).length;
+              // Counted per person in every view. The "mine" view used to
+              // hand each member the workspace total, so everyone's bar was
+              // full and the chart said nothing (audit BUG-10).
+              const memberTasks = projectTasks.filter((task) => {
+                if (task.assigneeType === 'member') return task.assigneeId === member.id;
+                return !!getProject(task.projectId)
+                  .teams.find((team) => team.id === task.assigneeId)
+                  ?.memberIds.includes(member.id);
+              }).length;
               return (
                 <div className="load-row" key={member.id}>
                   <PersonAvatar initials={member.initials} size="sm" />
