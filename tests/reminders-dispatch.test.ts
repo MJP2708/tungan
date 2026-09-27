@@ -36,12 +36,20 @@ describe('reminder dispatch', { skip: !URL_ ? 'TEST_DATABASE_URL not set' : fals
   const worker = 'u-worker';
   const stranger = 'u-stranger';
 
-  /** A fetch that records what would have been sent to LINE. */
+  /**
+   * A fetch that records pushes instead of sending them, and answers LINE's
+   * profile endpoint — which is how "have they added the OA?" is checked.
+   * U-stranger really has not: LINE answers 404 for them.
+   */
   function recordingFetch(status = 200) {
     const calls: Array<{ to: string; text: string }> = [];
-    const impl = (async (_url: string, init: { body: string }) => {
-      const body = JSON.parse(init.body) as { to: string; messages: Array<{ text: string }> };
-      calls.push({ to: body.to, text: body.messages.map((m) => m.text).join('\n') });
+    const impl = (async (url: string, init?: { body?: string }) => {
+      if (String(url).includes('/v2/bot/profile/')) {
+        const known = !String(url).endsWith('U-stranger');
+        return { ok: known, status: known ? 200 : 404, json: async () => ({}) };
+      }
+      const body = JSON.parse(init?.body ?? '{}') as { to: string; messages: Array<{ text: string }> };
+      calls.push({ to: body.to, text: (body.messages ?? []).map((m) => m.text).join('\n') });
       return { ok: status < 400, status, json: async () => ({}) };
     }) as unknown as typeof fetch;
     return { calls, impl };
@@ -166,6 +174,21 @@ describe('reminder dispatch', { skip: !URL_ ? 'TEST_DATABASE_URL not set' : fals
     assert.equal(row.state, 'failed');
     assert.match(row.failureReason ?? '', /เพื่อน/);
     assert.equal((await db().select().from(schema.messageUsage)).length, 0, 'nothing billed');
+  });
+
+  test('a stale "not a friend" flag is rechecked with LINE, not trusted', async () => {
+    // They did add the OA, but the follow event never reached us — a webhook
+    // registered late, or a database restored from before they added it.
+    await db().update(schema.lineUser).set({ isOaFriend: false }).where(eq(schema.lineUser.id, worker));
+    await addReminder('r-1', worker, 't-1');
+    const { calls, impl } = recordingFetch();
+
+    const result = await dispatchDueReminders({ fetchImpl: impl });
+
+    assert.equal(result.sent, 1, 'the reminder goes out');
+    assert.equal(calls.length, 1);
+    const [row] = await db().select().from(schema.lineUser).where(eq(schema.lineUser.id, worker));
+    assert.equal(row.isOaFriend, true, 'and the flag is corrected');
   });
 
   test('over the monthly cap nothing is sent, and it says why', async () => {

@@ -86,9 +86,20 @@ export async function pushToUser(
   const recipient = rows[0];
   if (!recipient) return { ok: false, reason: 'line_error', counted: 0 };
 
-  // A member only receives DMs if they added the OA as a friend. Surface it
-  // as a stored failure so the UI can warn, instead of dropping it silently.
-  if (!recipient.isOaFriend) return { ok: false, reason: 'not_friend', counted: 0 };
+  // A member only receives DMs if they added the OA as a friend. The stored
+  // flag is set by a follow event, and an event can be missed — a webhook
+  // registered late, a truncated run, or a database restored from before
+  // they added it. Trusting a stale `false` means never even trying, and a
+  // reminder that is never attempted looks exactly like one that failed.
+  // So: ask LINE, and remember the answer.
+  if (!recipient.isOaFriend) {
+    const friend = await isFriendOfOa(recipient.lineUserId, { fetchImpl: options.fetchImpl });
+    if (friend !== true) return { ok: false, reason: 'not_friend', counted: 0 };
+    await db()
+      .update(lineUser)
+      .set({ isOaFriend: true, updatedAt: new Date() })
+      .where(eq(lineUser.id, params.recipientUserId));
+  }
 
   if (await isOverCap(params.workspaceId, month)) {
     return { ok: false, reason: 'over_cap', counted: 0 };
