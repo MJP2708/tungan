@@ -3,7 +3,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import { task, taskEvent, workspaceMember } from '../db/schema.ts';
 import { findEventForUndo } from '../db/events.ts';
-import { HttpError } from '../auth/session.ts';
+import { HttpError } from '../http-error.ts';
 import { planRemindersForTask } from '../reminders/plan.ts';
 
 /**

@@ -2,7 +2,7 @@ import 'server-only';
 import { and, eq } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import { groupWorkspace, lineGroupMember, workspaceMember } from '../db/schema.ts';
-import { HttpError } from './session.ts';
+import { HttpError } from '../http-error.ts';
 
 /**
  * Can this person be given work in this workspace?

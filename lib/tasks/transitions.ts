@@ -2,7 +2,7 @@ import 'server-only';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import { task, taskEvent, reminder, lineUser, workspaceMember } from '../db/schema.ts';
-import { HttpError } from '../auth/session.ts';
+import { HttpError } from '../http-error.ts';
 import { planRemindersForTask } from '../reminders/plan.ts';
 import { pushToUser } from '../line/messaging.ts';
 import { noteActivity } from '../reminders/schedule-learning.ts';
@@ -10,7 +10,7 @@ import { checkEvidenceLink } from '../evidence/check-link.ts';
 import { isSafeHttpUrl } from '../url.ts';
 import { audienceLabel, defaultVisibilityFor, normalizeVisibility } from '../events/visibility.ts';
 import { BLOCKED_REASONS, isBlockedReason } from './reasons.ts';
-import { appLink } from '@/lib/deep-link.ts';
+import { appLink } from '../deep-link.ts';
 import { assertAssignable } from '../auth/assignable.ts';
 import { mayActOnTask } from './permissions.ts';
 

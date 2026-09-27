@@ -4,6 +4,9 @@ import { randomBytes, createHash } from 'node:crypto';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import { session, lineUser, workspaceMember, workspace } from '../db/schema.ts';
+import { HttpError } from '../http-error.ts';
+
+export { HttpError };
 
 export const SESSION_COOKIE = 'tungan_session';
 const SESSION_DAYS = 30;
@@ -50,12 +53,6 @@ export type SessionUser = {
   lineUserId: string;
   displayName: string;
 };
-
-export class HttpError extends Error {
-  constructor(readonly status: number, message: string) {
-    super(message);
-  }
-}
 
 /**
  * Resolve the caller from the session cookie. Throws 401 if absent/expired.

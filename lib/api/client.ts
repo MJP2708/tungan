@@ -69,8 +69,13 @@ export type ApiInboxItem = {
 };
 
 export class ApiError extends Error {
-  constructor(readonly status: number, message: string) {
+  // Assigned in the body rather than as a parameter property: Node's
+  // type-stripping (used by the tests) does not support the shorthand.
+  readonly status: number;
+
+  constructor(status: number, message: string) {
     super(message);
+    this.status = status;
   }
 }
 
