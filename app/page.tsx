@@ -136,6 +136,8 @@ type Account = {
   lineConnected: boolean;
   lineName: string;
   displayName: string;
+  /** Where to add the OA, when they have not. Empty if LINE did not answer. */
+  addFriendUrl: string;
 };
 type Team = { id: string; name: string; memberIds: string[] };
 type Project = {
@@ -476,6 +478,7 @@ export default function Home() {
     lineConnected: false,
     lineName: '',
     displayName: '',
+    addFriendUrl: '',
   });
   const [meUserId, setMeUserId] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -645,6 +648,7 @@ export default function Home() {
           lineConnected: me.user.isOaFriend,
           lineName: me.user.displayName,
           displayName: me.user.displayName,
+          addFriendUrl: me.user.addFriendUrl ?? '',
         });
 
         const list = me.workspaces;
@@ -2421,6 +2425,41 @@ export default function Home() {
     );
   }
 
+  /**
+   * Nobody who has not added the OA gets a single reminder, and until now the
+   * only sign of it was one line in ตั้งค่า. The server checks with LINE
+   * before this shows, so it never cries wolf at someone who is a friend.
+   */
+  const addFriendCard =
+    account.loggedIn && !account.lineConnected ? (
+      <section className="panel group-setup-card">
+        <div>
+          <strong>ยังไม่ได้แอดบอท ทันงาน ใน LINE</strong>
+          <small>
+            การเตือนส่งเป็นข้อความส่วนตัวใน LINE เท่านั้น
+            ถ้ายังไม่ได้แอด จะไม่มีการเตือนส่งถึงคุณเลย
+          </small>
+        </div>
+        <div className="connection-row">
+          <span>
+            <MessageCircle />
+            เพิ่ม ทันงาน เป็นเพื่อน
+          </span>
+          {account.addFriendUrl ? (
+            <Button
+              onClick={() => {
+                window.location.href = account.addFriendUrl;
+              }}
+            >
+              แอดบอท
+            </Button>
+          ) : (
+            <small>ค้นหา ทันงาน ใน LINE แล้วกดเพิ่มเพื่อน</small>
+          )}
+        </div>
+      </section>
+    ) : null;
+
   const renderHome = () => (
     <>
       <section className="welcome-block">
@@ -2435,6 +2474,7 @@ export default function Home() {
           สร้างงาน
         </Button>
       </section>
+      {addFriendCard}
       {lineGroups.some((group) => !group.bound) && (
         // First run: the bot is in a group nobody has connected yet. Setting
         // it up used to mean finding it in Settings; it is one tap here.
@@ -3026,6 +3066,7 @@ export default function Home() {
           </div>
           <Badge variant="outline">ไม่เสียเงินเพิ่ม</Badge>
         </div>
+        {addFriendCard}
 
         <form className="reminder-composer" onSubmit={createQuickReminder}>
           <div className="reminder-composer-heading">

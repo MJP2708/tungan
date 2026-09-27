@@ -4,7 +4,7 @@ const now = Date.now();
 export const iso = (h) => new Date(now + h * 3600e3).toISOString();
 
 export const me = {
-  user: { userId: 'u1', lineUserId: 'U1', displayName: 'พิมพ์ชนก', isOaFriend: true },
+  user: { userId: 'u1', lineUserId: 'U1', displayName: 'พิมพ์ชนก', isOaFriend: true, addFriendUrl: null },
   workspaces: [
     { id: 'w1', name: 'ทีม Operations ฝ่ายอีเวนต์และโปรดักชันภาคกลาง', role: 'owner', cutoff: '17:00' },
     { id: 'w2', name: 'งานของฉัน', role: 'owner', cutoff: '17:00' },

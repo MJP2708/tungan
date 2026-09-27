@@ -86,19 +86,11 @@ export async function pushToUser(
   const recipient = rows[0];
   if (!recipient) return { ok: false, reason: 'line_error', counted: 0 };
 
-  // A member only receives DMs if they added the OA as a friend. The stored
-  // flag is set by a follow event, and an event can be missed — a webhook
-  // registered late, a truncated run, or a database restored from before
-  // they added it. Trusting a stale `false` means never even trying, and a
-  // reminder that is never attempted looks exactly like one that failed.
-  // So: ask LINE, and remember the answer.
   if (!recipient.isOaFriend) {
-    const friend = await isFriendOfOa(recipient.lineUserId, { fetchImpl: options.fetchImpl });
-    if (friend !== true) return { ok: false, reason: 'not_friend', counted: 0 };
-    await db()
-      .update(lineUser)
-      .set({ isOaFriend: true, updatedAt: new Date() })
-      .where(eq(lineUser.id, params.recipientUserId));
+    const friend = await refreshFriendFlag(params.recipientUserId, recipient.lineUserId, {
+      fetchImpl: options.fetchImpl,
+    });
+    if (!friend) return { ok: false, reason: 'not_friend', counted: 0 };
   }
 
   if (await isOverCap(params.workspaceId, month)) {
@@ -155,6 +147,54 @@ export async function isFriendOfOa(
     // unreachable, and their reminders then stopped.
     return null;
   }
+}
+
+/**
+ * Is this person a friend of the OA, really?
+ *
+ * The stored flag is set by a follow event, and an event can be missed — a
+ * webhook registered late, a truncated run, or a database restored from
+ * before they added the bot. Both production accounts carried a stale
+ * `false`, which would have silently killed every reminder: a reminder that
+ * is never attempted looks exactly like one that failed. So when the flag
+ * says no, ask LINE and remember the answer. A `false` is only written by
+ * the follow/unfollow events; an unreachable LINE leaves the row alone.
+ */
+export async function refreshFriendFlag(
+  userId: string,
+  lineUserId: string,
+  options: { fetchImpl?: typeof fetch } = {},
+): Promise<boolean> {
+  const friend = await isFriendOfOa(lineUserId, { fetchImpl: options.fetchImpl });
+  if (friend !== true) return false;
+  await db()
+    .update(lineUser)
+    .set({ isOaFriend: true, updatedAt: new Date() })
+    .where(eq(lineUser.id, userId));
+  return true;
+}
+
+/**
+ * The bot's own "add friend" link, asked of LINE rather than configured.
+ *
+ * Someone who has not added the OA gets no reminders at all, so the app has
+ * to say so and offer the link — and an OA id in one more env var is one more
+ * thing to get wrong. Cached for the life of the process: it never changes.
+ */
+let cachedBasicId: string | null | undefined;
+export async function addFriendUrl(
+  options: { fetchImpl?: typeof fetch } = {},
+): Promise<string | null> {
+  if (cachedBasicId === undefined) {
+    const info = await getJson<{ basicId?: string }>(
+      'https://api.line.me/v2/bot/info',
+      options.fetchImpl,
+    );
+    // Leave it unset when LINE could not answer, so the next call tries again.
+    if (!info) return null;
+    cachedBasicId = typeof info.basicId === 'string' ? info.basicId : null;
+  }
+  return cachedBasicId ? `https://line.me/R/ti/p/${cachedBasicId}` : null;
 }
 
 export type LineProfile = { displayName: string; pictureUrl: string | null };

@@ -104,7 +104,16 @@ export function newIdempotencyKey() {
 export const api = {
   me: () =>
     request<{
-      user: { userId: string; lineUserId: string; displayName: string; isOaFriend: boolean };
+      user: {
+        userId: string;
+        lineUserId: string;
+        displayName: string;
+        /** Checked with LINE when the stored flag says no: false means
+         *  no reminder can reach this person at all. */
+        isOaFriend: boolean;
+        /** Only when isOaFriend is false, and only if LINE answered. */
+        addFriendUrl: string | null;
+      };
       workspaces: ApiWorkspace[];
     }>('/api/auth/me'),
 
