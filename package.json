@@ -12,7 +12,7 @@
     "start": "next start",
     "lint": "oxlint",
     "format": "oxfmt",
-    "test": "node --experimental-strip-types --test tests/*.test.ts"
+    "test": "node --experimental-strip-types --conditions=react-server --test-concurrency=1 --test tests/*.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
@@ -48,6 +48,7 @@
     "oxlint": "1.76.0",
     "oxlint-tsgolint": "7.0.2001",
     "pg": "^8.23.0",
+    "server-only": "^0.0.1",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3"
   }

@@ -10,13 +10,19 @@
 
 const ORIGIN = 'https://app.invalid';
 
-/** The link to put in a LINE message. Server-side only (reads env). */
+/**
+ * The link to put in a LINE message. Server-side only (reads env).
+ *
+ * Empty when neither the LIFF id nor the base URL is configured: a message
+ * saying "เปิดในแอป: /" is worse than one with no link at all, so callers
+ * leave the line out instead.
+ */
 export function appLink(target: { task?: string } = {}): string {
   const query = target.task ? `?task=${encodeURIComponent(target.task)}` : '';
   const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
   if (liffId) return `https://liff.line.me/${liffId}${query}`;
   const base = (process.env.APP_BASE_URL ?? '').replace(/\/$/, '');
-  return `${base}/${query}`;
+  return base ? `${base}/${query}` : '';
 }
 
 /**

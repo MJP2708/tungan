@@ -139,12 +139,13 @@ export async function dispatchDueReminders(
     // so the link costs nothing extra against the quota.
     const taskIds = [...new Set(rows.map((r) => r.task_id).filter(Boolean))] as string[];
     const link = taskIds.length === 1 ? appLink({ task: taskIds[0] }) : appLink();
+    const openLine = link ? `\n\nเปิดในแอป: ${link}` : '';
     const text =
       sections.join('\n\n') +
       // Say it in the message itself. A quieter bot with no explanation reads
       // as a broken bot.
       (notice ? `\n\n(${notice})` : '') +
-      `\n\nเปิดในแอป: ${link}`;
+      openLine;
 
     const outcome = await pushToUser(
       { workspaceId, recipientUserId, messages: [{ type: 'text', text }], taskId: rows[0].task_id ?? undefined },

@@ -51,3 +51,10 @@ test('next can never leave the site', () => {
     assert.ok(!out.includes('evil'), `${String(bad)} -> ${out}`);
   }
 });
+
+test('no LIFF id and no base URL means no link, not "/"', () => {
+  delete process.env.NEXT_PUBLIC_LIFF_ID;
+  delete process.env.APP_BASE_URL;
+  assert.equal(appLink(), '');
+  assert.equal(appLink({ task: 't-1' }), '');
+});
