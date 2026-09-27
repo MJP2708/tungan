@@ -230,11 +230,16 @@ now. Nothing here is a pending task unless it says so.*
 - **BUG-7** `selectedTask` holds a **copy**, not an id; every mutation writes
   the whole stale object back. **FIXED** — `selectedTaskId` with the task
   derived from the current list.
-- **STR-1** All nine "pages" are `useState`, not routes — no URL, no deep
-  link, no back button. **PARTLY DONE** — LIFF deep links work through
-  `?task=<id>` (`lib/deep-link.ts`), and the visual harness needs no seed
-  (`tools/visual/`). The nine screens are still not routes, so there is still
-  no back button or per-screen URL.
+- **STR-1** All nine "pages" were `useState`, not routes — no URL, no deep
+  link, no back button. **FIXED** — every screen has an address (`/?p=tasks`;
+  วันนี้ stays at `/`), `navigate()` pushes it, `popstate` steps back, and a
+  reload stays put. Still one route: the address is a query string, not a file
+  per page. `pageFromSearch` / `pageUrl` live in `lib/deep-link.ts` and read
+  `liff.state` too, alongside the `?task=<id>` link. `main.app-main[data-page]`
+  is the harness's hook (`tools/visual/urls.mjs`). An open task sheet pushes a
+  step of its own (`history.state.task`), so Back closes the sheet rather than
+  the screen behind it. The `startPage` setting was offered but never applied
+  — it is now.
 - **STR-2** Business rules (permission, ranking, parsing, dedup) live in
   render code and must move to a data layer. **MOSTLY DONE** — permission
   (`lib/tasks/permissions.ts`, `lib/auth/assignable.ts`), transitions,
@@ -279,9 +284,11 @@ npx tsc --noEmit --incremental false --pretty false
 npm run build                                     # must pass before any visual claim
 ```
 
-`npm run lint` exits 0 and reports errors that are pre-existing style, not
+`npm run lint` exits **1** and reports errors that are pre-existing style, not
 failures. The count moves as code is added and removed — it was 95 at the
-original audit and **267** on 2026-09-27, after deleting 49 dead components.
+original audit, **267** on 2026-09-27 after deleting 49 dead components, and
+**286** on the commit before the URL work (289 after, all three the same
+`no-floating-promises` every `node:test` call in the file already reports).
 Compare against the count on the commit you started from, not a fixed number.
 
 Database-backed tests (workspace isolation, reminder dispatch, AI allowance)
@@ -308,6 +315,8 @@ node tools/visual/check.mjs     # every page at 320/360/390/430: overflow,
                                 # native dialogs
 node tools/visual/targets.mjs   # touch targets under 44px
 node tools/visual/shots.mjs     # screenshots of the main screens
+node tools/visual/urls.mjs      # each screen's address, Back, reload,
+                                # start page
 ```
 
 Every `/api/*` call is answered from `tools/visual/fixtures.mjs`, so no

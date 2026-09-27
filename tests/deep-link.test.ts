@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appLink, safeNextPath, taskIdFromSearch } from '../lib/deep-link.ts';
+import { appLink, safeNextPath, taskIdFromSearch, pageFromSearch, pageUrl } from '../lib/deep-link.ts';
 
 /**
  * Links in and out of LINE.
@@ -57,4 +57,27 @@ test('no LIFF id and no base URL means no link, not "/"', () => {
   delete process.env.APP_BASE_URL;
   assert.equal(appLink(), '');
   assert.equal(appLink({ task: 't-1' }), '');
+});
+
+/**
+ * Screens in the address. Nine screens shared one URL, so Back left the app
+ * and a reload always came back to วันนี้.
+ */
+
+test('a link can name the screen, directly or through liff.state', () => {
+  assert.equal(pageFromSearch('?p=reminders'), 'reminders');
+  assert.equal(pageFromSearch('?p=inbox&task=t-1'), 'inbox');
+  assert.equal(pageFromSearch('?liff.state=%3Fp%3Dtasks'), 'tasks');
+});
+
+test('an unknown screen is ignored rather than shown blank', () => {
+  for (const bad of ['', '?p=', '?p=admin', '?p=../settings', '?p=<script>']) {
+    assert.equal(pageFromSearch(bad), null, bad);
+  }
+});
+
+test('วันนี้ keeps the bare address, so the front page has one URL', () => {
+  assert.equal(pageUrl('home'), '/');
+  assert.equal(pageUrl('settings'), '/?p=settings');
+  assert.equal(pageFromSearch(pageUrl('calendar').slice(1)), 'calendar');
 });

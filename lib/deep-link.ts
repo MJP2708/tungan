@@ -8,6 +8,8 @@
 // with no session is bounced to `/login?next=<that>`. These helpers unwrap
 // both without ever sending the browser to another origin.
 
+import { appNavigation, type Page } from './app-preferences.ts';
+
 const ORIGIN = 'https://app.invalid';
 
 /**
@@ -63,4 +65,22 @@ export function taskIdFromSearch(search: string): string | null {
   const path = safeNextPath(`/${search.startsWith('?') ? search : `?${search}`}`);
   const id = new URL(path, ORIGIN).searchParams.get('task');
   return id && /^[\w-]{1,64}$/.test(id) ? id : null;
+}
+
+/**
+ * The screen a link asks for: `?p=tasks`, directly or inside liff.state.
+ *
+ * Nine screens shared one address, so a reload always came back to วันนี้, the
+ * phone's Back button left the app instead of stepping back a screen, and a
+ * rich-menu button could not point at anything but the front page.
+ */
+export function pageFromSearch(search: string): Page | null {
+  const path = safeNextPath(`/${search.startsWith('?') ? search : `?${search}`}`);
+  const value = new URL(path, ORIGIN).searchParams.get('p');
+  return appNavigation.some((item) => item.page === value) ? (value as Page) : null;
+}
+
+/** Where a screen lives: วันนี้ at `/`, the rest at `/?p=<page>`. */
+export function pageUrl(page: Page): string {
+  return page === 'home' ? '/' : `/?p=${page}`;
 }

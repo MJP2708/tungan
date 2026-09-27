@@ -13,6 +13,10 @@ Current id: `richmenu-c2741185dd6a25e5d7e13aea60abc653`
 | 833–1666 | วิธีใช้ | message `วิธีใช้` — matches `HELP_TRIGGERS`, answered on the reply token (free) |
 | 1666–2500 | ความเป็นส่วนตัว | uri `https://www.humanmatter.work/privacy` |
 
+A button can name a screen: append `?p=tasks`, `?p=reminders`, `?p=inbox`
+and so on (the list is `appNavigation` in `lib/app-preferences.ts`).
+Anything else opens วันนี้.
+
 Size 2500×843, JPEG under 1 MB. `rich-menu.html` is the source: render it at
 exactly 2500×843 (Prompt font from Google Fonts) and upload the result.
 

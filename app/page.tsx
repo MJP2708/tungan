@@ -96,7 +96,7 @@ import {
 } from '@/lib/deadline';
 import { th } from 'date-fns/locale';
 import { api, ApiError, newIdempotencyKey } from '@/lib/api/client';
-import { taskIdFromSearch } from '@/lib/deep-link.ts';
+import { taskIdFromSearch, pageFromSearch, pageUrl } from '@/lib/deep-link.ts';
 import { BLOCKED_REASONS } from '@/lib/tasks/reasons';
 import { initialsFor } from '@/lib/initials';
 import { mayEditTaskFields } from '@/lib/tasks/permissions';
@@ -421,13 +421,45 @@ export default function Home() {
   // "บันทึกในอุปกรณ์นี้". A fresh key: prototype data is never read back.
   const settingsLoaded = useRef(false);
   useEffect(() => {
+    let saved = defaultSettings;
     try {
       const raw = localStorage.getItem(SETTINGS_KEY);
-      if (raw) setSettings(normalizeSettings(JSON.parse(raw)));
+      if (raw) {
+        saved = normalizeSettings(JSON.parse(raw));
+        setSettings(saved);
+      }
     } catch {
       // Blocked or corrupt storage: defaults are fine.
     }
     settingsLoaded.current = true;
+    // Which screen to open on. The address wins — a link or a reload has to
+    // land where it says — and otherwise the person's chosen start page,
+    // which the settings screen has always offered and nothing ever applied.
+    const asked = pageFromSearch(window.location.search);
+    const start = asked ?? saved.startPage;
+    if (start !== 'home') setPage(start);
+    if (!asked && start !== 'home') {
+      window.history.replaceState(null, '', pageUrl(start));
+    }
+  }, []);
+
+  // The phone's Back button. Every screen lives at its own address, so Back
+  // steps back one screen; without this it closed the LINE WebView outright,
+  // from anywhere in the app.
+  useEffect(() => {
+    function onPopState(event: PopStateEvent) {
+      const state = event.state as { task?: string } | null;
+      setPage(pageFromSearch(window.location.search) ?? 'home');
+      // An open task is its own step back (see below), so Back closes the
+      // sheet, and Forward opens it again.
+      setSelectedTaskId(state?.task ?? null);
+      setMenuOpen(false);
+      setNotificationOpen(false);
+      setFilter('all');
+      setSearch('');
+    }
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
   }, []);
   useEffect(() => {
     if (!settingsLoaded.current) return;
@@ -487,6 +519,24 @@ export default function Home() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
   const setSelectedTask = (task: Task | null) => setSelectedTaskId(task?.id ?? null);
+
+  // Opening a task pushes a step of its own. Without it, Back from a task
+  // sheet skipped the task and left the screen behind it — and the sheet is
+  // the one place in the app people spend real time.
+  useEffect(() => {
+    const state = window.history.state as { task?: string } | null;
+    if (selectedTaskId && state?.task !== selectedTaskId) {
+      window.history.pushState(
+        { task: selectedTaskId },
+        '',
+        window.location.pathname + window.location.search,
+      );
+    } else if (!selectedTaskId && state?.task) {
+      // Closed with the X or by tapping away: take the step back for them, so
+      // the history has no entry that reopens it.
+      window.history.back();
+    }
+  }, [selectedTaskId]);
   const [taskDialog, setTaskDialog] = useState(false);
   // The same entry sheet edits an existing task or corrects a LINE draft
   // before it becomes one. Null means "create a new task".
@@ -669,8 +719,13 @@ export default function Home() {
     deepLinkHandled.current = true;
     const taskId = taskIdFromSearch(window.location.search);
     if (!taskId) return;
-    // Drop it from the address so a refresh or Back does not reopen it.
-    window.history.replaceState(null, '', window.location.pathname);
+    // Drop it from the address so a refresh or Back does not reopen it, and
+    // keep whatever screen the same link asked for.
+    window.history.replaceState(
+      null,
+      '',
+      pageUrl(pageFromSearch(window.location.search) ?? 'home'),
+    );
     if (tasks.some((task) => task.id === taskId)) {
       setSelectedTaskId(taskId);
       return;
@@ -903,7 +958,7 @@ export default function Home() {
   /** Open a task that lives in another workspace. */
   async function openTaskElsewhere(workspaceId: string, taskId: string) {
     setSelectedProjectId(workspaceId);
-    setPage('home');
+    navigate('home');
     try {
       await refreshWorkspace(workspaceId);
       setSelectedTaskId(taskId);
@@ -1328,6 +1383,10 @@ export default function Home() {
     setPage(next);
     setFilter('all');
     setSearch('');
+    const url = pageUrl(next);
+    if (window.location.pathname + window.location.search !== url) {
+      window.history.pushState(null, '', url);
+    }
     window.scrollTo({
       top: 0,
       behavior: settings.reducedMotion ? 'instant' : 'smooth',
@@ -1365,7 +1424,7 @@ export default function Home() {
 
   function chooseProject(id: string) {
     setSelectedProjectId(id);
-    setPage('home');
+    navigate('home');
     const nextProject = projects.find((project) => project.id === id);
     // Tasks, inbox and members are fetched on switch, not only at login. Only
     // the workspace open at login used to be loaded, so every other workspace
@@ -3794,7 +3853,8 @@ export default function Home() {
           </div>
         </div>
       </aside>
-      <main className="app-main">
+      {/* data-page is what the visual harness reads to know where it is. */}
+      <main className="app-main" data-page={page}>
         <header className="topbar">
           <div className="mobile-brand-shell">
             <Brand mobile />
