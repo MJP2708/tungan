@@ -7,278 +7,159 @@
  * this import restores the glass theme exactly, and removing both restores
  * the original look.
  *
- *   Ethereal  — a pearl backdrop with soft, low-saturation blooms; light that
- *               seems to come from inside the glass; long, faint shadows.
+ *   Ethereal  — a luminous pastel atmosphere you can see through every
+ *               surface; light that seems to come from inside the glass.
  *   Luxury    — Prompt at 300 for display sizes against small, tracked
  *               labels; large light numerals; less bold everywhere else.
- *   Swiss     — numbered sections ("03 — TASKS"), flush-left, one type
- *               scale, hairline rules instead of boxes inside boxes.
- *   Liquid    — glass with a bright rim, a top sheen and an inner glow.
+ *   Swiss     — numbered sections ("03 — TASKS"), numbered rows, flush-left,
+ *               one type scale, hairline rules instead of boxes inside boxes.
+ *   Liquid    — floating, translucent surfaces with a bright rim, a top
+ *               sheen and an inner glow; pill-shaped controls.
  *
  * Colour rule unchanged: #0080ff is the only blue on anything interactive or
  * stateful; pastels are decoration only. No new fonts: Prompt + Geist Mono.
- * Every backdrop-filter has a solid fallback.
+ * Every backdrop-filter has a solid fallback. Ease-of-use rules unchanged:
+ * 44px targets, nothing important hidden behind hover.
  */
 
 :root {
   --ink: #090909;
-  --ink-2: #3a3a37;
-  /* Secondary text. 5.0:1 on white, still above 4.5:1 on the palest glass. */
-  --ink-3: #66665f;
+  --ink-2: #33332f;
+  /* Secondary text. Still above 4.5:1 on the palest glass. */
+  --ink-3: #5d5d57;
   --hairline: rgba(9, 9, 9, 0.08);
-  --hairline-strong: rgba(9, 9, 9, 0.13);
+  --hairline-strong: rgba(9, 9, 9, 0.14);
 
-  --liquid-fill: rgba(255, 255, 255, 0.5);
+  --liquid-fill: rgba(255, 255, 255, 0.38);
   --liquid-sheen: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.72) 0%,
-    rgba(255, 255, 255, 0.22) 34%,
-    rgba(255, 255, 255, 0.08) 100%
+    175deg,
+    rgba(255, 255, 255, 0.78) 0%,
+    rgba(255, 255, 255, 0.26) 30%,
+    rgba(255, 255, 255, 0.06) 70%,
+    rgba(255, 255, 255, 0.18) 100%
   );
-  /* Rim light: bright top edge, a faint ring, a soft glow pooling at the
-     bottom — what makes a frosted panel read as liquid. */
-  --liquid-rim: inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.42),
-    inset 0 -18px 30px -24px rgba(255, 255, 255, 0.85);
-  --ethereal-shadow: 0 1px 2px rgba(40, 30, 80, 0.04),
-    0 22px 48px -18px rgba(70, 56, 130, 0.2);
-  --liquid-blur: blur(26px) saturate(165%);
+  /* Rim light: bright top edge, a faint ring, a glow pooling at the bottom —
+     what makes a frosted panel read as liquid. */
+  --liquid-rim: inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+    inset 0 -22px 34px -26px rgba(255, 255, 255, 0.95);
+  --ethereal-shadow: 0 1px 2px rgba(40, 30, 80, 0.05),
+    0 24px 54px -22px rgba(76, 58, 150, 0.32);
+  --liquid-blur: blur(30px) saturate(185%);
 
+  --ease-soft: cubic-bezier(0.2, 0.8, 0.2, 1);
   --mono: var(--font-geist-mono), var(--font-prompt), ui-monospace, monospace;
 }
 
-/* ══ Ethereal backdrop ════════════════════════════════════════════════════
-   Pearl base, soft-focus blooms. The heat map stays, cooled to a blush so
-   it glows rather than burns; the halftone is finer and fainter. Gradients
-   only and nothing animated: a moving full-screen layer repaints every frame
-   on the phones this runs on. */
+/* ══ Ethereal atmosphere ══════════════════════════════════════════════════
+   Pastel light you can see through the glass: lilac, sky and blush blooms
+   over pearl, a diagonal veil of light, and a fine halftone. Gradients only
+   and nothing animated: a moving full-screen layer repaints every frame on
+   the phones this runs on. */
+body {
+  background: #f4f2f8;
+}
+
 .app-shell::before,
 .auth-page::before {
   background:
+    /* a veil of light, falling from the upper left */
+    linear-gradient(118deg, rgba(255, 255, 255, 0) 18%, rgba(255, 255, 255, 0.55) 34%, rgba(255, 255, 255, 0) 52%),
     /* blush heat core, top right */
-    radial-gradient(30vmax 24vmax at 100% 0%, rgba(255, 176, 160, 0.42), transparent 64%),
-    radial-gradient(54vmax 40vmax at 102% -4%, rgba(255, 214, 196, 0.48), transparent 66%),
-    /* champagne haze */
-    radial-gradient(46vmax 34vmax at 70% 24%, rgba(255, 236, 206, 0.4), transparent 66%),
-    /* ice-blue and lilac blooms */
-    radial-gradient(58vmax 46vmax at -12% 64%, rgba(188, 214, 255, 0.55), transparent 64%),
-    radial-gradient(48vmax 38vmax at 34% 108%, rgba(222, 210, 255, 0.58), transparent 62%),
-    radial-gradient(28vmax 22vmax at 92% 82%, rgba(226, 214, 255, 0.4), transparent 66%),
-    /* pearl light, upper left */
-    radial-gradient(44vmax 30vmax at 8% 6%, rgba(255, 255, 255, 0.9), transparent 70%),
-    #f7f7f5;
+    radial-gradient(34vmax 28vmax at 98% 2%, rgba(255, 168, 150, 0.62), transparent 64%),
+    radial-gradient(58vmax 44vmax at 104% -6%, rgba(255, 206, 186, 0.7), transparent 66%),
+    /* champagne */
+    radial-gradient(40vmax 30vmax at 62% 30%, rgba(255, 232, 196, 0.5), transparent 66%),
+    /* sky bloom, left */
+    radial-gradient(56vmax 46vmax at -10% 52%, rgba(160, 196, 255, 0.78), transparent 64%),
+    /* lilac bloom, bottom */
+    radial-gradient(56vmax 44vmax at 38% 112%, rgba(204, 182, 255, 0.82), transparent 62%),
+    radial-gradient(34vmax 28vmax at 96% 84%, rgba(214, 196, 255, 0.62), transparent 66%),
+    /* pearl, upper left */
+    radial-gradient(40vmax 28vmax at 6% 4%, rgba(255, 255, 255, 0.95), transparent 70%),
+    #f4f2f8;
 }
 
 .app-shell::after,
 .auth-page::after {
-  background-image: radial-gradient(rgba(120, 108, 210, 0.2) 1px, transparent 1.4px);
-  background-size: 11px 11px;
+  background-image: radial-gradient(rgba(112, 96, 214, 0.26) 1px, transparent 1.4px);
+  background-size: 10px 10px;
 }
 
-/* ══ Luxury type: screen titles ═══════════════════════════════════════════ */
-.welcome-block h2,
-.section-intro h2 {
-  color: var(--ink);
-  font-size: clamp(40px, 10.5vw, 60px);
-  font-weight: 300;
-  letter-spacing: -0.03em;
-  line-height: 1.04;
-}
+/* Phones: globals paints the shell solid white; let the atmosphere through. */
+@media (max-width: 760px) {
+  .app-shell {
+    background: transparent;
+  }
 
-/* Swiss index line: "01 — TODAY · พฤ. 1 ต.ค." */
-.welcome-block h2[data-kicker]::before,
-.section-intro h2[data-kicker]::before {
-  content: attr(data-kicker);
-  display: block;
-  margin-bottom: 12px;
-  color: var(--ink-3);
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.16em;
-  line-height: 1.4;
-  white-space: nowrap;
-}
-
-/* The title row sits on one baseline with its action. */
-.welcome-block,
-.section-intro {
-  align-items: flex-end;
-}
-
-/* Panel and card headings: medium, not heavy. */
-.panel-heading h3,
-.group-setup-card strong,
-.elsewhere-heading strong,
-.reminder-composer-heading strong {
-  color: var(--ink);
-  font-weight: 500;
-  letter-spacing: -0.01em;
-}
-
-.panel-heading h3 {
-  font-size: 17px;
-}
-
-.group-setup-card > div:first-child strong,
-.elsewhere-heading strong {
-  font-size: 17px;
-}
-
-.group-setup-card small,
-.elsewhere-heading small,
-.elsewhere-row small {
-  color: var(--ink-3);
-}
-
-/* Task titles: one step lighter, which reads calmer in a long list. */
-.task-row h3,
-.task-row strong,
-.elsewhere-row strong {
-  font-weight: 500;
-}
-
-/* A LINE draft's proposed task name: a light display line, like a title. */
-.capture-draft h3 {
-  font-size: 22px;
-  font-weight: 400;
-  letter-spacing: -0.02em;
-}
-
-/* ══ Large light numerals ═════════════════════════════════════════════════ */
-.brief-metrics b,
-.report-metrics b,
-.story-stats b {
-  font-family: var(--font-prompt), sans-serif;
-  font-variant-numeric: tabular-nums;
-  font-weight: 300;
-  letter-spacing: -0.03em;
-}
-
-/* The four counts on วันนี้: number over label, Swiss tiles. On desktop the
-   brief sat in a 300px column stretched to the height of its neighbour, so
-   four tiles became tall empty bars with the number at the bottom. */
-.daily-brief {
-  align-self: start;
-}
-
-.brief-metrics span {
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: flex-start;
-  gap: 4px;
-  min-height: 0;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.55);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.75);
-  padding: 12px 12px 11px;
-  color: var(--ink-3);
-  font-size: 12px;
-  line-height: 1.3;
-}
-
-.brief-metrics b {
-  color: var(--ink);
-  font-size: 30px;
-  line-height: 1;
-}
-
-@media (min-width: 1021px) {
-  .desktop-split .brief-metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  body {
+    background: #f4f2f8;
   }
 }
 
-@media (max-width: 380px) {
-  .brief-metrics span {
-    padding: 10px 9px;
-    font-size: 11px;
-  }
-
-  .brief-metrics b {
-    font-size: 26px;
-  }
-}
-
-/* The task sheet's title, its deadline, the next reminder's time and the
-   story card's total: the same light display voice as the screen titles. */
-.task-detail [data-slot='sheet-title'] {
-  font-size: 26px;
-  font-weight: 400;
-  letter-spacing: -0.02em;
-  line-height: 1.28;
-}
-
-.detail-deadline strong,
-.next-reminder-time strong,
-.story-card > strong {
-  font-variant-numeric: tabular-nums;
-  font-weight: 300;
-  letter-spacing: -0.03em;
-}
-
-.story-card > h3 {
-  font-weight: 400;
+/* ══ Floating glass top bar ═══════════════════════════════════════════════ */
+.topbar {
+  top: 12px;
+  margin: 12px 16px 0;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 24px;
+  /* Whiter than the panels: the logo PNG has a white field. */
+  background: var(--liquid-sheen), rgba(255, 255, 255, 0.8);
+  box-shadow: var(--ethereal-shadow), var(--liquid-rim);
 }
 
 @media (max-width: 760px) {
-  .task-detail [data-slot='sheet-title'] {
-    font-size: 24px;
+  .topbar {
+    top: calc(8px + env(safe-area-inset-top));
+    width: auto;
+    margin: calc(8px + env(safe-area-inset-top)) 10px 0;
+    padding-top: 10px;
+    border-radius: 26px;
+  }
+
+  .mobile-project.themed-workspace-trigger {
+    border-radius: 18px;
   }
 }
 
-/* ══ Liquid glass surfaces ════════════════════════════════════════════════ */
-.panel,
-.line-attention-card,
-.forward-shortcut-card,
-.beta-strip,
-.auth-card,
-.daily-brief {
-  border-color: rgba(255, 255, 255, 0.82);
-  background: var(--liquid-sheen), var(--liquid-fill);
-  box-shadow: var(--ethereal-shadow), var(--liquid-rim);
-  -webkit-backdrop-filter: var(--liquid-blur);
-  backdrop-filter: var(--liquid-blur);
+/* ══ Floating glass sidebar (tablet and desktop) ══════════════════════════ */
+@media (min-width: 761px) {
+  .desktop-sidebar {
+    inset: 12px auto 12px 12px;
+    width: 220px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.85);
+    border-radius: 28px;
+  }
+
+  .app-main {
+    padding-left: 244px;
+  }
+
+  .desktop-sidebar .brand {
+    border-bottom: 0;
+    background: rgba(255, 255, 255, 0.88);
+  }
 }
 
-.panel {
-  border-radius: 22px;
-}
-
-/* The cards that ask for attention keep a brand edge — a hairline of it. */
-.line-attention-card,
-.group-setup-card {
-  border-color: rgba(0, 128, 255, 0.38);
-}
-
-/* Swiss: rows inside a panel are divided by hairlines, not stacked boxes. */
-.panel .task-row {
-  border-color: var(--hairline);
-  background: transparent;
-}
-
-.panel-heading {
-  border-color: var(--hairline);
-}
-
-/* ══ Desktop sidebar: frosted light glass instead of a black slab ═════════ */
 .desktop-sidebar {
-  border-right: 1px solid rgba(255, 255, 255, 0.75);
   background: var(--liquid-sheen), rgba(255, 255, 255, 0.4);
-  box-shadow: 1px 0 0 var(--hairline), 18px 0 48px -30px rgba(70, 56, 130, 0.22);
+  box-shadow: var(--ethereal-shadow), var(--liquid-rim);
   color: var(--ink);
   -webkit-backdrop-filter: var(--liquid-blur);
   backdrop-filter: var(--liquid-blur);
 }
 
 .workspace-card {
-  border-color: rgba(255, 255, 255, 0.85);
+  border-color: rgba(255, 255, 255, 0.9);
+  border-radius: 18px;
   background: rgba(255, 255, 255, 0.6);
-  box-shadow: 0 8px 22px -14px rgba(70, 56, 130, 0.25), var(--liquid-rim);
+  box-shadow: 0 8px 22px -14px rgba(70, 56, 130, 0.3), var(--liquid-rim);
   color: var(--ink);
 }
 
 .workspace-card > span {
+  border-radius: 12px;
   background: rgba(0, 128, 255, 0.08);
   color: var(--blue);
 }
@@ -295,6 +176,7 @@
 }
 
 .desktop-sidebar nav > button {
+  border-radius: 999px;
   color: var(--ink-2);
 }
 
@@ -304,8 +186,8 @@
 }
 
 .desktop-sidebar nav > button.active {
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 6px 18px -10px rgba(70, 56, 130, 0.3), var(--liquid-rim);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 8px 20px -10px rgba(70, 56, 130, 0.38), var(--liquid-rim);
   color: var(--ink);
   font-weight: 500;
 }
@@ -333,64 +215,371 @@
   color: var(--ink-2);
 }
 
-/* ══ Mobile nav: liquid capsule ═══════════════════════════════════════════
-   Same shape and items (CLAUDE.md); brighter rim, a sheen, and a white
-   liquid pill under the active item instead of a grey one. */
-@media (max-width: 760px) {
-  .mobile-nav {
-    border-color: rgba(255, 255, 255, 0.9);
-    background: var(--liquid-sheen), rgba(255, 255, 255, 0.52);
-    box-shadow: 0 18px 40px -16px rgba(60, 46, 120, 0.32), var(--liquid-rim);
-  }
+/* ══ Luxury type: screen titles, with a Swiss index line ══════════════════ */
+.welcome-block,
+.section-intro {
+  align-items: flex-end;
+  margin-bottom: 22px;
+  border-bottom: 1px solid var(--hairline-strong);
+  padding-bottom: 20px;
+}
 
-  .mobile-nav button.active {
-    background: rgba(255, 255, 255, 0.92);
-    box-shadow: 0 6px 16px -8px rgba(60, 46, 120, 0.35),
-      inset 0 1px 0 #ffffff, inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+.welcome-block h2,
+.section-intro h2 {
+  color: var(--ink);
+  font-size: clamp(44px, 12vw, 72px);
+  font-weight: 300;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+/* "01 — TODAY · THU 01.10" */
+.welcome-block h2[data-kicker]::before,
+.section-intro h2[data-kicker]::before {
+  content: attr(data-kicker);
+  display: block;
+  margin-bottom: 14px;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+/* Panel and card headings: medium, not heavy. */
+.panel-heading h3,
+.group-setup-card strong,
+.elsewhere-heading strong,
+.reminder-composer-heading strong {
+  color: var(--ink);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.panel-heading h3 {
+  font-size: 18px;
+}
+
+.group-setup-card > div:first-child strong,
+.elsewhere-heading strong {
+  font-size: 18px;
+}
+
+.group-setup-card small,
+.elsewhere-heading small,
+.elsewhere-row small {
+  color: var(--ink-3);
+}
+
+/* Titles in lists: one step lighter, which reads calmer in a long list. */
+.task-row h3,
+.task-row strong,
+.elsewhere-row strong,
+.reminder-row strong {
+  font-weight: 500;
+}
+
+/* A LINE draft's proposed task name: a light display line. */
+.capture-draft h3 {
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+/* The task sheet's title: the same light display voice as screen titles. */
+.task-detail [data-slot='sheet-title'] {
+  font-size: 28px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+@media (max-width: 760px) {
+  .task-detail [data-slot='sheet-title'] {
+    font-size: 25px;
   }
 }
 
-/* ══ Controls ═════════════════════════════════════════════════════════════ */
-/* Primary: ink with a liquid sheen, not a flat slab. */
+/* Large light numerals: deadlines, the next reminder, counts, the story. */
+.detail-deadline strong,
+.next-reminder-time strong,
+.story-card > strong,
+.brief-metrics b,
+.report-metrics b,
+.story-stats b {
+  font-family: var(--font-prompt), sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+}
+
+.story-card > h3 {
+  font-weight: 400;
+}
+
+/* ══ Swiss: numbered rows ═════════════════════════════════════════════════
+   Every task list counts its rows in mono, flush left — a grid you can read
+   down. Pure CSS (counters), so the numbers always match what is shown. */
+.task-list {
+  counter-reset: row;
+}
+
+.task-list > .task-row {
+  position: relative;
+  counter-increment: row;
+  padding-left: 52px;
+}
+
+.task-list > .task-row::before {
+  content: counter(row, decimal-leading-zero);
+  position: absolute;
+  top: 20px;
+  left: 18px;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+/* ══ วันนี้ counts: Swiss tiles, number over label ═════════════════════════
+   On desktop the brief sat in a 300px column stretched to its neighbour's
+   height, so four tiles became tall empty bars with the number at the
+   bottom. */
+.daily-brief {
+  align-self: start;
+}
+
+.brief-metrics span {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 6px;
+  min-height: 0;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: var(--liquid-rim);
+  padding: 13px 13px 12px;
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.brief-metrics b {
+  color: var(--ink);
+  font-size: 34px;
+  line-height: 1;
+}
+
+@media (min-width: 1021px) {
+  .desktop-split .brief-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 380px) {
+  .brief-metrics span {
+    padding: 10px 9px;
+    font-size: 11px;
+  }
+
+  .brief-metrics b {
+    font-size: 28px;
+  }
+}
+
+/* ══ Liquid glass surfaces ════════════════════════════════════════════════ */
+.panel,
+.line-attention-card,
+.forward-shortcut-card,
+.beta-strip,
+.auth-card,
+.daily-brief,
+.reminder-composer,
+.next-reminder-card {
+  border-color: rgba(255, 255, 255, 0.88);
+  background: var(--liquid-sheen), var(--liquid-fill);
+  box-shadow: var(--ethereal-shadow), var(--liquid-rim);
+  -webkit-backdrop-filter: var(--liquid-blur);
+  backdrop-filter: var(--liquid-blur);
+}
+
+.panel,
+.line-attention-card,
+.forward-shortcut-card,
+.daily-brief,
+.reminder-composer,
+.next-reminder-card {
+  border-radius: 26px;
+}
+
+/* The cards that ask for attention keep a brand edge — a hairline of it. */
+.line-attention-card,
+.group-setup-card {
+  border-color: rgba(0, 128, 255, 0.42);
+}
+
+/* Rows inside a panel are divided by hairlines, not stacked boxes. */
+.panel .task-row,
+.reminder-row-line,
+.reminder-row {
+  border-color: var(--hairline);
+  background: transparent;
+}
+
+.panel-heading {
+  border-color: var(--hairline);
+}
+
+/* Clickable cards lift a little under a pointer. Phones skip it. */
+@media (hover: hover) {
+  .line-attention-card,
+  .forward-shortcut-card,
+  .elsewhere-row,
+  .panel .task-row {
+    transition: transform 280ms var(--ease-soft), box-shadow 280ms var(--ease-soft),
+      background-color 200ms ease;
+  }
+
+  .line-attention-card:hover,
+  .forward-shortcut-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 30px 60px -24px rgba(76, 58, 150, 0.4), var(--liquid-rim);
+  }
+
+  .panel .task-row:hover,
+  .elsewhere-row:hover {
+    background: rgba(255, 255, 255, 0.4);
+  }
+}
+
+/* ══ Mobile nav: liquid capsule ═══════════════════════════════════════════
+   Same shape and items (CLAUDE.md); brighter rim, a sheen, and a white
+   liquid pill under the active item. */
+@media (max-width: 760px) {
+  .mobile-nav {
+    border-color: rgba(255, 255, 255, 0.92);
+    background: var(--liquid-sheen), rgba(255, 255, 255, 0.46);
+    box-shadow: 0 20px 44px -16px rgba(60, 46, 120, 0.42), var(--liquid-rim);
+  }
+
+  .mobile-nav button.active {
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 8px 18px -8px rgba(60, 46, 120, 0.42),
+      inset 0 1px 0 #ffffff, inset 0 0 0 1px rgba(255, 255, 255, 0.7);
+  }
+}
+
+/* ══ Controls: pills ══════════════════════════════════════════════════════ */
+[data-slot='button'],
+.primary-action,
+.status-chip {
+  border-radius: 999px;
+}
+
+/* Primary: ink with a liquid sheen. */
 [data-slot='button'].bg-primary,
 .primary-action {
-  background: linear-gradient(180deg, #2b2b2a 0%, #090909 62%);
-  box-shadow: 0 10px 22px -12px rgba(9, 9, 9, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  background: linear-gradient(180deg, #34343a 0%, #0b0b0d 58%, #000000 100%);
+  box-shadow: 0 12px 24px -12px rgba(9, 9, 9, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.06);
 }
 
 [data-slot='button'].bg-primary:hover,
 .primary-action:hover {
-  background: linear-gradient(180deg, #3a3a38 0%, #161616 62%);
+  background: linear-gradient(180deg, #44444a 0%, #18181a 58%, #050505 100%);
 }
 
-/* Inputs: frosted wells. Focus stays brand blue. */
+/* Secondary and outline: frosted glass pills. */
+[data-slot='button'][class*='border-border'],
+[data-slot='button'].bg-secondary {
+  border-color: rgba(255, 255, 255, 0.95);
+  background: var(--liquid-sheen), rgba(255, 255, 255, 0.5);
+  box-shadow: 0 6px 16px -10px rgba(70, 56, 130, 0.35), var(--liquid-rim);
+}
+
+/* Status chips keep their meaning: open is clear glass, in progress is a
+   greyer glass, done stays solid ink with a sheen. (A blanket glass fill
+   here once turned "ปิดงานแล้ว" white-on-white.) */
+.status-chip {
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: var(--liquid-rim);
+}
+
+.status-chip.status-progress {
+  background: rgba(225, 225, 222, 0.62);
+}
+
+.status-chip.status-done {
+  border-color: #111111;
+  background: linear-gradient(180deg, #34343a 0%, #0b0b0d 70%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+/* Inputs and themed pickers: frosted wells. Focus stays brand blue. */
 [data-slot='input'],
-[data-slot='textarea'] {
+[data-slot='textarea'],
+.themed-field-trigger {
   border-color: var(--hairline-strong);
-  background: rgba(255, 255, 255, 0.62);
-  box-shadow: inset 0 1px 2px rgba(9, 9, 9, 0.04);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: inset 0 1px 2px rgba(9, 9, 9, 0.05), inset 0 -1px 0 rgba(255, 255, 255, 0.8);
 }
 
 [data-slot='input']:focus-visible,
-[data-slot='textarea']:focus-visible {
+[data-slot='textarea']:focus-visible,
+.themed-field-trigger:focus-visible {
   border-color: var(--blue);
-  box-shadow: 0 0 0 3px rgba(0, 128, 255, 0.16);
+  box-shadow: 0 0 0 3px rgba(0, 128, 255, 0.18);
 }
 
 /* ══ Sheets and dialogs: the same liquid rim ══════════════════════════════
-   Colours and shadows only; positioning and transforms (the v18 mobile
-   dialog fix) are untouched. */
+   Colours, radius and shadows only; positioning and transforms (the v18
+   mobile dialog fix) are untouched. */
 [data-slot='dialog-content'],
 [data-slot='sheet-content'] {
-  border-color: rgba(255, 255, 255, 0.9);
-  background: var(--liquid-sheen), rgba(255, 255, 255, 0.84);
-  box-shadow: 0 30px 70px -20px rgba(50, 36, 110, 0.32), var(--liquid-rim);
+  border-color: rgba(255, 255, 255, 0.92);
+  background: var(--liquid-sheen), rgba(255, 255, 255, 0.82);
+  box-shadow: 0 30px 70px -20px rgba(50, 36, 110, 0.4), var(--liquid-rim);
+}
+
+[data-slot='sheet-content'][data-side='bottom'] {
+  border-radius: 30px 30px 0 0;
 }
 
 [data-slot='dialog-overlay'],
 [data-slot='sheet-overlay'] {
-  background: rgba(40, 32, 80, 0.16);
+  background: rgba(46, 36, 96, 0.2);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+/* ══ Login ════════════════════════════════════════════════════════════════ */
+.auth-card {
+  border-radius: 32px;
+}
+
+/* ══ Motion ═══════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  .line-attention-card,
+  .forward-shortcut-card,
+  .elsewhere-row,
+  .panel .task-row {
+    transition: none;
+  }
+
+  .line-attention-card:hover,
+  .forward-shortcut-card:hover {
+    transform: none;
+  }
+}
+
+[data-motion='reduced'] .line-attention-card:hover,
+[data-motion='reduced'] .forward-shortcut-card:hover {
+  transform: none;
 }
 
 /* ══ Fallbacks ════════════════════════════════════════════════════════════ */
@@ -401,11 +590,14 @@
   .beta-strip,
   .auth-card,
   .daily-brief,
+  .reminder-composer,
+  .next-reminder-card,
   [data-slot='dialog-content'],
   [data-slot='sheet-content'] {
     background: #ffffff;
   }
 
+  .topbar,
   .desktop-sidebar {
     background: #fbfbfa;
   }
@@ -422,11 +614,30 @@
   .beta-strip,
   .auth-card,
   .daily-brief,
+  .reminder-composer,
+  .next-reminder-card,
+  .topbar,
+  .desktop-sidebar,
+  [data-slot='dialog-content'],
+  [data-slot='sheet-content'],
+  [data-slot='dialog-overlay'],
+  [data-slot='sheet-overlay'] {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .panel,
+  .line-attention-card,
+  .forward-shortcut-card,
+  .beta-strip,
+  .auth-card,
+  .daily-brief,
+  .reminder-composer,
+  .next-reminder-card,
+  .topbar,
   .desktop-sidebar,
   [data-slot='dialog-content'],
   [data-slot='sheet-content'] {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
     background: #ffffff;
   }
 
