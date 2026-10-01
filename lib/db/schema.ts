@@ -320,6 +320,9 @@ export const reminder = pgTable(
     id: text('id').primaryKey(),
     workspaceId: text('workspace_id').notNull().references(() => workspace.id, { onDelete: 'cascade' }),
     taskId: text('task_id').references(() => task.id, { onDelete: 'cascade' }),
+    /** What a personal reminder (one with no task) is about, in the person's
+     *  own words. Without it the DM could only say "งานที่ต้องทำ". */
+    note: text('note'),
     /** Reminders go to a person. Never to a group: push is billed per
      *  recipient, so one push into a ten-person group costs ten messages. */
     recipientUserId: text('recipient_user_id').notNull().references(() => lineUser.id, { onDelete: 'cascade' }),

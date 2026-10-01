@@ -10,6 +10,8 @@ export type ApiWorkspace = {
   cutoff: string;
   quietHoursStart?: string;
   quietHoursEnd?: string;
+  /** Connected to a LINE group (a team workspace). Only from /api/auth/me. */
+  bound?: boolean;
 };
 
 export type ApiMember = {
@@ -245,7 +247,11 @@ export const api = {
     ),
 
   createReminder: (
-    input: { workspaceId: string; taskId?: string | null; dueAt: string; leadMinutes?: number },
+    input: {
+      workspaceId: string; taskId?: string | null; dueAt: string; leadMinutes?: number;
+      /** What a personal reminder is about; shown in the list and the DM. */
+      note?: string;
+    },
     idempotencyKey: string,
   ) =>
     request<{ id: string; sendAt: string; shifted: string; reason: string }>('/api/reminders', {

@@ -8,7 +8,6 @@ import {
   BarChart3,
   Bell,
   Bot,
-  BriefcaseBusiness,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -37,6 +36,7 @@ import {
   Sparkles,
   Users,
   UserRound,
+  Trash2,
   X,
   Hourglass,
   PencilLine,
@@ -98,7 +98,6 @@ import { th } from 'date-fns/locale';
 import { api, ApiError, newIdempotencyKey } from '@/lib/api/client';
 import { taskIdFromSearch, pageFromSearch, pageUrl } from '@/lib/deep-link.ts';
 import { BLOCKED_REASONS } from '@/lib/tasks/reasons';
-import { initialsFor } from '@/lib/initials';
 import { mayEditTaskFields } from '@/lib/tasks/permissions';
 import { useToast, ToastHost } from '@/components/toast-host';
 import * as queue from '@/lib/api/queue';
@@ -331,6 +330,24 @@ function bangkokWallClock(iso: string) {
 
 /** Device preferences, saved per phone. */
 const SETTINGS_KEY = 'tungan-device-settings-v1';
+/** The workspace this device last had open: a per-device convenience, so
+ *  opening the app from LINE lands where you were, not wherever the list
+ *  happens to start. Never trusted for access; the server still decides. */
+const LAST_WORKSPACE_KEY = 'tungan-last-workspace-v1';
+function rememberWorkspace(id: string) {
+  try {
+    localStorage.setItem(LAST_WORKSPACE_KEY, id);
+  } catch {
+    // Private mode or blocked storage: the next open starts at the default.
+  }
+}
+function rememberedWorkspace(): string | null {
+  try {
+    return localStorage.getItem(LAST_WORKSPACE_KEY);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Where a task came from, in words.
@@ -351,21 +368,6 @@ function deadlineRank(task: Task) {
   if (!task.dueAt) return Number.MAX_SAFE_INTEGER;
   const at = new Date(task.dueAt).getTime();
   return Number.isFinite(at) ? at : Number.MAX_SAFE_INTEGER;
-}
-
-function nicknameAcrossProjects(
-  projects: Project[],
-  lineName: string,
-  nickname: string,
-) {
-  return projects.map((project) => ({
-    ...project,
-    members: project.members.map((member) =>
-      member.lineName === lineName
-        ? { ...member, nickname, initials: initialsFor(nickname) }
-        : member,
-    ),
-  }));
 }
 
 function normalizeTask(task: Task): Task {
@@ -401,6 +403,17 @@ function normalizeTask(task: Task): Task {
 }
 
 /** Current time, refreshed every minute so day boundaries are honoured. */
+/**
+ * Has HH:MM today (Bangkok) already passed? Then "วันนี้ HH:MM" is a deadline
+ * nobody can meet, and a form defaulting to it creates work that is late the
+ * moment it exists.
+ */
+function pastTodayAt(now: Date, hhmm: string): boolean {
+  const [h, m] = hhmm.split(':').map(Number);
+  const p = zonedDateParts(now);
+  return fromZonedWallClock(p.year, p.month, p.day, h, m).getTime() <= now.getTime();
+}
+
 /** "THU 01.10" in Bangkok, beside วันนี้'s index line. Latin on purpose: the
  *  line is letter-spaced, and spaced-out Thai letters fall apart. */
 const kickerDay = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok', weekday: 'short' });
@@ -517,6 +530,10 @@ export default function Home() {
     }[]
   >([]);
   // My open tasks in every workspace, so nobody has to switch to find them.
+  // End-of-day sweep: open tasks nobody touched today. The route existed and
+  // nothing showed it; it now appears on วันนี้ from an hour before the
+  // person's own cutoff, when closing the day is the job at hand.
+  const [sweepItems, setSweepItems] = useState<Awaited<ReturnType<typeof api.sweep>>['items']>([]);
   const [myTasksEverywhere, setMyTasksEverywhere] = useState<
     Awaited<ReturnType<typeof api.myTasks>>['tasks']
   >([]);
@@ -585,7 +602,6 @@ export default function Home() {
   const [sheetText, setSheetText] = useState('');
   const [sheetError, setSheetError] = useState('');
   const [forwardDialog, setForwardDialog] = useState(false);
-  const [clientApprovalOpen, setClientApprovalOpen] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [teamDialog, setTeamDialog] = useState(false);
   const [projectDialog, setProjectDialog] = useState(false);
@@ -626,6 +642,13 @@ export default function Home() {
     'today' | 'tomorrow'
   >('today');
   const [quickReminderTime, setQuickReminderTime] = useState('17:00');
+  // Opening เตือนฉัน after five o'clock used to offer "วันนี้ 17:00"; picking
+  // a time that has already gone today now moves the day to tomorrow.
+  useEffect(() => {
+    if (page === 'reminders' && pastTodayAt(new Date(), quickReminderTime)) {
+      setQuickReminderDay('tomorrow');
+    }
+  }, [page, quickReminderTime]);
   const [forwardProjectId, setForwardProjectId] = useState('');
   const [forwardAssignee, setForwardAssignee] = useState('');
   const [forwardDueDay, setForwardDueDay] = useState<
@@ -676,7 +699,8 @@ export default function Home() {
         // Everything below depends only on the workspace id, so it goes out in
         // one round trip rather than nine. On mobile data the difference is the
         // gap between a screen that appears and one that looks broken.
-        const current = list[0];
+        const remembered = rememberedWorkspace();
+        const current = list.find((w) => w.id === remembered) ?? list[0];
         const [membersRes, tasksRes, inboxRes] = await Promise.all([
           api.members(current.id),
           api.tasks(current.id),
@@ -693,7 +717,7 @@ export default function Home() {
           list.map((w) => ({
             id: w.id,
             name: w.name,
-            source: 'manual' as const,
+            source: w.bound ? ('line' as const) : ('manual' as const),
             groupLabel: w.name,
             members: w.id === current.id ? membersRes.members.map(toUiMember) : [],
             teams: [],
@@ -728,6 +752,14 @@ export default function Home() {
       cancelled = true;
     };
   }, []);
+
+  // Whichever way the workspace changed (the picker, a group set up, a task
+  // opened from another workspace), the next open starts there.
+  useEffect(() => {
+    if (hydrated && projects.some((project) => project.id === selectedProjectId)) {
+      rememberWorkspace(selectedProjectId);
+    }
+  }, [hydrated, selectedProjectId, projects]);
 
   // A LINE link to one task: `?task=<id>`, or the same wrapped in liff.state
   // on the first hop through LIFF. Opened once, after the first load.
@@ -812,7 +844,7 @@ export default function Home() {
       taskProject.members[0] ? `member:${taskProject.members[0].id}` : '',
     );
     setTaskPriority('normal');
-    setTaskDueDay('today');
+    setTaskDueDay(pastTodayAt(new Date(), settings.cutoff) ? 'tomorrow' : 'today');
     setTaskTime(settings.cutoff);
     setTaskDate(undefined);
   }, [taskDialog, taskProject.id, settings.cutoff, editTarget]);
@@ -863,7 +895,7 @@ export default function Home() {
     setForwardAssignee(
       preferred.members[0] ? `member:${preferred.members[0].id}` : '',
     );
-    setForwardDueDay('today');
+    setForwardDueDay(pastTodayAt(new Date(), settings.cutoff) ? 'tomorrow' : 'today');
     setForwardDate(undefined);
     setForwardTime(settings.cutoff);
   }, [forwardDialog, selectedProject.id, settings.cutoff]);
@@ -1469,17 +1501,28 @@ export default function Home() {
       window.location.href = '/login';
     }
   }
-  function saveAccountName(event: FormEvent<HTMLFormElement>) {
+  // The nickname form said "บันทึกแล้ว" and only changed the screen: nothing
+  // reached the server, so a reload brought the old name back. Nicknames are
+  // per workspace (CLAUDE.md), so it is saved for the one that is open.
+  async function saveAccountName(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const displayName = String(
       new FormData(event.currentTarget).get('displayName') || '',
     ).trim();
     if (!displayName) return;
-    setAccount((current) => ({ ...current, displayName }));
-    setProjects((all) =>
-      nicknameAcrossProjects(all, account.lineName, displayName),
-    );
-    setNotice('บันทึกชื่อที่ใช้ในทันงานแล้ว');
+    if (!meUserId || !projects.some((project) => project.id === selectedProject.id)) {
+      return setNotice('เลือกพื้นที่งานก่อน');
+    }
+    setBusy(true);
+    try {
+      await api.renameMember(selectedProject.id, meUserId, displayName);
+      await loadMembers(selectedProject.id);
+      setNotice(`บันทึกชื่อเล่นในพื้นที่ ${selectedProject.name} แล้ว`);
+    } catch (error) {
+      reportError(error, 'บันทึกชื่อไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
   }
   function WorkspacePicker({ mobile = false }: { mobile?: boolean }) {
     const personalProjects = projects.filter(
@@ -1787,17 +1830,13 @@ export default function Home() {
     if (!evidenceUrl) return setNotice('เพิ่มลิงก์หลักฐานก่อนส่งตรวจ');
     return moveTask(task, 'submit', { evidenceUrl }, 'ส่งตรวจแล้ว');
   }
-  // Approval closes a task and is the one transition a customer sees, so it
-  // was the one place with no permission check at all — not even the
-  // client-side one every other mutation here performs. The client review
-  // screen called straight through. Until a tokenised review link exists,
-  // approval follows the same rule as every other edit.
-  function approveTask(task: Task, client = false) {
-    return moveTask(task, 'approve', {}, 'อนุมัติและปิดงานแล้ว').then(() =>
-      setClientApprovalOpen(false),
-    );
+  // Approval closes a task, so it follows the same permission rule as every
+  // other edit. (A "client review" screen labelled DEMO used to call this
+  // straight through; it was not a real link and is gone until one exists.)
+  function approveTask(task: Task) {
+    return moveTask(task, 'approve', {}, 'อนุมัติและปิดงานแล้ว');
   }
-  function requestRevision(task: Task, _client = false) {
+  function requestRevision(task: Task) {
     openActionSheet({ kind: 'revision', task });
   }
 
@@ -1870,7 +1909,7 @@ export default function Home() {
         'revision',
         { note: text, dueAt: revisionDueAt(sheetDays).toISOString() } as never,
         'ส่งกลับพร้อมกำหนดใหม่แล้ว',
-      ).then(() => setClientApprovalOpen(false));
+      );
     }
 
     setBusy(true);
@@ -1963,6 +2002,12 @@ export default function Home() {
     setForwardError(error);
     if (error) return showEntryError(event.currentTarget, error);
 
+    const forwardDueAt = pickerDueAt(forwardDueDay, forwardDate, forwardTime);
+    if (new Date(forwardDueAt).getTime() <= now.getTime()) {
+      const late = { field: 'date', message: 'เวลานี้ผ่านไปแล้ว · เลือกพรุ่งนี้หรือเวลาอื่น' };
+      setForwardError(late);
+      return showEntryError(event.currentTarget, late);
+    }
     const assigneeUserId = (forwardAssignee || '').split(':')[1] || null;
     setBusy(true);
     try {
@@ -1972,7 +2017,7 @@ export default function Home() {
           title,
           note: `ส่งต่อจาก LINE: “${message}”`,
           assigneeUserId,
-          dueAt: pickerDueAt(forwardDueDay, forwardDate, forwardTime),
+          dueAt: forwardDueAt,
           source: 'นำเข้าด้วยมือ',
         },
         newIdempotencyKey(),
@@ -2064,6 +2109,17 @@ export default function Home() {
       deadlineMode === 'natural'
         ? resolveDeadline(naturalDeadline, { now, cutoff: settings.cutoff }).at.toISOString()
         : pickerDueAt(taskDueDay, taskDate, taskTime);
+    // Editing an already-late task keeps its deadline; anything new, or a
+    // deadline someone just moved, has to be in the future.
+    const keptOldDeadline =
+      editTarget?.kind === 'task' &&
+      Boolean(editTarget.task.dueAt) &&
+      new Date(editTarget.task.dueAt as string).getTime() <= now.getTime();
+    if (new Date(dueAt).getTime() <= now.getTime() && !keptOldDeadline) {
+      const late = { field: 'date', message: 'เวลานี้ผ่านไปแล้ว · เลือกพรุ่งนี้หรือเวลาอื่น' };
+      setTaskError(late);
+      return showEntryError(event.currentTarget, late);
+    }
     const assignee = (taskAssignee || '').split(':')[1] || null;
     const note = String(form.get('note') || '');
 
@@ -2243,18 +2299,10 @@ export default function Home() {
     setBusy(true);
     try {
       const created = await api.createWorkspace(name);
-      const me = await api.me();
-      setProjects(
-        me.workspaces.map((w) => ({
-          id: w.id,
-          name: w.name,
-          source: 'manual' as const,
-          groupLabel: w.name,
-          members: [],
-          teams: [],
-        })),
-      );
-      setSelectedProjectId(created.id);
+      // Rebuilding the list from scratch wiped every workspace's members, and
+      // selecting the new one without loading it left the old tasks showing.
+      await reloadWorkspaces();
+      chooseProject(created.id);
       setProjectDialog(false);
       setNotice('สร้างพื้นที่งานใหม่แล้ว');
     } catch (error) {
@@ -2275,7 +2323,7 @@ export default function Home() {
     setBusy(true);
     try {
       const created = await api.createReminder(
-        { workspaceId: selectedProject.id, dueAt, leadMinutes: 0 },
+        { workspaceId: selectedProject.id, dueAt, leadMinutes: 0, note: title },
         newIdempotencyKey(),
       );
       await refreshReminders();
@@ -2300,10 +2348,13 @@ export default function Home() {
       undefined,
       quickReminderTime,
     );
+    if (new Date(dueAt).getTime() <= now.getTime()) {
+      return setNotice('เวลานี้ผ่านไปแล้ว · เลือกพรุ่งนี้หรือเวลาอื่น');
+    }
     setBusy(true);
     try {
       const created = await api.createReminder(
-        { workspaceId: selectedProject.id, dueAt, leadMinutes: 0 },
+        { workspaceId: selectedProject.id, dueAt, leadMinutes: 0, note: title },
         newIdempotencyKey(),
       );
       await refreshReminders();
@@ -2352,6 +2403,29 @@ export default function Home() {
       await refreshReminders();
     } catch (error) {
       reportError(error, 'อัปเดตการเตือนไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
+  }
+  // The DELETE route existed and nothing in the app could reach it, so a
+  // personal reminder made by mistake could only be ticked off as "done".
+  // Two taps: the first arms it for a few seconds, the second deletes.
+  const [armedDelete, setArmedDelete] = useState<string | null>(null);
+  useEffect(() => {
+    if (!armedDelete) return;
+    const id = window.setTimeout(() => setArmedDelete(null), 4000);
+    return () => window.clearTimeout(id);
+  }, [armedDelete]);
+  async function deleteReminder(id: string) {
+    if (armedDelete !== id) return setArmedDelete(id);
+    setArmedDelete(null);
+    setBusy(true);
+    try {
+      await api.deleteReminder(id);
+      await refreshReminders();
+      setNotice('ลบการเตือนแล้ว');
+    } catch (error) {
+      reportError(error, 'ลบการเตือนไม่สำเร็จ');
     } finally {
       setBusy(false);
     }
@@ -2444,6 +2518,73 @@ export default function Home() {
    * only sign of it was one line in ตั้งค่า. The server checks with LINE
    * before this shows, so it never cries wolf at someone who is a friend.
    */
+  const nowBangkokMinutes = (() => {
+    const [h, m] = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(now).split(':').map(Number);
+    return h * 60 + m;
+  })();
+  const cutoffMinutes = (() => {
+    const [h, m] = settings.cutoff.split(':').map(Number);
+    return h * 60 + m;
+  })();
+  const closingTime = nowBangkokMinutes >= cutoffMinutes - 60;
+  const sweepWorkspaceId = selectedProject.id;
+  useEffect(() => {
+    if (page !== 'home' || !closingTime || !account.loggedIn || sweepWorkspaceId === 'mine') {
+      setSweepItems([]);
+      return;
+    }
+    let cancelled = false;
+    api
+      .sweep(sweepWorkspaceId)
+      .then((res) => {
+        if (!cancelled) setSweepItems(res.items);
+      })
+      .catch(() => {
+        // Non-fatal: the rest of วันนี้ still works.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [page, closingTime, account.loggedIn, sweepWorkspaceId, tasks]);
+
+  const sweepCard =
+    sweepItems.length > 0 ? (
+      <section className="panel elsewhere-card sweep-card">
+        <div className="elsewhere-heading">
+          <strong>ปิดวัน · งานที่ยังไม่ขยับวันนี้</strong>
+          <small>{sweepItems.length} งาน</small>
+        </div>
+        {sweepItems.slice(0, 6).map((item) => (
+          <button
+            type="button"
+            key={item.id}
+            className="elsewhere-row"
+            onClick={() => setSelectedTaskId(item.id)}
+          >
+            <span>
+              <strong>{item.title}</strong>
+              <small>
+                {item.assigneeName ?? 'ยังไม่มีคนรับ'}
+                {' · '}
+                {item.awaitingHandoff
+                  ? 'รอรับงานที่ส่งต่อ'
+                  : `${statusMeta[item.status as Status]?.label ?? item.status} ${item.daysInState ? `${item.daysInState} วัน` : 'ตั้งแต่เมื่อวาน'}`}
+                {item.blockedReason ? ` · ${item.blockedReason}` : ''}
+              </small>
+            </span>
+            <ChevronRight />
+          </button>
+        ))}
+      </section>
+    ) : null;
+
+  /** My nickname in the open workspace, as the server has it. */
+  const myNickname =
+    selectedProject.members.find((member) => member.id === meUserId)?.nickname ||
+    account.displayName;
+
   const addFriendCard =
     account.loggedIn && !account.lineConnected ? (
       <section className="panel group-setup-card">
@@ -2493,6 +2634,7 @@ export default function Home() {
         </Button>
       </section>
       {addFriendCard}
+      {sweepCard}
       {lineGroups.some((group) => !group.bound) && (
         // First run: the bot is in a group nobody has connected yet. Setting
         // it up used to mean finding it in Settings; it is one tap here.
@@ -3203,6 +3345,15 @@ export default function Home() {
                     เสร็จแล้ว
                   </Button>
                 </div>
+                <button
+                  type="button"
+                  className={`reminder-delete-link ${armedDelete === nextReminder.id ? 'armed' : ''}`}
+                  disabled={busy}
+                  onClick={() => void deleteReminder(nextReminder.id)}
+                >
+                  <Trash2 />
+                  {armedDelete === nextReminder.id ? 'แตะอีกครั้งเพื่อลบ' : 'ลบการเตือนนี้'}
+                </button>
               </>
             ) : (
               <EmptyState
@@ -3223,25 +3374,39 @@ export default function Home() {
             </div>
             {laterReminders.length ? (
               laterReminders.map((reminder) => (
-                <button
-                  className="reminder-row"
-                  key={reminder.id}
-                  onClick={() => toggleReminder(reminder.id)}
-                >
-                  <span className="check-circle" />
-                  <div>
-                    <strong>{reminder.title}</strong>
-                    <small>
-                      {reminder.date} · {reminder.time} ·{' '}
-                      {reminder.repeat === 'daily'
-                        ? 'ทุกวัน'
-                        : reminder.repeat === 'weekly'
-                          ? 'ทุกสัปดาห์'
-                          : 'ครั้งเดียว'}
-                    </small>
-                  </div>
-                  <ChevronRight />
-                </button>
+                <div className="reminder-row-line" key={reminder.id}>
+                  <button
+                    className="reminder-row"
+                    aria-label={`ทำเครื่องหมายว่าเสร็จ: ${reminder.title}`}
+                    onClick={() => toggleReminder(reminder.id)}
+                  >
+                    <span className="check-circle" />
+                    <div>
+                      <strong>{reminder.title}</strong>
+                      <small>
+                        {reminder.date} · {reminder.time} ·{' '}
+                        {reminder.repeat === 'daily'
+                          ? 'ทุกวัน'
+                          : reminder.repeat === 'weekly'
+                            ? 'ทุกสัปดาห์'
+                            : 'ครั้งเดียว'}
+                      </small>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className={`reminder-delete ${armedDelete === reminder.id ? 'armed' : ''}`}
+                    aria-label={
+                      armedDelete === reminder.id
+                        ? `แตะอีกครั้งเพื่อลบ ${reminder.title}`
+                        : `ลบการเตือน ${reminder.title}`
+                    }
+                    disabled={busy}
+                    onClick={() => void deleteReminder(reminder.id)}
+                  >
+                    {armedDelete === reminder.id ? 'ลบ?' : <Trash2 />}
+                  </button>
+                </div>
               ))
             ) : (
               <p className="reminder-list-empty">ยังไม่มีรายการต่อจากนี้</p>
@@ -3260,7 +3425,11 @@ export default function Home() {
           </span>
           <div>
             <strong>เตือนผ่าน LINE</strong>
-            <p>ยังไม่เชื่อม LINE จริง</p>
+            <p>
+              {account.lineConnected
+                ? 'ส่งเป็นข้อความส่วนตัวถึงคุณใน LINE'
+                : 'ยังไม่ได้แอดบอท ทันงาน · แอดก่อนจึงจะได้รับการเตือน'}
+            </p>
           </div>
           <Badge variant="outline">รวมในแพ็กเกจ</Badge>
         </section>
@@ -3377,10 +3546,10 @@ export default function Home() {
         <section className="panel account-panel">
           <div className="panel-heading">
             <h3>บัญชี</h3>
-            <Badge variant="outline">บัญชีทดลอง</Badge>
+            <Badge variant="outline">บัญชี LINE</Badge>
           </div>
           <form
-            key={account.displayName}
+            key={`${selectedProject.id}-${myNickname}`}
             className="account-form"
             onSubmit={saveAccountName}
           >
@@ -3392,7 +3561,7 @@ export default function Home() {
               <span>ชื่อเล่น</span>
               <Input
                 name="displayName"
-                defaultValue={account.displayName}
+                defaultValue={myNickname}
                 required
                 maxLength={40}
               />
@@ -3562,9 +3731,11 @@ export default function Home() {
           <div className="connection-row">
             <span>
               <Bot />
-              AI
+              AI ช่วยอ่านข้อความ
             </span>
-            <Badge variant="outline">เร็ว ๆ นี้</Badge>
+            <Badge variant="outline">
+              {usage?.ai?.enabled ? 'เปิดอยู่' : usage?.ai?.configured ? 'ปิดอยู่' : 'ยังไม่เปิดใช้'}
+            </Badge>
           </div>
           {schedule && (
             <div className="connection-row">
@@ -3609,7 +3780,9 @@ export default function Home() {
         {(
           [
             { tab: 'members', label: 'สมาชิก', Icon: Users },
-            { tab: 'teams', label: 'ทีมย่อย', Icon: BriefcaseBusiness },
+            // ทีมย่อย is hidden: teams lived only on this screen (nothing
+            // stored them, a reload lost them) and the server assigns work to
+            // people, not teams, so picking one could never be saved.
             { tab: 'projects', label: 'พื้นที่งาน', Icon: LayoutGrid },
             { tab: 'ai', label: 'โควตา AI', Icon: BrainCircuit },
           ] as const
@@ -4617,7 +4790,7 @@ export default function Home() {
             <div className="stack-form task-entry-fields forward-form">
               <div className="demo-note">
                 <MessageCircle />
-                <span>วางข้อความเอง · ยังไม่เชื่อม LINE</span>
+                <span>วางข้อความที่คัดลอกจาก LINE · หรือแท็ก @ทันงาน ในกลุ่มแทนก็ได้</span>
               </div>
               <label>
                 <span>ข้อความจาก LINE</span>
@@ -5002,16 +5175,7 @@ export default function Home() {
                       </Button>
                     </div>
                   )}
-                {selectedTask.reviewState === 'review' && (
-                  <button
-                    className="client-review-demo"
-                    onClick={() => setClientApprovalOpen(true)}
-                  >
-                    <ExternalLink />
-                    เปิดหน้าลูกค้าตรวจงาน
-                    <Badge variant="outline">เดโม</Badge>
-                  </button>
-                )}
+
               </section>
               {questions.filter((q) => !q.answeredAt).length > 0 && (
                 <section className="detail-section">
@@ -5078,6 +5242,29 @@ export default function Home() {
                   </div>
                 ))}
               </section>
+              {/* Deleting existed server-side with nothing in the app to reach
+                  it, so a task made by mistake could only be left to rot.
+                  Quiet, at the bottom, and two taps. */}
+              {canEditFields(selectedTask) && (
+                <button
+                  type="button"
+                  className={`reminder-delete-link task-delete-link ${armedDelete === `task:${selectedTask.id}` ? 'armed' : ''}`}
+                  disabled={busy}
+                  onClick={() => {
+                    if (armedDelete !== `task:${selectedTask.id}`) {
+                      setArmedDelete(`task:${selectedTask.id}`);
+                      return;
+                    }
+                    setArmedDelete(null);
+                    void deleteTask(selectedTask);
+                  }}
+                >
+                  <Trash2 />
+                  {armedDelete === `task:${selectedTask.id}`
+                    ? 'แตะอีกครั้งเพื่อลบงานนี้'
+                    : 'ลบงานนี้'}
+                </button>
+              )}
               {selectedTask.pendingAssigneeId === meUserId && (
                 <div className="status-actions accountable-actions">
                   <Button
@@ -5138,49 +5325,6 @@ export default function Home() {
           )}
         </SheetContent>
       </Sheet>
-      <Dialog open={clientApprovalOpen} onOpenChange={setClientApprovalOpen}>
-        <DialogContent className="client-review-dialog">
-          <DialogHeader>
-            <DialogTitle>ตรวจงาน</DialogTitle>
-            <DialogDescription className="sr-only">
-              หน้าเดโมสำหรับลูกค้า ไม่ต้องสมัครบัญชี
-            </DialogDescription>
-          </DialogHeader>
-          {selectedTask && (
-            <div className="client-review-card">
-              <Badge variant="outline">DEMO · ลิงก์จริงต้องเชื่อม BACKEND</Badge>
-              <h3>{selectedTask.title}</h3>
-              <p>{selectedTask.note}</p>
-              <div className="client-evidence-list">
-                {selectedTask.evidence.map((evidence) => (
-                  <a
-                    key={evidence.url}
-                    href={evidence.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <Link2 />
-                    {evidence.label}
-                    <ExternalLink />
-                  </a>
-                ))}
-              </div>
-              <div className="approval-actions">
-                <Button
-                  variant="outline"
-                  onClick={() => requestRevision(selectedTask, true)}
-                >
-                  ขอแก้
-                </Button>
-                <Button onClick={() => approveTask(selectedTask, true)}>
-                  <Check />
-                  อนุมัติงาน
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
       <Dialog open={evidenceOpen} onOpenChange={setEvidenceOpen}>
         <DialogContent>
           <DialogHeader>

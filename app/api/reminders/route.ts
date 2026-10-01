@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   try {
     const workspaceId = new URL(req.url).searchParams.get('workspaceId') ?? '';
-    await requireMembership(workspaceId);
+    const membership = await requireMembership(workspaceId);
     const rows = await db()
       .select({
         id: reminder.id,
@@ -22,12 +22,17 @@ export async function GET(req: Request) {
         state: reminder.state,
         failureReason: reminder.failureReason,
         title: task.title,
+        note: reminder.note,
       })
       .from(reminder)
       .leftJoin(task, eq(task.id, reminder.taskId))
-      .where(eq(reminder.workspaceId, workspaceId))
+      // เตือนฉัน is the caller's own list. It returned every member's
+      // reminders, which now carry their own private wording.
+      .where(and(eq(reminder.workspaceId, workspaceId), eq(reminder.recipientUserId, membership.userId)))
       .orderBy(asc(reminder.sendAt));
-    return NextResponse.json({ reminders: rows });
+    return NextResponse.json({
+      reminders: rows.map(({ note, ...r }) => ({ ...r, title: r.title ?? note })),
+    });
   } catch (error) {
     return errorResponse(error);
   }
@@ -43,6 +48,16 @@ export async function POST(req: Request) {
     if (!dueAt || !Number.isFinite(dueAt.getTime())) {
       return NextResponse.json({ error: 'ต้องระบุเวลาที่ถูกต้อง' }, { status: 400 });
     }
+    // A time that has already passed would fire on the next run, which reads
+    // as the bot reminding you of something at random. A minute of grace for
+    // a slow tap.
+    if (dueAt.getTime() < Date.now() - 60_000) {
+      return NextResponse.json({ error: 'เวลานี้ผ่านไปแล้ว · เลือกเวลาอื่นหรือพรุ่งนี้' }, { status: 400 });
+    }
+    // What a personal reminder is about, in the person's words. Trimmed and
+    // capped: it is pushed to LINE verbatim.
+    const note =
+      typeof body.note === 'string' && body.note.trim() ? body.note.trim().slice(0, 200) : null;
 
     // The reminder DMs the recipient the task's title. Both ids come from the
     // client, so both are checked against this workspace: a task from another
@@ -83,6 +98,7 @@ export async function POST(req: Request) {
             recipientUserId,
             // Set by a person, so re-planning the task must leave it alone.
             kind: 'manual',
+            note,
             sendAt: decision.sendAt,
             originalSendAt: decision.originalSendAt,
           });

@@ -640,3 +640,86 @@
 .preferences-page .connection-row [role='button'] {
   min-height: 44px;
 }
+
+/* ══ Deleting a reminder ═════════════════════════════════════════════════
+   The row still marks it done; the bin beside it deletes, on a second tap.
+   The row's divider moves to the line so the bin sits on the same rule. */
+.reminder-row-line {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #ecece8;
+}
+
+.reminder-row-line > .reminder-row {
+  min-width: 0;
+  flex: 1;
+  grid-template-columns: 26px minmax(0, 1fr);
+  border-bottom: 0;
+  background: transparent;
+}
+
+.reminder-delete {
+  display: grid;
+  min-width: 44px;
+  height: 44px;
+  flex: none;
+  place-items: center;
+  margin-right: 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0 10px;
+  color: #77776f;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.reminder-delete svg {
+  width: 17px;
+  height: 17px;
+}
+
+.reminder-delete.armed,
+.reminder-delete-link.armed {
+  background: rgba(229, 50, 45, 0.1);
+  color: #c4241f;
+}
+
+.reminder-delete:focus-visible,
+.reminder-delete-link:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.reminder-delete-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0 14px;
+  color: #77776f;
+  font-size: 13px;
+}
+
+.reminder-delete-link svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* ทีม page tabs: three since ทีมย่อย was hidden (it had no backend), so the
+   row fills instead of leaving an empty fourth cell. */
+.manage-tabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* Deleting a task: quiet, centred under the history, never beside แก้ไขงาน. */
+.task-delete-link {
+  align-self: center;
+  justify-self: center;
+  margin: 12px auto 4px;
+}

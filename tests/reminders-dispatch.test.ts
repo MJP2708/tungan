@@ -129,6 +129,23 @@ describe('reminder dispatch', { skip: !URL_ ? 'TEST_DATABASE_URL not set' : fals
     assert.ok(rows.every((r) => r.state === 'sent'), 'both rows marked sent');
   });
 
+  test('a personal reminder says what it is about, in the person\u2019s words', async () => {
+    // เตือนฉัน: no task, just what they typed. The DM used to read
+    // "• งานที่ต้องทำ", because the text was never stored.
+    const when = at(-5);
+    await db().insert(schema.reminder).values({
+      id: 'r-note', workspaceId: ws, taskId: null, recipientUserId: worker,
+      kind: 'manual', note: 'โทรยืนยันคิวกับลูกค้า', sendAt: when, originalSendAt: when,
+    });
+    const { calls, impl } = recordingFetch();
+
+    await dispatchDueReminders({ fetchImpl: impl });
+
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].text, /โทรยืนยันคิวกับลูกค้า/);
+    assert.doesNotMatch(calls[0].text, /งานที่ต้องทำ/);
+  });
+
   test('one reminder links straight to that task', async () => {
     await addReminder('r-1', worker, 't-1');
     const { calls, impl } = recordingFetch();

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { eq } from 'drizzle-orm';
+import { asc, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
-import { workspace, workspaceMember, lineUser } from '@/lib/db/schema.ts';
+import { workspace, workspaceMember, lineUser, groupWorkspace } from '@/lib/db/schema.ts';
 import { requireSession, HttpError } from '@/lib/auth/session.ts';
 import { refreshFriendFlag, addFriendUrl } from '@/lib/line/messaging.ts';
 
@@ -17,10 +17,19 @@ export async function GET() {
         name: workspace.name,
         role: workspaceMember.role,
         cutoff: workspace.cutoff,
+        // Connected to a LINE group: a team's workspace, not a personal list.
+        bound: sql<boolean>`exists (select 1 from ${groupWorkspace} where ${groupWorkspace.workspaceId} = ${workspace.id})`,
       })
       .from(workspaceMember)
       .innerJoin(workspace, eq(workspace.id, workspaceMember.workspaceId))
-      .where(eq(workspaceMember.userId, user.userId));
+      .where(eq(workspaceMember.userId, user.userId))
+      // The app opens the first one when the device has no memory of a
+      // choice. With no order that was whatever Postgres returned, so people
+      // could land in an empty personal list instead of their team.
+      .orderBy(
+        desc(sql`exists (select 1 from ${groupWorkspace} where ${groupWorkspace.workspaceId} = ${workspace.id})`),
+        asc(workspaceMember.createdAt),
+      );
 
     const me = await db()
       .select({ isOaFriend: lineUser.isOaFriend })

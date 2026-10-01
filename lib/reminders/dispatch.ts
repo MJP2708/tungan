@@ -44,10 +44,10 @@ async function claimDue(now: Date) {
         limit ${BATCH}
         for update skip locked
      )
-    returning id, workspace_id, task_id, recipient_user_id, send_at, attempts, kind
+    returning id, workspace_id, task_id, recipient_user_id, send_at, attempts, kind, note
   `);
   return (rows as unknown as { rows: Array<{
-    id: string; workspace_id: string; task_id: string | null;
+    id: string; workspace_id: string; task_id: string | null; note: string | null;
     recipient_user_id: string; send_at: string; attempts: number; kind: string;
   }> }).rows ?? [];
 }
@@ -119,7 +119,7 @@ export async function dispatchDueReminders(
     const lineFor = (r: (typeof rows)[number]) => {
       const t = r.task_id ? titles.get(r.task_id) : null;
       const when = t?.dueAt ? ` · ${formatDeadline(t.dueAt, { now })}` : '';
-      return `• ${t?.title ?? 'งานที่ต้องทำ'}${when}`;
+      return `• ${t?.title ?? r.note ?? 'งานที่ต้องทำ'}${when}`;
     };
     const sections: string[] = [];
     if (toDo.length) {

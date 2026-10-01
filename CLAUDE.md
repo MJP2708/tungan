@@ -64,7 +64,11 @@ LINE channels, the Neon project, and all cloud resources, then hands over IDs.
   Display titles are Prompt **300**; each screen title carries a Swiss index
   line from `data-kicker` (`pageKicker()` in `lib/app-preferences.ts`, e.g.
   `03 — TASKS`), drawn only by that stylesheet. Kicker text stays **Latin**:
-  it is letter-spaced, and spaced-out Thai falls apart.
+  it is letter-spaced, and spaced-out Thai falls apart. The top bar and the
+  desktop sidebar float (margins + radius); task lists number their rows with
+  CSS counters; controls are pills. A glass fill must never land on a dark
+  element — scope it (`.status-chip.status-done` stays ink) and run
+  `tools/visual/contrast.mjs`, which caught exactly that.
 - `app/globals.css` stays untouched: override order, specificity, layers and
   `!important` all matter. It is 5,663 lines with 127 `!important` and **zero
   `@layer`**, so the cascade rests entirely on source order and the three
@@ -325,7 +329,16 @@ node tools/visual/targets.mjs   # touch targets under 44px
 node tools/visual/shots.mjs     # screenshots of the main screens
 node tools/visual/urls.mjs      # each screen's address, Back, reload,
                                 # start page
+node tools/visual/contrast.mjs  # light text left on a light surface
 ```
+
+**End-to-end against a real backend** lives in `tools/e2e/` (README there):
+the production build, a throwaway local Postgres, two signed-in people, a
+webhook signed with a fake channel secret, and every step checked in the
+database — 43 checks across create → review → approve, LINE drafts,
+reminders, settings, workspaces, cron and logout. Every key in `.env.local`
+must be overridden when starting that server, because `.env.local` is
+production; `tools/e2e/lib.mjs` refuses a non-localhost database.
 
 Every `/api/*` call is answered from `tools/visual/fixtures.mjs`, so no
 database, no LINE and no login are involved. When comparing screenshot sets,
