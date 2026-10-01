@@ -69,6 +69,18 @@ LINE channels, the Neon project, and all cloud resources, then hands over IDs.
   CSS counters; controls are pills. A glass fill must never land on a dark
   element — scope it (`.status-chip.status-done` stays ink) and run
   `tools/visual/contrast.mjs`, which caught exactly that.
+- **Redesign (decided 2026-10-02):** the screens were restructured around
+  "what do I do next" — วันนี้ opens with รอคุณ (LINE drafts, work to review,
+  hand-offs) and the person's own tasks, each with one next-step button; งาน
+  is grouped by deadline (เลยกำหนด / วันนี้ / พรุ่งนี้ / หลังจากนั้น / ไม่มีกำหนด
+  / ปิดแล้ว) with one 64px line per task and a ของฉัน chip; the task sheet has
+  a four-step bar and one dock at the bottom; LINE drafts show the message as
+  a bubble with tappable fields; the phone top bar is one row. Its styles live
+  in `app/redesign.css`, imported last. **This goes with new markup in
+  app/page.tsx, so the "remove the theme import to restore the old look" rule
+  no longer holds for the app as a whole** (theme-glass/atelier still layer
+  as before; git keeps every earlier version). Thai labels are never
+  letter-spaced or set in mono.
 - `app/globals.css` stays untouched: override order, specificity, layers and
   `!important` all matter. It is 5,663 lines with 127 `!important` and **zero
   `@layer`**, so the cascade rests entirely on source order and the three
@@ -335,7 +347,7 @@ node tools/visual/contrast.mjs  # light text left on a light surface
 **End-to-end against a real backend** lives in `tools/e2e/` (README there):
 the production build, a throwaway local Postgres, two signed-in people, a
 webhook signed with a fake channel secret, and every step checked in the
-database — 43 checks across create → review → approve, LINE drafts,
+database — 45 checks across create → review → approve, LINE drafts,
 reminders, settings, workspaces, cron and logout. Every key in `.env.local`
 must be overridden when starting that server, because `.env.local` is
 production; `tools/e2e/lib.mjs` refuses a non-localhost database.

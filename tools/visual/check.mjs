@@ -27,6 +27,9 @@ function audit() {
     let p = el.parentElement;
     while (p && p !== document.body) {
       const s = getComputedStyle(p);
+      // Inside a sideways scroller (the filter chips) content is reachable by
+      // scrolling, not clipped.
+      if (/(auto|scroll)/.test(s.overflowX)) break;
       if (/(hidden|clip)/.test(s.overflowX) && s.textOverflow !== 'ellipsis') {
         const pr = p.getBoundingClientRect();
         if (r.right > pr.right + 2 && pr.width > 40) clipped.push(`${el.tagName.toLowerCase()} "${el.textContent.trim().slice(0, 16)}"`);

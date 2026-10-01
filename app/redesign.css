@@ -1,0 +1,1062 @@
+/*
+ * Redesign layer (decided 2026-10-02). Unlike theme-glass.css and
+ * theme-atelier.css, this one goes with new markup in app/page.tsx: the
+ * screens were restructured around "what do I do next", so removing this
+ * import no longer restores the old app. Git keeps every earlier version.
+ *
+ * Same rules as the layers before it: #0080ff only on controls and state,
+ * pastels only in decoration, Prompt + Geist Mono, 44px touch targets, a solid
+ * fallback for every backdrop-filter, Thai labels never letter-spaced.
+ */
+
+/* ══ Top bar on phones: one row ═══════════════════════════════════════════
+   Logo · workspace · bell. It was two rows and 119px; ตั้งค่า is still one
+   tap away under เพิ่มเติม. */
+@media (max-width: 760px) {
+  .topbar {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    min-height: 0;
+    padding: 6px 6px 6px 12px;
+  }
+
+  .mobile-wordmark .brand-art {
+    width: 104px;
+    height: 28px;
+  }
+
+  .mobile-project.themed-workspace-trigger {
+    grid-column: 2;
+    grid-row: 1;
+    min-height: 44px;
+    grid-template-columns: minmax(0, 1fr) 16px;
+    gap: 6px;
+    border-radius: 999px;
+    padding: 4px 10px 4px 14px;
+  }
+
+  .mobile-project .workspace-trigger-icon,
+  .mobile-project .workspace-kicker,
+  .mobile-project > div small {
+    display: none;
+  }
+
+  .mobile-project > div {
+    display: block !important;
+    overflow: hidden;
+  }
+
+  .mobile-project > div strong {
+    display: block;
+    overflow: hidden;
+    font-size: 13.5px !important;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .top-actions {
+    grid-column: 3;
+  }
+
+  .top-actions .settings-button {
+    display: none;
+  }
+}
+
+/* ══ Screen titles on phones: compact ═════════════════════════════════════
+   The light display title stays, smaller; with the one-row bar, content
+   starts about 150px down instead of about 390px. */
+@media (max-width: 760px) {
+  .welcome-block,
+  .section-intro {
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 4px;
+    padding-bottom: 12px;
+  }
+
+  .welcome-block h2,
+  .section-intro h2 {
+    font-size: 40px;
+  }
+
+  .welcome-block h2[data-kicker]::before,
+  .section-intro h2[data-kicker]::before {
+    margin-bottom: 8px;
+    font-size: 10px;
+  }
+
+  .welcome-block [data-slot='button'].primary-action,
+  .section-intro [data-slot='button'].primary-action {
+    height: 44px;
+    min-height: 44px;
+    padding: 0 16px;
+    font-size: 13.5px;
+  }
+}
+
+/* ══ วันนี้ ═══════════════════════════════════════════════════════════════ */
+.today {
+  display: grid;
+  gap: 18px;
+  max-width: 860px;
+}
+
+/* The title row loses its bottom margin here: the grid gap spaces it. */
+.today > .welcome-block {
+  margin-bottom: 0;
+}
+
+.today-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.today-tile {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  min-height: 76px;
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  border-radius: 20px;
+  background: var(--liquid-sheen), var(--liquid-fill);
+  box-shadow: var(--ethereal-shadow), var(--liquid-rim);
+  padding: 12px 14px;
+  color: var(--ink);
+  text-align: left;
+  -webkit-backdrop-filter: var(--liquid-blur);
+  backdrop-filter: var(--liquid-blur);
+}
+
+.today-tile b {
+  font-size: 32px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.today-tile span {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.today-tile.is-alert b {
+  color: #c4241f;
+}
+
+button.today-tile:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.today-section {
+  display: grid;
+  gap: 8px;
+}
+
+.today-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Thai section label: no tracking, no capitals (CLAUDE.md). */
+.today-label {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.today-more {
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  padding: 0 4px;
+  color: var(--blue);
+  font-size: 13px;
+}
+
+.today-list {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  border-radius: 24px;
+  background: var(--liquid-sheen), var(--liquid-fill);
+  box-shadow: var(--ethereal-shadow), var(--liquid-rim);
+  -webkit-backdrop-filter: var(--liquid-blur);
+  backdrop-filter: var(--liquid-blur);
+}
+
+.today-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--hairline);
+  padding-right: 10px;
+}
+
+.today-row:first-child {
+  border-top: 0;
+}
+
+.today-row-main {
+  display: grid;
+  min-width: 0;
+  min-height: 64px;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  padding: 10px 0 10px 12px;
+  color: var(--ink);
+  text-align: left;
+}
+
+.today-row-main:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+  border-radius: 16px;
+}
+
+.today-row-text {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.today-row-text strong {
+  overflow: hidden;
+  font-size: 14.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-row-text small {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-row-text small.is-late {
+  color: #c4241f;
+}
+
+.today-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: var(--liquid-rim);
+  color: var(--ink-2);
+}
+
+.today-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.today-icon.is-line {
+  color: var(--blue);
+}
+
+/* Status as a shape, not only a word: hollow (not started), blue (moving),
+   amber ! (stuck), ink diamond (waiting for review). */
+.status-dot {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  justify-self: center;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.6px rgba(9, 9, 9, 0.35);
+}
+
+.status-dot.is-progress {
+  box-shadow: inset 0 0 0 1.6px var(--blue);
+}
+
+.status-dot.is-progress::after {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--blue);
+}
+
+.status-dot.is-blocked {
+  box-shadow: inset 0 0 0 1.6px #b45309;
+}
+
+.status-dot.is-blocked::after {
+  content: '!';
+  color: #b45309;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.status-dot.is-review {
+  box-shadow: inset 0 0 0 1.6px var(--ink);
+}
+
+.status-dot.is-review::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border: 1.6px solid var(--ink);
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.status-dot.is-done {
+  background: var(--ink);
+  box-shadow: none;
+}
+
+[data-slot='button'].today-action {
+  min-width: 64px;
+  height: 44px;
+  padding: 0 16px;
+  font-size: 13.5px;
+}
+
+.today-empty .empty-state {
+  padding: 22px 16px;
+}
+
+.today-team {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 20px;
+  align-items: center;
+  gap: 8px;
+  min-height: 72px;
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  border-radius: 22px;
+  background: var(--liquid-sheen), var(--liquid-fill);
+  box-shadow: var(--ethereal-shadow), var(--liquid-rim);
+  padding: 12px 14px 12px 18px;
+  color: var(--ink);
+  text-align: left;
+  -webkit-backdrop-filter: var(--liquid-blur);
+  backdrop-filter: var(--liquid-blur);
+}
+
+.today-team span {
+  display: grid;
+  gap: 2px;
+}
+
+.today-team b {
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.today-team small {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.today-team > svg {
+  width: 18px;
+  color: var(--ink-3);
+}
+
+.today-team:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.today-quick {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.today-quick [data-slot='button'] {
+  height: 48px;
+  font-size: 14px;
+}
+
+/* The beta strip and the setup cards sit inside the flow now. */
+.today > .beta-strip,
+.today > .panel {
+  margin: 0;
+}
+
+@media (max-width: 380px) {
+  .today-tile {
+    padding: 10px 11px;
+  }
+
+  .today-tile b {
+    font-size: 28px;
+  }
+
+  .today-quick {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ══ งาน: search, chips, deadline groups, one-line rows ════════════════════ */
+.tasks-screen {
+  display: grid;
+  gap: 14px;
+}
+
+.tasks-screen > .section-intro {
+  margin-bottom: 0;
+}
+
+.search-box.task-search {
+  width: 100%;
+  max-width: 560px;
+  height: 48px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 999px;
+  background: var(--liquid-sheen), rgba(255, 255, 255, 0.55);
+  box-shadow: var(--liquid-rim);
+  padding: 0 16px;
+}
+
+.task-search input {
+  height: 44px;
+  font-size: 14px;
+}
+
+.task-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+
+.task-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.task-chip {
+  display: inline-flex;
+  flex: none;
+  min-height: 44px;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: var(--liquid-rim);
+  padding: 0 14px;
+  color: var(--ink);
+  font-size: 13.5px;
+}
+
+.task-chip b {
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.task-chip.active {
+  background: var(--ink);
+  box-shadow: none;
+  color: #ffffff;
+}
+
+.task-chip.active b {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.task-chip:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.task-group {
+  display: grid;
+  gap: 6px;
+}
+
+/* Thai group label: no tracking, no capitals. */
+.task-group-label {
+  margin: 4px 0 0;
+  padding: 0 4px;
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.task-group-label span {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.task-group.is-late .task-group-label {
+  color: #c4241f;
+}
+
+/* The list as one glass sheet with hairline rows (also on กำหนดส่ง). */
+.task-list:has(> .task-line),
+.task-lines {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  border-radius: 24px;
+  background: var(--liquid-sheen), var(--liquid-fill);
+  box-shadow: var(--ethereal-shadow), var(--liquid-rim);
+  -webkit-backdrop-filter: var(--liquid-blur);
+  backdrop-filter: var(--liquid-blur);
+}
+
+.task-list .task-row.task-line,
+.task-row.task-line {
+  display: grid;
+  width: 100%;
+  min-height: 64px;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  /* The old phone layout gave .task-row a two- and three-row grid with named
+     areas; left in place they add empty rows under the text. */
+  grid-template-areas: none;
+  grid-template-rows: auto;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-top: 1px solid var(--hairline);
+  border-radius: 0;
+  background: transparent;
+  padding: 10px 14px 10px 12px;
+  color: var(--ink);
+  text-align: left;
+}
+
+.task-list > .task-row.task-line:first-child {
+  border-top: 0;
+}
+
+/* Rows are grouped now; the atelier row numbers go. */
+.task-list > .task-row.task-line::before {
+  content: none;
+}
+
+.task-line .status-dot {
+  justify-self: center;
+}
+
+.task-line-text {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.task-line-text strong {
+  overflow: hidden;
+  font-size: 14.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-line-text small {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-line-text small.is-late {
+  color: #c4241f;
+}
+
+.task-line-end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-line-end .row-lock {
+  width: 14px;
+  height: 14px;
+  color: var(--ink-3);
+}
+
+.task-row.task-line:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
+@media (hover: hover) {
+  .task-row.task-line:hover {
+    background: rgba(255, 255, 255, 0.4);
+  }
+}
+
+.task-row.task-line.row-pending {
+  opacity: 0.6;
+}
+
+/* ══ Task sheet ═══════════════════════════════════════════════════════════ */
+.sheet-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sheet-step {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.sheet-step::before {
+  content: '';
+  height: 3px;
+  border-radius: 99px;
+  background: rgba(9, 9, 9, 0.1);
+}
+
+.sheet-step b {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+}
+
+.sheet-step.is-done::before {
+  background: var(--ink);
+}
+
+.sheet-step.is-now {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.sheet-step.is-now::before {
+  background: var(--blue);
+}
+
+.sheet-step.is-blocked {
+  color: #b45309;
+}
+
+.sheet-step.is-blocked::before {
+  background: #b45309;
+}
+
+.sheet-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border-radius: 20px;
+  background: var(--hairline);
+  box-shadow: var(--liquid-rim);
+}
+
+.sheet-fact {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.86);
+  padding: 12px 14px;
+}
+
+.sheet-fact small {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.sheet-fact strong {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-fact span {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The deadline is the number people open a task to see. */
+.sheet-fact.is-due strong {
+  display: block;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  white-space: normal;
+}
+
+.sheet-fact.is-due.is-late strong,
+.sheet-fact.is-due.is-late small {
+  color: #c4241f;
+}
+
+[data-slot='button'].edit-task-button {
+  /* The sheet body is a flex column; without this it stretched full width
+     and read as the main action. */
+  align-self: flex-start;
+  justify-self: start;
+  width: auto;
+  height: 44px;
+  padding: 0 16px;
+}
+
+/* ส่งงานต่อ, folded. */
+details.delegate-section {
+  display: grid;
+  gap: 10px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: var(--liquid-rim);
+  /* globals pads .delegate-section 15px with !important. */
+  padding: 0 14px !important;
+}
+
+details.delegate-section[open] {
+  padding-bottom: 14px !important;
+}
+
+/* Folded, the hidden content still counts as a grid row; no gap for it. */
+details.delegate-section:not([open]) {
+  gap: 0;
+}
+
+details.delegate-section > summary {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  list-style: none;
+}
+
+details.delegate-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.delegate-section > summary svg {
+  width: 16px;
+  height: 16px;
+  color: var(--ink-3);
+}
+
+details.delegate-section > summary::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border-right: 1.6px solid var(--ink-3);
+  border-bottom: 1.6px solid var(--ink-3);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 160ms ease;
+}
+
+details.delegate-section[open] > summary::after {
+  transform: rotate(-135deg) translateY(-2px);
+}
+
+details.delegate-section > summary:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 12px;
+}
+
+.delegate-note {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+
+.approval-section p {
+  margin: 4px 0 0;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+/* One dock: the next step large, the rest beside it, under the thumb. */
+.status-actions.sheet-dock {
+  grid-template-columns: 1fr !important;
+  gap: 8px;
+}
+
+[data-slot='button'].sheet-primary {
+  height: 54px;
+  font-size: 15.5px;
+}
+
+.sheet-secondary {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.sheet-secondary [data-slot='button'] {
+  height: 46px;
+  font-size: 13.5px;
+}
+
+.sheet-dock .approved-message {
+  min-height: 52px;
+  border-radius: 999px;
+  font-size: 13.5px;
+}
+
+/* นำข้อความเข้า is the manual path: a quiet pill, not the screen's main act. */
+.section-intro [data-slot='button'].forward-entry-button {
+  width: auto;
+  min-height: 44px;
+  height: 44px;
+  border-color: rgba(255, 255, 255, 0.95);
+  background: var(--liquid-sheen), rgba(255, 255, 255, 0.55);
+  box-shadow: 0 6px 16px -10px rgba(70, 56, 130, 0.35), var(--liquid-rim);
+  padding: 0 16px;
+  color: var(--ink);
+  font-size: 13.5px;
+}
+
+/* ══ จาก LINE ═════════════════════════════════════════════════════════════ */
+.capture-list {
+  display: grid;
+  gap: 14px;
+}
+
+.line-confirm-all {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  border-radius: 999px;
+  background: var(--liquid-sheen), var(--liquid-fill);
+  box-shadow: var(--liquid-rim);
+  padding: 6px 6px 6px 18px;
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+
+.line-confirm-all [data-slot='button'] {
+  height: 44px;
+}
+
+.capture-card.line-draft {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  border-radius: 26px;
+  background: var(--liquid-sheen), var(--liquid-fill);
+  box-shadow: var(--ethereal-shadow), var(--liquid-rim);
+  -webkit-backdrop-filter: var(--liquid-blur);
+  backdrop-filter: var(--liquid-blur);
+}
+
+@media (min-width: 1021px) {
+  .capture-card.line-draft {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  }
+
+  .capture-card.line-draft .line-said {
+    border-right: 1px solid var(--hairline);
+    border-bottom: 0;
+  }
+}
+
+.line-said {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  border-bottom: 1px solid var(--hairline);
+  padding: 16px 18px 14px;
+}
+
+.line-said header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.line-said header strong {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.line-said header span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A chat bubble, tail at the top left, as it looked in the group. */
+.line-bubble {
+  margin: 0;
+  border-radius: 4px 20px 20px 20px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(9, 9, 9, 0.06);
+  padding: 11px 14px;
+  font-size: 14.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.line-bubble mark {
+  background: none;
+  color: var(--blue);
+  font-weight: 500;
+}
+
+.line-read {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 14px 18px 18px;
+}
+
+.line-read h4 {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.line-fields {
+  display: grid;
+  gap: 6px;
+}
+
+.line-field {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: 64px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: inset 0 0 0 1px rgba(9, 9, 9, 0.06);
+  padding: 0 14px;
+  color: var(--ink);
+  text-align: left;
+}
+
+.line-field small {
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+
+.line-field strong {
+  overflow: hidden;
+  font-size: 14.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.line-field svg {
+  width: 15px;
+  height: 15px;
+  color: var(--ink-3);
+}
+
+.line-field.is-missing strong {
+  color: #b45309;
+}
+
+.line-field:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* Confirm is the larger button, on the right, under the thumb. */
+.line-decide {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.line-decide [data-slot='button'] {
+  height: 50px;
+  font-size: 14.5px;
+}
+
+/* ══ Fallbacks ════════════════════════════════════════════════════════════ */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .today-tile,
+  .today-list,
+  .today-team,
+  .task-lines,
+  .task-list:has(> .task-line),
+  .capture-card.line-draft {
+    background: #ffffff;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .today-tile,
+  .today-list,
+  .today-team,
+  .task-lines,
+  .task-list:has(> .task-line),
+  .capture-card.line-draft {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: #ffffff;
+  }
+}
+
+.section-intro [data-slot='button'].forward-entry-button:hover {
+  background: var(--liquid-sheen), rgba(255, 255, 255, 0.75);
+}
+
+@media (max-width: 760px) {
+  .section-intro [data-slot='button'].forward-entry-button {
+    width: auto;
+    min-height: 44px;
+  }
+}

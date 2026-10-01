@@ -37,7 +37,6 @@ import {
   Users,
   UserRound,
   Trash2,
-  X,
   Hourglass,
   PencilLine,
 } from 'lucide-react';
@@ -254,15 +253,6 @@ function PersonAvatar({
     <Avatar size={size}>
       <AvatarFallback className="avatar-mono">{initials}</AvatarFallback>
     </Avatar>
-  );
-}
-function StatusChip({ status }: { status: Status }) {
-  const Icon = statusMeta[status].icon;
-  return (
-    <span className={`status-chip status-${status}`}>
-      <Icon />
-      {statusMeta[status].label}
-    </span>
   );
 }
 function Brand({ mobile = false }: { mobile?: boolean }) {
@@ -611,6 +601,8 @@ export default function Home() {
   const [nicknameMember, setNicknameMember] = useState<Member | null>(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | Status>('all');
+  // งาน's ของฉัน chip: only work that is mine, alongside any status filter.
+  const [mineOnly, setMineOnly] = useState(false);
   const [calendarDay, setCalendarDay] = useState<DayBucket>('today');
   const [manageTab, setManageTab] = useState<ManageTab>('members');
   const [deadlineMode, setDeadlineMode] = useState<'picker' | 'natural'>(
@@ -1411,6 +1403,7 @@ export default function Home() {
     const q = search.trim().toLowerCase();
     return (
       visibleInTaskList(task.status, filter, settings.showCompleted) &&
+      (!mineOnly || belongsToMe(task)) &&
       (!q ||
         `${task.title} ${getAssignee(task).label} ${task.id}`
           .toLowerCase()
@@ -2470,45 +2463,50 @@ export default function Home() {
     }
   }
 
-  function TaskRow({
-    task,
-    compact = false,
-  }: {
-    task: Task;
-    compact?: boolean;
-  }) {
+  /**
+   * One task, one line (redesign 2026-10-02): status as a shape, the name,
+   * then when and who. It was five stacked pieces and about 175px tall on a
+   * phone; now a screen of scrolling holds about nine tasks instead of four.
+   * Still `.task-row` underneath, so tests and the harness find it.
+   */
+  function TaskRow({ task }: { task: Task }) {
     const assignee = getAssignee(task);
     const editable = canEditTask(task);
     const waiting = queued.some((q) => q.taskId === task.id);
+    const late =
+      task.status !== 'done' && task.status !== 'review' && isOverdue(task.dueAt, now);
+    const state =
+      task.pendingAssigneeId
+        ? ' · รอรับงานที่ส่งต่อ'
+        : task.status === 'blocked'
+          ? ` · ${task.blockedReason || 'ติดปัญหา'}`
+          : task.status === 'review'
+            ? ' · รอตรวจ'
+            : task.status === 'done'
+              ? ' · ปิดแล้ว'
+              : '';
     return (
       <button
+        type="button"
         title={editable ? 'เปิดและจัดการงาน' : 'เปิดดูรายละเอียด — แก้ไขไม่ได้'}
-        className={`task-row ${compact ? 'compact' : ''} ${!editable ? 'read-only' : ''} ${waiting ? 'row-pending' : ''} ${task.priority === 'urgent' && task.status !== 'done' ? 'deadline-glow' : ''}`}
+        className={`task-row task-line ${!editable ? 'read-only' : ''} ${waiting ? 'row-pending' : ''}`}
         onClick={() => setSelectedTask(task)}
       >
-        <div className="task-row-main">
-          <h3>{task.title}</h3>
-          <p>
-            <MessageCircle />
-            {sourceLabel(task.source)}
-          </p>
-        </div>
-        <div className="task-owner">
+        <span className={`status-dot is-${task.status}`} aria-hidden="true" />
+        <span className="task-line-text">
+          <strong>{task.title}</strong>
+          <small className={late ? 'is-late' : ''}>
+            {/* Lists are scanned: "อีก 2 ชม." answers the reader's question,
+                where an absolute date makes them do the subtraction. */}
+            {relativeDeadline(task.dueAt, now)} · {assignee.label}
+            {state}
+          </small>
+        </span>
+        <span className="sr-only">{statusMeta[task.status].label}</span>
+        <span className="task-line-end">
+          {!editable && <LockKeyhole className="row-lock" aria-label="ดูอย่างเดียว" />}
           <PersonAvatar initials={assignee.initials} size="sm" />
-          <span>{assignee.label}</span>
-          {!editable && (
-            <LockKeyhole className="row-lock" aria-label="ดูอย่างเดียว" />
-          )}
-        </div>
-        <div className="task-due">
-          <Clock3 />
-          {/* Lists are scanned: "อีก 2 ชม." answers the reader's question,
-              where an absolute date makes them do the subtraction. The detail
-              view keeps the exact time. */}
-          {relativeDeadline(task.dueAt, now)}
-        </div>
-        <StatusChip status={task.status} />
-        <ChevronRight className="task-chevron" />
+        </span>
       </button>
     );
   }
@@ -2615,26 +2613,242 @@ export default function Home() {
       </section>
     ) : null;
 
-  const renderHome = () => (
-    <>
-      <section className="welcome-block">
-        <div>
-          <h2
-            data-kicker={`${pageKicker('home')} · ${kickerDate.format(now)}`}
+  /**
+   * วันนี้, redesigned (2026-10-02) around one question: what do I do next?
+   *
+   * 1. รอคุณ — things that cannot move until this person acts: LINE drafts
+   *    to check, work to review, hand-offs waiting to be accepted.
+   * 2. งานของฉัน — their own open work, latest deadline risk first, each row
+   *    carrying its one next step.
+   * Everything else (setup, other workspaces, the team picture) follows, and
+   * only appears when it has something to say.
+   */
+  const renderHome = () => {
+    const mine = priorityTasks.filter((task) => belongsToMe(task));
+    const mineLate = mine.filter(
+      (task) => task.status !== 'review' && isOverdue(task.dueAt ?? '', now),
+    ).length;
+    const mineToday = mine.filter(
+      (task) =>
+        dayBucket(task.dueAt, now) === 'today' ||
+        (task.status !== 'review' && isOverdue(task.dueAt ?? '', now)),
+    ).length;
+    const toReview = projectTasks.filter(
+      (task) => task.status === 'review' && canReviewTask(task),
+    );
+    const handoffs = projectTasks.filter(
+      (task) => task.pendingAssigneeId === meUserId && task.status !== 'done',
+    );
+    const waitingCount =
+      (projectCaptures.length > 0 ? 1 : 0) + toReview.length + handoffs.length;
+
+    /** The one thing to do with a task of mine, from where it stands. */
+    const nextStep = (task: Task) => {
+      if (task.status === 'review') return null;
+      if (task.status === 'blocked')
+        return { label: 'อัปเดต', run: () => setSelectedTaskId(task.id), ink: false };
+      if (!task.acceptedAt)
+        return { label: 'รับงาน', run: () => void acceptTask(task), ink: true };
+      // Submitting needs evidence; without it the sheet is where to add it.
+      return {
+        label: 'ส่งตรวจ',
+        run: () =>
+          task.evidence.length
+            ? void submitForReview(task)
+            : setSelectedTaskId(task.id),
+        ink: true,
+      };
+    };
+    const metaFor = (task: Task) => {
+      const late = task.status !== 'review' && isOverdue(task.dueAt ?? '', now);
+      const when = task.dueAt ? formatDeadline(task.dueAt, { now }) : 'ไม่มีกำหนด';
+      const state =
+        task.status === 'blocked'
+          ? task.blockedReason || 'ติดปัญหา'
+          : task.status === 'review'
+            ? 'รอตรวจ'
+            : task.acceptedAt
+              ? 'กำลังทำ'
+              : 'ยังไม่รับ';
+      return { late, text: `${when} · ${state}` };
+    };
+
+    return (
+      <div className="today">
+        <section className="welcome-block">
+          <div>
+            <h2
+              data-kicker={`${pageKicker('home')} · ${kickerDate.format(now)}`}
+            >
+              วันนี้
+            </h2>
+          </div>
+          <Button
+            className="primary-action desktop-create"
+            onClick={() => openCreateTask()}
           >
-            วันนี้
-          </h2>
+            <Plus />
+            สร้างงาน
+          </Button>
+        </section>
+
+        <div className="today-tiles" role="group" aria-label="สรุปวันนี้">
+          <button type="button" className="today-tile" onClick={() => navigate('tasks')}>
+            <b>{mineToday}</b>
+            <span>ของฉันวันนี้</span>
+          </button>
+          <button
+            type="button"
+            className={`today-tile ${mineLate ? 'is-alert' : ''}`}
+            onClick={() => navigate('tasks')}
+          >
+            <b>{mineLate}</b>
+            <span>เลยกำหนด</span>
+          </button>
+          <div className="today-tile">
+            <b>{waitingCount}</b>
+            <span>รอคุณ</span>
+          </div>
         </div>
-        <Button
-          className="primary-action desktop-create"
-          onClick={() => openCreateTask()}
-        >
-          <Plus />
-          สร้างงาน
-        </Button>
-      </section>
-      {addFriendCard}
-      {sweepCard}
+
+        {addFriendCard}
+
+        {waitingCount > 0 && (
+          <section className="today-section" aria-labelledby="today-waiting">
+            <h3 className="today-label" id="today-waiting">
+              รอคุณ · {waitingCount}
+            </h3>
+            <div className="today-list">
+              {projectCaptures.length > 0 && (
+                <div className="today-row">
+                  <button
+                    type="button"
+                    className="today-row-main"
+                    onClick={() => navigate('inbox')}
+                  >
+                    <span className="today-icon is-line">
+                      <MessageCircle />
+                    </span>
+                    <span className="today-row-text">
+                      <strong>{projectCaptures.length} ข้อความจาก LINE</strong>
+                      <small>
+                        {projectCaptures[0].sender} · {projectCaptures[0].title}
+                      </small>
+                    </span>
+                  </button>
+                  <Button className="today-action" onClick={() => navigate('inbox')}>
+                    ตรวจ
+                  </Button>
+                </div>
+              )}
+              {toReview.slice(0, 3).map((task) => (
+                <div className="today-row" key={`review-${task.id}`}>
+                  <button
+                    type="button"
+                    className="today-row-main"
+                    onClick={() => setSelectedTaskId(task.id)}
+                  >
+                    <span className="today-icon">
+                      <Check />
+                    </span>
+                    <span className="today-row-text">
+                      <strong>{task.title}</strong>
+                      <small>
+                        {getAssignee(task).label} ส่งตรวจ
+                        {task.evidence.length ? ` · หลักฐาน ${task.evidence.length} ลิงก์` : ''}
+                      </small>
+                    </span>
+                  </button>
+                  <Button className="today-action" onClick={() => setSelectedTaskId(task.id)}>
+                    ตรวจงาน
+                  </Button>
+                </div>
+              ))}
+              {handoffs.map((task) => (
+                <div className="today-row" key={`handoff-${task.id}`}>
+                  <button
+                    type="button"
+                    className="today-row-main"
+                    onClick={() => setSelectedTaskId(task.id)}
+                  >
+                    <span className="today-icon">
+                      <Send />
+                    </span>
+                    <span className="today-row-text">
+                      <strong>{task.title}</strong>
+                      <small>มีคนส่งงานนี้ต่อให้คุณ</small>
+                    </span>
+                  </button>
+                  <Button
+                    variant="outline"
+                    className="today-action"
+                    onClick={() => setSelectedTaskId(task.id)}
+                  >
+                    ดู
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section className="today-section" aria-labelledby="today-mine">
+          <div className="today-label-row">
+            <h3 className="today-label" id="today-mine">
+              งานของฉัน · {mine.length}
+            </h3>
+            {mine.length > 0 && (
+              <button type="button" className="today-more" onClick={() => navigate('tasks')}>
+                ดูทั้งหมด
+              </button>
+            )}
+          </div>
+          {mine.length ? (
+            <div className="today-list">
+              {mine.slice(0, 6).map((task) => {
+                const step = nextStep(task);
+                const meta = metaFor(task);
+                return (
+                  <div className="today-row" key={task.id}>
+                    <button
+                      type="button"
+                      className="today-row-main"
+                      onClick={() => setSelectedTaskId(task.id)}
+                    >
+                      <span
+                        className={`status-dot is-${task.status === 'todo' && task.acceptedAt ? 'progress' : task.status}`}
+                        aria-hidden="true"
+                      />
+                      <span className="today-row-text">
+                        <strong>{task.title}</strong>
+                        <small className={meta.late ? 'is-late' : ''}>{meta.text}</small>
+                      </span>
+                    </button>
+                    {step && (
+                      <Button
+                        variant={step.ink ? 'default' : 'outline'}
+                        className="today-action"
+                        disabled={busy}
+                        onClick={step.run}
+                      >
+                        {step.label}
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="today-list today-empty">
+              <EmptyState
+                title="ไม่มีงานของคุณค้างอยู่"
+                body="งานที่มีคนสั่งให้คุณ หรือที่คุณสร้างเอง จะมาอยู่ตรงนี้"
+              />
+            </div>
+          )}
+        </section>
+
+        {sweepCard}
       {lineGroups.some((group) => !group.bound) && (
         // First run: the bot is in a group nobody has connected yet. Setting
         // it up used to mean finding it in Settings; it is one tap here.
@@ -2694,130 +2908,42 @@ export default function Home() {
             ))}
         </section>
       )}
-      <section className="home-shortcuts">
-        <button
-          className="line-attention-card"
-          onClick={() => navigate('inbox')}
-        >
-          <span className="shortcut-icon">
-            <MessageCircle />
-          </span>
-          <span className="shortcut-copy">
-            <small>ข้อความจาก LINE</small>
-            <strong>
-              {projectCaptures[0]?.message || 'ข้อความใหม่จาก LINE จะมารอที่นี่'}
-            </strong>
-            <em>{projectCaptures.length} ข้อความรอตรวจ · แตะเพื่อดู</em>
-          </span>
-          <ArrowRight />
-        </button>
-        <div className="home-side-shortcuts">
+
+        <section className="today-section" aria-labelledby="today-team">
+          <h3 className="today-label" id="today-team">
+            ทีม
+          </h3>
           <button
-            className="forward-shortcut-card"
-            // The AI card that shared this grid is gone until AI is connected;
-            // span the whole grid rather than sit at half width beside a gap.
-            style={{ gridColumn: '1 / -1', gridRow: '1 / -1' }}
-            onClick={() => setForwardDialog(true)}
+            type="button"
+            className="today-team"
+            onClick={() => navigate('reports')}
           >
-            <span className="shortcut-icon">
-              <Send />
+            <span>
+              <b>{completionRate}%</b>
+              <small>ปิดแล้ว</small>
             </span>
-            <span className="shortcut-copy">
-              <strong>นำข้อความจาก LINE</strong>
+            <span>
+              <b>{progressCount}</b>
+              <small>กำลังทำ</small>
             </span>
-            <ArrowRight />
-          </button>
-        </div>
-      </section>
-      <div className="desktop-split">
-        <section className="panel task-panel">
-          <div className="panel-heading">
-            <div>
-              <h3>ทำก่อน</h3>
-            </div>
-            <button onClick={() => navigate('tasks')}>
-              ดูทั้งหมด <ChevronRight />
-            </button>
-          </div>
-          <div className="task-list">
-            {priorityTasks.slice(0, 4).map((task) => (
-              <TaskRow key={task.id} task={task} compact />
-            ))}
-            {priorityTasks.length === 0 && (
-              <EmptyState
-                title="พื้นที่นี้ยังไม่มีงาน"
-                body="สร้างงานแรก หรือเปลี่ยนไปยังกลุ่มอื่น"
-              />
-            )}
-          </div>
-        </section>
-      <section className="daily-brief deadline-glow">
-        <div className="brief-metrics">
-          <span>
-            <b>{counts.due}</b>ส่งวันนี้
-          </span>
-          <span>
-            <b>{dailyBrief.overdue}</b>เกินกำหนด
-          </span>
-          <span>
-            <b>{dailyBrief.waiting}</b>รอตรวจ
-          </span>
-          <span>
-            <b>{dailyBrief.blocked}</b>ติดปัญหา
-          </span>
-        </div>
-      </section>
-        <section className="panel focus-panel">
-          <div className="panel-heading">
-            <div>
-              <h3>ภาพรวมทีม</h3>
-            </div>
-          </div>
-          <div
-            className="completion-ring"
-            style={{
-              background: `conic-gradient(#090909 ${completionRate}%, #ededeb 0)`,
-            }}
-          >
-            <strong>{completionRate}%</strong>
-            <span>ปิดงานแล้ว</span>
-          </div>
-          <div className="mini-bars">
-            <div>
-              <span>งานเสร็จ</span>
-              <i>
-                <b style={{ width: `${completionRate}%` }} />
-              </i>
-              <strong>{counts.done}</strong>
-            </div>
-            <div>
-              <span>กำลังทำ</span>
-              <i>
-                <b
-                  style={{
-                    width: `${totalTaskCount ? Math.round((progressCount / totalTaskCount) * 100) : 0}%`,
-                  }}
-                />
-              </i>
-              <strong>{progressCount}</strong>
-            </div>
-            <div>
-              <span>ติดปัญหา</span>
-              <i>
-                <b
-                  style={{
-                    width: `${totalTaskCount ? Math.round((counts.blocked / totalTaskCount) * 100) : 0}%`,
-                  }}
-                />
-              </i>
-              <strong>{counts.blocked}</strong>
-            </div>
-          </div>
-          <button className="text-link" onClick={() => navigate('reports')}>
-            ดูและแชร์ผลการทำงาน <ArrowRight />
+            <span>
+              <b>{counts.blocked}</b>
+              <small>ติดปัญหา</small>
+            </span>
+            <ChevronRight />
           </button>
         </section>
-      </div>
+
+        <div className="today-quick">
+          <Button variant="outline" onClick={() => openCreateTask()}>
+            <Plus />
+            สร้างงาน
+          </Button>
+          <Button variant="outline" onClick={() => setForwardDialog(true)}>
+            <Send />
+            นำข้อความจาก LINE
+          </Button>
+        </div>
       <section className="beta-strip">
         <div className="beta-copy">
           <Badge>FREE BETA</Badge>
@@ -2839,14 +2965,19 @@ export default function Home() {
           </div>
         </div>
       </section>
-    </>
-  );
+      </div>
+    );
+  };
 
   const renderInbox = () => (
     <section className="page-section">
       <div className="section-intro">
         <div>
-          <h2 data-kicker={pageKicker('inbox')}>จาก LINE</h2>
+          <h2
+            data-kicker={`${pageKicker('inbox')}${projectCaptures.length ? ` · ${projectCaptures.length} TO CHECK` : ''}`}
+          >
+            จาก LINE
+          </h2>
         </div>
         <Button
           className="forward-entry-button"
@@ -2857,7 +2988,7 @@ export default function Home() {
         </Button>
       </div>
       {projectCaptures.length >= 2 && (
-        <div className="confirm-all-row">
+        <div className="confirm-all-row line-confirm-all">
           <span>ตรวจแล้วถูกทุกรายการ?</span>
           <Button variant="outline" disabled={busy} onClick={confirmAllCaptures}>
             <Check />
@@ -2869,64 +3000,65 @@ export default function Home() {
         {projectCaptures.map((capture) => {
           const assignee = getAssignee(capture);
           return (
-            <article className="capture-card" key={capture.id}>
-              <div className="capture-message">
-                <div className="person-line">
-                  <PersonAvatar initials={capture.senderInitials} />
-                  <div>
-                    <strong>{capture.sender}</strong>
-                    <span>{getProject(capture.projectId).groupLabel}</span>
-                  </div>
-                </div>
-                <p>{capture.message}</p>
-                <span className="mention-pill">
-                  {capture.assigneeId
-                    ? `เข้าใจแท็ก · @${assignee.label}`
-                    : 'ยังไม่รู้ว่าให้ใคร'}
-                </span>
+            <article className="capture-card line-draft" key={capture.id}>
+              <div className="line-said">
+                <header>
+                  <PersonAvatar initials={capture.senderInitials} size="sm" />
+                  <strong>{capture.sender}</strong>
+                  <span>{getProject(capture.projectId).groupLabel}</span>
+                </header>
+                {/* What was said, as it looked in LINE, mentions marked. */}
+                <p className="line-bubble">
+                  {capture.message.split(/(@\S+)/).map((part, index) =>
+                    part.startsWith('@') ? <mark key={index}>{part}</mark> : part,
+                  )}
+                </p>
               </div>
-              <div className="capture-draft">
-                <div className="draft-label">
-                  <Sparkles />
-                  <span>งานที่ระบบเข้าใจ</span>
+              <div className="line-read">
+                <h4>ทันงานอ่านได้ว่า</h4>
+                <div className="line-fields">
+                  <button
+                    type="button"
+                    className="line-field"
+                    aria-label={`แก้ชื่องาน: ${capture.title}`}
+                    onClick={() => openEditCapture(capture)}
+                  >
+                    <small>งาน</small>
+                    <strong>{capture.title}</strong>
+                    <PencilLine />
+                  </button>
+                  <button
+                    type="button"
+                    className={`line-field ${capture.assigneeId ? '' : 'is-missing'}`}
+                    aria-label={`แก้ผู้รับผิดชอบ: ${capture.assigneeId ? assignee.label : 'ยังไม่รู้ว่าให้ใคร'}`}
+                    onClick={() => openEditCapture(capture)}
+                  >
+                    <small>ใคร</small>
+                    <strong>{capture.assigneeId ? assignee.label : 'ยังไม่รู้ว่าให้ใคร'}</strong>
+                    <PencilLine />
+                  </button>
+                  <button
+                    type="button"
+                    className="line-field"
+                    aria-label={`แก้กำหนดส่ง: ${capture.dueText}`}
+                    onClick={() => openEditCapture(capture)}
+                  >
+                    <small>เมื่อไร</small>
+                    <strong>{capture.dueText}</strong>
+                    <PencilLine />
+                  </button>
                 </div>
-                <h3>{capture.title}</h3>
-                <dl>
-                  <div>
-                    <dt>ผู้รับผิดชอบ</dt>
-                    <dd>
-                      <PersonAvatar initials={assignee.initials} size="sm" />
-                      {assignee.label}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>กำหนดส่ง</dt>
-                    <dd>
-                      <Clock3 />
-                      {capture.dueText}
-                    </dd>
-                  </div>
-                </dl>
-                <button
-                  type="button"
-                  className="text-link capture-edit-link"
-                  onClick={() => openEditCapture(capture)}
-                >
-                  <PencilLine />
-                  แก้ชื่อ ผู้รับผิดชอบ หรือกำหนดส่งก่อนสร้าง
-                </button>
-                <div className="capture-actions">
-                  <Button disabled={busy} onClick={() => confirmCapture(capture)}>
-                    <Check />
-                    ยืนยันสร้างงาน
-                  </Button>
+                <div className="line-decide">
                   <Button
                     variant="outline"
                     disabled={busy}
                     onClick={() => dismissCapture(capture)}
                   >
-                    <X />
                     ไม่ใช่งาน
+                  </Button>
+                  <Button disabled={busy} onClick={() => confirmCapture(capture)}>
+                    <Check />
+                    ยืนยันสร้างงาน
                   </Button>
                 </div>
               </div>
@@ -2942,85 +3074,121 @@ export default function Home() {
     </section>
   );
 
-  const renderTasks = () => (
-    <section className="page-section">
-      <div className="section-intro">
-        <div>
-          <h2 data-kicker={pageKicker('tasks')}>งาน</h2>
+  /**
+   * งาน, redesigned: grouped by what the deadline means today, one line per
+   * task. The groups carry the order, so rows are not numbered.
+   */
+  const renderTasks = () => {
+    const sorted = [...filteredTasks].sort((a, b) => deadlineRank(a) - deadlineRank(b));
+    const open = sorted.filter((task) => task.status !== 'done');
+    const late = open.filter(
+      (task) => task.status !== 'review' && isOverdue(task.dueAt, now),
+    );
+    const notLate = open.filter((task) => !late.includes(task));
+    const groups = [
+      { key: 'late', label: 'เลยกำหนด', items: late },
+      { key: 'today', label: 'วันนี้', items: notLate.filter((t) => dayBucket(t.dueAt, now) === 'today') },
+      { key: 'tomorrow', label: 'พรุ่งนี้', items: notLate.filter((t) => dayBucket(t.dueAt, now) === 'tomorrow') },
+      {
+        key: 'later',
+        label: 'หลังจากนั้น',
+        items: notLate.filter((t) => ['friday', 'later'].includes(dayBucket(t.dueAt, now))),
+      },
+      { key: 'none', label: 'ไม่มีกำหนด', items: notLate.filter((t) => dayBucket(t.dueAt, now) === 'none') },
+      { key: 'done', label: 'ปิดแล้ว', items: sorted.filter((task) => task.status === 'done') },
+    ].filter((group) => group.items.length > 0);
+    const mineCount = projectTasks.filter(
+      (task) => belongsToMe(task) && visibleInTaskList(task.status, 'all', settings.showCompleted),
+    ).length;
+    const chip = (
+      key: string,
+      label: string,
+      count: number,
+      active: boolean,
+      onClick: () => void,
+    ) => (
+      <button
+        key={key}
+        type="button"
+        className={`task-chip ${active ? 'active' : ''}`}
+        aria-pressed={active}
+        onClick={onClick}
+      >
+        {label}
+        <b>{count}</b>
+      </button>
+    );
+
+    return (
+      <section className="page-section tasks-screen">
+        <div className="section-intro">
+          <div>
+            <h2 data-kicker={`${pageKicker('tasks')} · ${counts.open} OPEN`}>งาน</h2>
+          </div>
+          <Button
+            className="primary-action desktop-create"
+            onClick={() => openCreateTask()}
+          >
+            <Plus />
+            สร้างงาน
+          </Button>
         </div>
-        <Button
-          className="primary-action desktop-create"
-          onClick={() => openCreateTask()}
-        >
-          <Plus />
-          สร้างงาน
-        </Button>
-      </div>
-      <div className="task-toolbar">
-        <label className="search-box">
+        <label className="search-box task-search">
           <Search />
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="ค้นหางาน คน หรือรหัส"
+            placeholder="ค้นหางานหรือคน"
+            aria-label="ค้นหางานหรือคน"
           />
         </label>
-      </div>
-      <div className="filter-row">
-        {(['all', 'todo', 'progress', 'blocked', 'review', 'done'] as const).map(
-          (item) => (
-            <button
-              key={item}
-              className={filter === item ? 'active' : ''}
-              onClick={() => setFilter(item)}
+        <div className="task-chips" role="group" aria-label="กรองงาน">
+          {chip(
+            'all',
+            'ทั้งหมด',
+            settings.showCompleted ? projectTasks.length : counts.open,
+            filter === 'all' && !mineOnly,
+            () => {
+              setFilter('all');
+              setMineOnly(false);
+            },
+          )}
+          {chip('mine', 'ของฉัน', mineCount, mineOnly, () => setMineOnly((on) => !on))}
+          {(['todo', 'progress', 'blocked', 'review', 'done'] as const).map((item) =>
+            chip(
+              item,
+              statusMeta[item].label,
+              projectTasks.filter((task) => task.status === item).length,
+              filter === item,
+              () => setFilter(filter === item ? 'all' : item),
+            ),
+          )}
+        </div>
+        {groups.length ? (
+          groups.map((group) => (
+            <section
+              key={group.key}
+              className={`task-group ${group.key === 'late' ? 'is-late' : ''}`}
+              aria-label={group.label}
             >
-              {item === 'all' ? 'ทั้งหมด' : statusMeta[item].label}
-              <span>
-                {item === 'all'
-                  ? settings.showCompleted
-                    ? projectTasks.length
-                    : counts.open
-                  : projectTasks.filter((task) => task.status === item).length}
-              </span>
-            </button>
-          ),
+              <h3 className="task-group-label">
+                {group.label} <span>{group.items.length}</span>
+              </h3>
+              <div className="task-list task-lines">
+                {group.items.map((task) => (
+                  <TaskRow key={task.id} task={task} />
+                ))}
+              </div>
+            </section>
+          ))
+        ) : (
+          <div className="task-list task-lines">
+            <EmptyState title="ไม่พบงาน" body="ลองเปลี่ยนคำค้นหาหรือตัวกรอง" />
+          </div>
         )}
-      </div>
-      <div className="mobile-task-filter">
-        <Select
-          value={filter}
-          onValueChange={(value) => setFilter(value as typeof filter)}
-        >
-          <SelectTrigger
-            aria-label="กรองสถานะงาน"
-            className="themed-field-trigger"
-          >
-            <span>
-              {filter === 'all' ? 'ทั้งหมด' : statusMeta[filter].label} ·{' '}
-              {filteredTasks.length}
-            </span>
-          </SelectTrigger>
-          <SelectContent className="themed-select-content">
-            {(['all', 'todo', 'progress', 'blocked', 'review', 'done'] as const).map(
-              (item) => (
-                <SelectItem key={item} value={item}>
-                  {item === 'all' ? 'ทั้งหมด' : statusMeta[item].label}
-                </SelectItem>
-              ),
-            )}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="panel task-list">
-        {filteredTasks.map((task) => (
-          <TaskRow key={task.id} task={task} />
-        ))}
-        {filteredTasks.length === 0 && (
-          <EmptyState title="ไม่พบงาน" body="ลองเปลี่ยนคำค้นหาหรือตัวกรอง" />
-        )}
-      </div>
-    </section>
-  );
+      </section>
+    );
+  };
 
   const renderCalendar = () => (
     <section className="page-section">
@@ -4998,19 +5166,60 @@ export default function Home() {
           </SheetHeader>
           {selectedTask && (
             <div className="detail-body">
-              <section
-                className={`detail-deadline ${selectedTask.priority === 'urgent' ? 'deadline-glow' : ''}`}
-              >
-                <span>
-                  <Clock3 />
-                  กำหนดส่ง
-                </span>
-                <strong>
-                  {selectedTask.dueAt
-                    ? formatDeadline(selectedTask.dueAt, { now })
-                    : 'ไม่มีกำหนด'}
-                </strong>
-              </section>
+              {/* Where the task stands, as the four steps it always goes
+                  through. The numbers are a real sequence. */}
+              <ol className="sheet-steps" aria-label="ความคืบหน้า">
+                {(['รับงาน', 'กำลังทำ', 'ส่งตรวจ', 'ปิดงาน'] as const).map((label, index) => {
+                  const at =
+                    selectedTask.status === 'done'
+                      ? 4
+                      : selectedTask.status === 'review'
+                        ? 2
+                        : selectedTask.acceptedAt
+                          ? 1
+                          : 0;
+                  const state = index < at ? 'done' : index === at ? 'now' : 'next';
+                  return (
+                    <li
+                      key={label}
+                      className={`sheet-step is-${state} ${index === 1 && selectedTask.status === 'blocked' ? 'is-blocked' : ''}`}
+                      aria-current={state === 'now' ? 'step' : undefined}
+                    >
+                      <b>{String(index + 1).padStart(2, '0')}</b>
+                      {index === 1 && selectedTask.status === 'blocked' ? 'ติดปัญหา' : label}
+                    </li>
+                  );
+                })}
+              </ol>
+              <div className="sheet-facts">
+                <div
+                  className={`sheet-fact is-due ${selectedTask.status !== 'done' && selectedTask.status !== 'review' && isOverdue(selectedTask.dueAt, now) ? 'is-late' : ''}`}
+                >
+                  <small>กำหนดส่ง</small>
+                  <strong>
+                    {selectedTask.dueAt
+                      ? formatDeadline(selectedTask.dueAt, { now })
+                      : 'ไม่มีกำหนด'}
+                  </strong>
+                </div>
+                <div className="sheet-fact">
+                  <small>ผู้รับผิดชอบ</small>
+                  <strong>
+                    <PersonAvatar
+                      initials={getPrimaryAssignee(selectedTask).initials}
+                      size="sm"
+                    />
+                    {getPrimaryAssignee(selectedTask).label}
+                  </strong>
+                  {(selectedTask.primaryAssigneeId ||
+                    selectedTask.primaryAssigneeType) &&
+                    (selectedTask.assigneeId !== selectedTask.primaryAssigneeId ||
+                      selectedTask.assigneeType !==
+                        selectedTask.primaryAssigneeType) && (
+                      <span>ผู้รับงานต่อ · {getAssignee(selectedTask).label}</span>
+                    )}
+                </div>
+              </div>
               {canEditFields(selectedTask) && selectedTask.status !== 'done' && (
                 <Button
                   variant="outline"
@@ -5018,7 +5227,7 @@ export default function Home() {
                   onClick={() => openEditTask(selectedTask)}
                 >
                   <PencilLine />
-                  แก้ไขงาน · ชื่อ กำหนดส่ง ผู้รับผิดชอบ
+                  แก้ไขงาน
                 </Button>
               )}
               {!canEditTask(selectedTask) && !canEditFields(selectedTask) && (
@@ -5033,52 +5242,16 @@ export default function Home() {
                   </div>
                 </section>
               )}
-              <dl className="detail-facts">
-                <div>
-                  <dt>ผู้รับผิดชอบหลัก</dt>
-                  <dd>
-                    <PersonAvatar
-                      initials={getPrimaryAssignee(selectedTask).initials}
-                      size="sm"
-                    />
-                    {getPrimaryAssignee(selectedTask).label}
-                  </dd>
-                </div>
-                {(selectedTask.primaryAssigneeId ||
-                  selectedTask.primaryAssigneeType) &&
-                  (selectedTask.assigneeId !== selectedTask.primaryAssigneeId ||
-                    selectedTask.assigneeType !==
-                      selectedTask.primaryAssigneeType) && (
-                    <div>
-                      <dt>ผู้รับงานต่อ</dt>
-                      <dd>
-                        <PersonAvatar
-                          initials={getAssignee(selectedTask).initials}
-                          size="sm"
-                        />
-                        {getAssignee(selectedTask).label}
-                      </dd>
-                    </div>
-                  )}
-                <div>
-                  <dt>สถานะ</dt>
-                  <dd>
-                    <StatusChip status={selectedTask.status} />
-                  </dd>
-                </div>
-              </dl>
               {canEditTask(selectedTask) && (
-                <section className="detail-section delegate-section">
-                  <div className="detail-section-heading">
-                    <div>
-                      <h3>ส่งงานต่อ</h3>
-                      <p>ผู้รับผิดชอบหลักยังคงเห็นและติดตามงานนี้ได้</p>
-                    </div>
-                    <span className="primary-owner-badge">
-                      <ShieldCheck />
-                      สิทธิ์ผู้รับผิดชอบหลัก
-                    </span>
-                  </div>
+                // A whole form most people rarely need, so it opens on tap.
+                <details className="detail-section delegate-section">
+                  <summary>
+                    <Send />
+                    ส่งงานต่อให้คนอื่น
+                  </summary>
+                  <p className="delegate-note">
+                    ผู้รับผิดชอบหลักยังคงเห็นและติดตามงานนี้ได้
+                  </p>
                   <div className="delegate-controls">
                     <AssignmentPicker
                       project={getProject(selectedTask.projectId)}
@@ -5093,7 +5266,7 @@ export default function Home() {
                       ส่งต่อ
                     </Button>
                   </div>
-                </section>
+                </details>
               )}
               <section className="detail-section">
                 <h3>รายละเอียด</h3>
@@ -5142,41 +5315,16 @@ export default function Home() {
                     </div>
                   ))}
               </section>
-              <section className="detail-section approval-section">
-                <div className="detail-section-heading">
-                  <div>
-                    <h3>ตรวจงาน</h3>
-                    <p>งานจบเมื่อผ่านการตรวจ ไม่ใช่แค่กดว่าเสร็จ</p>
-                  </div>
-                  <span
-                    className={`review-chip review-${selectedTask.reviewState || 'working'}`}
-                  >
-                    {selectedTask.reviewState === 'review'
-                      ? 'รอตรวจ'
-                      : selectedTask.reviewState === 'approved'
-                        ? 'อนุมัติแล้ว'
-                        : selectedTask.reviewState === 'revision'
-                          ? 'ขอแก้'
-                          : 'กำลังทำ'}
-                  </span>
-                </div>
-                {selectedTask.reviewState === 'review' &&
-                  canReviewTask(selectedTask) && (
-                    <div className="approval-actions">
-                      <Button
-                        variant="outline"
-                        onClick={() => requestRevision(selectedTask)}
-                      >
-                        ขอแก้
-                      </Button>
-                      <Button onClick={() => approveTask(selectedTask)}>
-                        <Check />
-                        อนุมัติ
-                      </Button>
-                    </div>
-                  )}
-
-              </section>
+              {selectedTask.reviewState === 'review' && (
+                <section className="detail-section approval-section">
+                  <h3>ตรวจงาน</h3>
+                  <p>
+                    {canReviewTask(selectedTask)
+                      ? 'ดูหลักฐานแล้วกดอนุมัติเพื่อปิดงาน หรือขอแก้พร้อมกำหนดใหม่'
+                      : 'ส่งตรวจแล้ว · รอคนสั่งงานตรวจ'}
+                  </p>
+                </section>
+              )}
               {questions.filter((q) => !q.answeredAt).length > 0 && (
                 <section className="detail-section">
                   <h3>รอคำตอบ</h3>
@@ -5283,44 +5431,65 @@ export default function Home() {
                   </Button>
                 </div>
               )}
-              {canEditTask(selectedTask) && (
-                <div className="status-actions accountable-actions">
-                  {!selectedTask.acceptedAt &&
-                  selectedTask.status !== 'done' ? (
+              {selectedTask.reviewState === 'review' && canReviewTask(selectedTask) ? (
+                <div className="status-actions accountable-actions sheet-dock">
+                  <Button className="sheet-primary" onClick={() => approveTask(selectedTask)}>
+                    <Check />
+                    อนุมัติ
+                  </Button>
+                  <div className="sheet-secondary">
+                    <Button variant="outline" onClick={() => requestRevision(selectedTask)}>
+                      ขอแก้
+                    </Button>
+                  </div>
+                </div>
+              ) : canEditTask(selectedTask) ? (
+                <div className="status-actions accountable-actions sheet-dock">
+                  {!selectedTask.acceptedAt && selectedTask.status !== 'done' ? (
                     <Button
-                      className="accept-task-button"
+                      className="accept-task-button sheet-primary"
                       onClick={() => acceptTask(selectedTask)}
                     >
                       <Check />
                       รับงาน
                     </Button>
                   ) : selectedTask.reviewState !== 'review' &&
-                    selectedTask.reviewState !== 'approved' ? (
+                    selectedTask.reviewState !== 'approved' &&
+                    selectedTask.status !== 'done' ? (
                     <>
                       <Button
-                        variant="outline"
-                        onClick={() => requestMoreInfo(selectedTask)}
+                        className="sheet-primary"
+                        onClick={() => submitForReview(selectedTask)}
                       >
-                        ขอข้อมูลเพิ่ม
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => updateStatus(selectedTask, 'blocked')}
-                      >
-                        ติดปัญหา
-                      </Button>
-                      <Button onClick={() => submitForReview(selectedTask)}>
                         <Send />
                         ส่งตรวจ
                       </Button>
+                      <div className="sheet-secondary">
+                        <Button
+                          variant="outline"
+                          onClick={() => updateStatus(selectedTask, 'blocked')}
+                        >
+                          ติดปัญหา
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => requestMoreInfo(selectedTask)}
+                        >
+                          ขอข้อมูลเพิ่ม
+                        </Button>
+                      </div>
                     </>
-                  ) : selectedTask.reviewState === 'approved' ? (
+                  ) : selectedTask.reviewState === 'approved' || selectedTask.status === 'done' ? (
                     <div className="approved-message">
                       <CheckCircle2 /> งานนี้อนุมัติและปิดแล้ว
                     </div>
-                  ) : null}
+                  ) : (
+                    <div className="approved-message">
+                      <Hourglass /> ส่งตรวจแล้ว · รอคนสั่งงานตรวจ
+                    </div>
+                  )}
                 </div>
-              )}
+              ) : null}
             </div>
           )}
         </SheetContent>

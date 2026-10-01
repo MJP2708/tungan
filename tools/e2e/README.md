@@ -37,7 +37,7 @@ done
 |---|---|
 | 1 | create a task for someone → รับงาน → ติดปัญหา → evidence link → ส่งตรวจ → ขอแก้ → resubmit → อนุมัติ, and the history |
 | 2 | personal reminders (stored wording, past times refused, snooze, two-tap delete, privacy), LINE webhook (bad signature, three drafts, redelivery, untagged ignored), edit/dismiss/confirm drafts, นำข้อความเข้า, past-deadline guard, end-of-day list, nickname, workspace rename, group setup, workspace switch remembered, new workspace, ทีม, กำหนดส่ง, ผลงาน, cron, logout |
-| 3 | ขอข้อมูลเพิ่ม and ตอบ, ส่งต่อ and รับงานที่ส่งต่อมา, แก้ไขงาน, undo from the toast |
+| 3 | รับงาน straight from วันนี้, ขอข้อมูลเพิ่ม and ตอบ, ส่งต่อ (folded section) and the hand-off in รอคุณ, รับงานที่ส่งต่อมา, แก้ไขงาน, undo from the toast, ลบงานนี้ |
 
 Steps that depend on the clock (after 17:00 Bangkok) run only then. Each
 failure saves a screenshot in `OUT` (default `/tmp/tungan-e2e`). Set
