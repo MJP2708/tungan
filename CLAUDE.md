@@ -57,6 +57,14 @@ LINE channels, the Neon project, and all cloud resources, then hands over IDs.
   WebViews. Mobile nav: floating frosted capsule, icon over bold label, active
   item on an inner pill, red count badges — the five items stay วันนี้ / LINE /
   งาน / เตือน / เพิ่มเติม.
+- **Atelier layer (decided 2026-10-01):** Ethereal · luxury typography · Swiss,
+  over liquid and frosted glass. Lives in `app/theme-atelier.css`, imported
+  **after** `theme-glass.css`; removing that import restores the glass theme
+  exactly. Same rules as the glass layer (blue, fallbacks, no new fonts).
+  Display titles are Prompt **300**; each screen title carries a Swiss index
+  line from `data-kicker` (`pageKicker()` in `lib/app-preferences.ts`, e.g.
+  `03 — TASKS`), drawn only by that stylesheet. Kicker text stays **Latin**:
+  it is letter-spaced, and spaced-out Thai falls apart.
 - `app/globals.css` stays untouched: override order, specificity, layers and
   `!important` all matter. It is 5,663 lines with 127 `!important` and **zero
   `@layer`**, so the cascade rests entirely on source order and the three

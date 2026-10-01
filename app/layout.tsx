@@ -3,6 +3,9 @@ import { Geist_Mono, Prompt } from 'next/font/google';
 import './globals.css';
 // Glass theme layer. Must stay AFTER globals.css; removing it restores the old look.
 import './theme-glass.css';
+// Atelier layer (Ethereal · luxury type · Swiss). Must stay AFTER theme-glass;
+// removing it restores the glass theme exactly.
+import './theme-atelier.css';
 
 const prompt = Prompt({
   variable: '--font-prompt',

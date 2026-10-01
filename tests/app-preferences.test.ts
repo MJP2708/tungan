@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   appNavigation,
+  pageKicker,
   mobilePrimaryPages,
   defaultSettings,
   normalizeSettings,
@@ -50,4 +51,13 @@ test('completed preference filters the general list but explicit completed filte
   assert.equal(visibleInTaskList('done', 'all', true), true);
   assert.equal(visibleInTaskList('done', 'done', false), true);
   assert.equal(visibleInTaskList('progress', 'done', false), false);
+});
+
+test('every screen has a numbered index line, in navigation order', () => {
+  assert.equal(pageKicker('home'), '01 — TODAY');
+  assert.equal(pageKicker('tasks'), '03 — TASKS');
+  assert.equal(pageKicker('settings'), '09 — SETTINGS');
+  for (const { page } of appNavigation) {
+    assert.match(pageKicker(page), /^\d{2} — [A-Z ]+$/, page);
+  }
 });

@@ -110,6 +110,7 @@ import {
   defaultSettings,
   normalizeSettings,
   visibleInTaskList,
+  pageKicker,
   type AppSettings,
   type Page,
 } from '@/lib/app-preferences';
@@ -400,6 +401,19 @@ function normalizeTask(task: Task): Task {
 }
 
 /** Current time, refreshed every minute so day boundaries are honoured. */
+/** "THU 01.10" in Bangkok, beside วันนี้'s index line. Latin on purpose: the
+ *  line is letter-spaced, and spaced-out Thai letters fall apart. */
+const kickerDay = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok', weekday: 'short' });
+const kickerDayMonth = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Asia/Bangkok',
+  day: '2-digit',
+  month: '2-digit',
+});
+const kickerDate = {
+  format: (at: Date) =>
+    `${kickerDay.format(at).toUpperCase()} ${kickerDayMonth.format(at).replace('/', '.')}`,
+};
+
 function useNow() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -2464,7 +2478,11 @@ export default function Home() {
     <>
       <section className="welcome-block">
         <div>
-          <h2>วันนี้</h2>
+          <h2
+            data-kicker={`${pageKicker('home')} · ${kickerDate.format(now)}`}
+          >
+            วันนี้
+          </h2>
         </div>
         <Button
           className="primary-action desktop-create"
@@ -2686,7 +2704,7 @@ export default function Home() {
     <section className="page-section">
       <div className="section-intro">
         <div>
-          <h2>จาก LINE</h2>
+          <h2 data-kicker={pageKicker('inbox')}>จาก LINE</h2>
         </div>
         <Button
           className="forward-entry-button"
@@ -2786,7 +2804,7 @@ export default function Home() {
     <section className="page-section">
       <div className="section-intro">
         <div>
-          <h2>งาน</h2>
+          <h2 data-kicker={pageKicker('tasks')}>งาน</h2>
         </div>
         <Button
           className="primary-action desktop-create"
@@ -2866,7 +2884,7 @@ export default function Home() {
     <section className="page-section">
       <div className="section-intro">
         <div>
-          <h2>กำหนดส่ง</h2>
+          <h2 data-kicker={pageKicker('calendar')}>กำหนดส่ง</h2>
         </div>
       </div>
       <div className="calendar-strip">
@@ -2935,7 +2953,7 @@ export default function Home() {
     <section className="page-section report-page">
       <div className="section-intro">
         <div>
-          <h2>ผลงาน</h2>
+          <h2 data-kicker={pageKicker('reports')}>ผลงาน</h2>
         </div>
       </div>
       <div className="report-layout">
@@ -3062,7 +3080,7 @@ export default function Home() {
       <section className="page-section reminder-page">
         <div className="section-intro reminder-intro">
           <div>
-            <h2>เตือนฉัน</h2>
+            <h2 data-kicker={pageKicker('reminders')}>เตือนฉัน</h2>
           </div>
           <Badge variant="outline">ไม่เสียเงินเพิ่ม</Badge>
         </div>
@@ -3254,7 +3272,7 @@ export default function Home() {
     <section className="page-section ai-chat-page">
       <div className="section-intro">
         <div>
-          <h2>AI</h2>
+          <h2 data-kicker={pageKicker('ai')}>AI</h2>
         </div>
         <Badge variant="outline">
           {usage?.ai?.enabled
@@ -3352,7 +3370,7 @@ export default function Home() {
   const renderSettings = () => (
     <section className="page-section preferences-page">
       <div className="section-intro">
-        <h2>ตั้งค่า</h2>
+        <h2 data-kicker={pageKicker('settings')}>ตั้งค่า</h2>
         <Badge variant="outline">บันทึกในอุปกรณ์นี้</Badge>
       </div>
       <div className="preferences-layout">
@@ -3584,7 +3602,7 @@ export default function Home() {
     <section className="page-section">
       <div className="section-intro">
         <div>
-          <h2>ทีม</h2>
+          <h2 data-kicker={pageKicker('manage')}>ทีม</h2>
         </div>
       </div>
       <div className="manage-tabs">

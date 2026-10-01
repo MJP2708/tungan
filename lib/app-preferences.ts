@@ -11,6 +11,27 @@ export const appNavigation = [
 ] as const;
 
 export type Page = (typeof appNavigation)[number]['page'];
+
+/**
+ * The small index line above each screen's title ("03 — TASKS"). Swiss
+ * numbering in the atelier theme: it is rendered from a data attribute by
+ * app/theme-atelier.css, so without that stylesheet nothing shows.
+ */
+const kickerWords: Record<Page, string> = {
+  home: 'TODAY',
+  inbox: 'FROM LINE',
+  tasks: 'TASKS',
+  calendar: 'DEADLINES',
+  reports: 'RESULTS',
+  reminders: 'REMINDERS',
+  ai: 'ASSIST',
+  manage: 'TEAM',
+  settings: 'SETTINGS',
+};
+export function pageKicker(page: Page): string {
+  const index = appNavigation.findIndex((item) => item.page === page) + 1;
+  return `${String(index).padStart(2, '0')} — ${kickerWords[page]}`;
+}
 /**
  * Shorter labels for the phone's bottom bar only (master plan §4/§5). Five
  * items share ~350px there; the sidebar keeps the full wording.
