@@ -3,7 +3,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import { aiUsage, workspace } from '../db/schema.ts';
 import { zonedDateParts } from '../deadline.ts';
-import { aiConfigured } from './jev.ts';
+import { aiConfigured } from './model.ts';
 import { isUniqueViolation } from '../db/errors.ts';
 
 /**

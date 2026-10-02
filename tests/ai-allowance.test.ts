@@ -10,7 +10,8 @@ const URL_ = process.env.TEST_DATABASE_URL;
 if (URL_) {
   process.env.DATABASE_URL = URL_;
   // A key must exist for AI to be considered configured at all.
-  process.env.TYPESAFE_API_KEY ??= 'test-key';
+  process.env.ML_SERVICE_URL ??= 'https://ml.test';
+  process.env.ML_SERVICE_TOKEN ??= 'test-token';
 }
 
 describe('ai allowance', { skip: !URL_ ? 'TEST_DATABASE_URL not set' : false }, () => {

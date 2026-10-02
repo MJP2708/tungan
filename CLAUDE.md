@@ -172,30 +172,47 @@ database dumps.
 Auto-scan of all messages, native apps, calendar sync, file storage, public
 signup, annual plans, per-group add-ons, public leaderboards.
 
-## AI scope — updated
+## AI scope — updated 2026-10-02
 
-IN scope, with the constraints below:
-- Model-based extraction as a FALLBACK when the rules cannot decide: task, assignee, date.
-- Input types: text, image (extract text), and voice (transcribe), each then handled by the same
-  rules. Nothing else is sent to a model.
-- Drafting a follow-up message (ตามงาน) that the user reads before sending.
-- Suggesting a folder or filename for a Drive upload.
+**Our own model, no third-party AI API.** Decided by the user 2026-10-02. Jev
+(TypeSafe) is removed. No other hosted AI API is to be added.
+
+- **Where it runs:** a separate inference service, because a bigger model
+  will not fit inside a Vercel function. This is the ONE exception to "no
+  second service", and it covers model inference only: every product route,
+  rule and permission check stays in `app/api`. Only this app's server calls
+  it (`ML_SERVICE_URL` + `ML_SERVICE_TOKEN`, both server-only). Users never
+  reach it; they only ever use ทันงาน. `lib/ai/model.ts` → `aiConfigured()` is
+  false until both are set, so AI is off everywhere until the service exists.
+- **What it does:**
+  - Extract task, person and deadline from a tagged LINE message.
+  - Help with prioritising: it may *suggest* (with a reason a person can read).
+    The default order stays deterministic (deadline, time-in-state, blocked
+    status) and is never silently replaced.
+  - Summarise work in ทันงาน (a task and its history, a day, a week) for a
+    person to read. Not a chat surface.
+- **Training data — NOT decided yet.** The product promises today: the bot
+  reads only messages that tag @ทันงาน, raw messages are kept 7 days or less,
+  and unsend deletes our copy. Proposed (awaiting the user's OK): per-
+  workspace opt-in; train on confirmed and corrected drafts (the reading next
+  to what people fixed), not on raw chat; /privacy updated; unsend and
+  deletion still honoured; PDPA consent. Until this is decided, nothing new
+  is collected for training.
 
 OUT of scope, unchanged:
 - AI chat, open-ended conversation, or a chat surface of any kind.
-- Summarizing chat history for its own sake, as a feature users invoke.
-- Prioritizing or reorganizing anyone's workflow. Prioritization stays deterministic:
-  deadline, time-in-state, blocked status.
-- Autonomous multi-step agent loops. One call, one JSON response, one human confirmation.
-- Training, fine-tuning, or building our own classifier on raw LINE text.
+- Autonomous multi-step agent loops. One call, one structured response, one
+  human confirmation.
 
 Constraints that apply to every model call:
 - AI proposes, never acts. Every output is confirmed by a person before anything is created.
 - Weighted consumption: text 1, image 2–3, voice per 30 seconds. Rules-parsed messages cost nothing.
-- Hard cap per day and per workspace, plus a kill switch. No negative balances.
+- Hard cap per day and per workspace, plus a kill switch (`AI_KILL_SWITCH=1`).
+  No negative balances. (`lib/ai/allowance.ts`, kept from the Jev work.)
 - Server-enforced limits on image size and audio length.
 - A retry under the same idempotency key is never charged twice.
-- When the allowance runs out, rules, manual creation, reminders and all status actions keep working.
+- When the allowance runs out or the service is down, rules, manual
+  creation, reminders and all status actions keep working.
 - Never the words token or credit in the Thai UI.
 
 Build order for extraction is text, then image, then voice — separately, not at
