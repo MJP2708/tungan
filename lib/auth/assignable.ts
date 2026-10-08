@@ -44,3 +44,28 @@ export async function assertAssignable(
   }
   return userId;
 }
+
+/**
+ * Everyone who can be given work here: the members, plus people seen in a
+ * LINE group bound to this workspace. This is who an @All (ทุกคน) task goes
+ * to — one copy each — minus whoever asked for it, who reviews rather than
+ * does. Until the OA is Verified, "seen" means someone who has spoken in the
+ * group; the card and the app say how many people that is.
+ */
+export async function everyoneAssignable(
+  workspaceId: string,
+  exceptUserId?: string | null,
+): Promise<string[]> {
+  const members = await db()
+    .select({ userId: workspaceMember.userId })
+    .from(workspaceMember)
+    .where(eq(workspaceMember.workspaceId, workspaceId));
+  const seen = await db()
+    .select({ userId: lineGroupMember.userId })
+    .from(lineGroupMember)
+    .innerJoin(groupWorkspace, eq(groupWorkspace.lineGroupId, lineGroupMember.lineGroupId))
+    .where(eq(groupWorkspace.workspaceId, workspaceId));
+  const all = new Set([...members, ...seen].map((r) => r.userId));
+  if (exceptUserId) all.delete(exceptUserId);
+  return [...all].sort();
+}

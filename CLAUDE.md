@@ -141,6 +141,23 @@ proves nothing here.
   constraint and honour `deliveryContext.isRedelivery`. Ack fast, work after.
 - Raw message retention **7 days or less**. On `unsend`, delete or mask it.
 
+## Announcements and ทุกคน (decided 2026-10-08)
+
+- **Announcements:** owners and admins post (server-checked:
+  `requireMembership(id, { roles: ['owner','admin'] })`); every member sees
+  each one **once**, as a popup the next time they open the app, closed with
+  X or รับทราบ. Closing is stored server-side (`announcement_read`), so it does
+  not return on another phone. **In the app only** — never posted to the LINE
+  group, which would cost one counted message per member. Data access in
+  `lib/announcements.ts`; history on ทีม → ประกาศ.
+- **ทุกคน / @All tasks:** one copy per person, linked by `task.batch_id`, so
+  each person ticks off their own and whoever asked sees "ทุกคน · เสร็จ x/y".
+  "Everyone" = workspace members + people seen in a bound LINE group, minus
+  whoever asked (`everyoneAssignable`). LINE's "@All" marks a draft
+  `assign_all`; picking one person with เปลี่ยนคน turns it off. Every way a
+  task is made goes through `lib/tasks/create.ts` → `createTasks()` (which
+  also plans reminders — the LINE confirm path used to skip that).
+
 ## Data rules
 
 - Identity is the **LINE user ID**. Nicknames are per-workspace display data
@@ -364,8 +381,8 @@ node tools/visual/contrast.mjs  # light text left on a light surface
 **End-to-end against a real backend** lives in `tools/e2e/` (README there):
 the production build, a throwaway local Postgres, two signed-in people, a
 webhook signed with a fake channel secret, and every step checked in the
-database — 45 checks across create → review → approve, LINE drafts,
-reminders, settings, workspaces, cron and logout. Every key in `.env.local`
+database — 50 checks (53 after 17:00 Bangkok) across create → review → approve, LINE drafts,
+reminders, settings, workspaces, cron, logout, announcements and ทุกคน tasks. Every key in `.env.local`
 must be overridden when starting that server, because `.env.local` is
 production; `tools/e2e/lib.mjs` refuses a non-localhost database.
 

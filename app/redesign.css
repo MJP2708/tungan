@@ -1025,6 +1025,234 @@ details.delegate-section > summary:focus-visible {
   font-size: 14.5px;
 }
 
+/* ══ ทีม tabs: as many columns as there are tabs ═══════════════════════════ */
+.manage-tabs {
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  grid-template-columns: none;
+}
+
+/* Four tabs on a narrow phone: the labels need the room more than the icons. */
+@media (max-width: 380px) {
+  .manage-tabs button {
+    padding-inline: 4px;
+    font-size: 12.5px;
+    white-space: nowrap;
+  }
+
+  .manage-tabs button svg {
+    display: none;
+  }
+}
+
+/* ══ Announcements ════════════════════════════════════════════════════════ */
+.announcement-dialog {
+  max-width: min(460px, calc(100vw - 32px));
+  border-radius: 28px;
+}
+
+.announcement-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.announcement-kicker svg {
+  width: 16px;
+  height: 16px;
+  color: var(--blue);
+}
+
+.announcement-dialog [data-slot='dialog-title'] {
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  text-wrap: balance;
+}
+
+.announcement-meta {
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+
+.announcement-body {
+  max-height: 46dvh;
+  margin: 0;
+  overflow-y: auto;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: inset 0 0 0 1px rgba(9, 9, 9, 0.06);
+  padding: 12px 14px;
+  font-size: 14.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+[data-slot='button'].announcement-ack {
+  width: 100%;
+  height: 50px;
+  font-size: 15px;
+}
+
+.announcement-dialog [data-slot='dialog-footer'] {
+  border-top-color: var(--hairline);
+  background: transparent;
+}
+
+/* Focus lands here when the popup opens; the ring is the brand blue. */
+[data-slot='button'].announcement-ack:focus-visible {
+  /* The blue ring is the focus indicator; the old ink outline doubled it. */
+  outline: none;
+  border-color: transparent;
+  box-shadow: 0 0 0 3px rgba(0, 128, 255, 0.35), 0 12px 24px -12px rgba(9, 9, 9, 0.6);
+}
+
+.announce-tab {
+  display: grid;
+  gap: 16px;
+  max-width: 760px;
+}
+
+.announce-composer {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+}
+
+.announce-composer h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.announce-composer p,
+.announce-note {
+  margin: 4px 0 0;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.announce-composer label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.announce-composer label small {
+  color: var(--ink-3);
+  font-weight: 400;
+}
+
+.announce-composer [data-slot='button'] {
+  justify-self: start;
+  height: 48px;
+  padding: 0 20px;
+}
+
+.announce-history {
+  display: grid;
+  gap: 8px;
+}
+
+.announce-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  border-top: 1px solid var(--hairline);
+  padding: 14px 10px 14px 16px;
+}
+
+.announce-item:first-child {
+  border-top: 0;
+}
+
+.announce-item strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.announce-item p {
+  margin: 4px 0;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.announce-item small {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+/* ══ ทุกคน (@All) progress in the task sheet ═══════════════════════════════ */
+.batch-progress {
+  display: grid;
+  gap: 8px;
+}
+
+.batch-progress h3 {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.batch-people {
+  display: grid;
+  overflow: hidden;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: var(--liquid-rim);
+}
+
+.batch-person {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-top: 1px solid var(--hairline);
+  background: transparent;
+  padding: 0 14px 0 8px;
+  color: var(--ink);
+  font-size: 14px;
+  text-align: left;
+}
+
+.batch-person:first-child {
+  border-top: 0;
+}
+
+.batch-person span:not(.status-dot) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-person small {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.batch-person.is-current {
+  background: rgba(0, 128, 255, 0.07);
+}
+
+.batch-person:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
 /* ══ Fallbacks ════════════════════════════════════════════════════════════ */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .today-tile,

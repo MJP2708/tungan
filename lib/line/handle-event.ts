@@ -19,7 +19,6 @@ import {
   workspace,
   workspaceMember,
   task,
-  taskEvent,
   nameCorrection,
   memberSchedule,
 } from '../db/schema.ts';
@@ -41,7 +40,8 @@ import {
   statusActions, withActions, reasonPrompt, handoffPicker, evidencePrompt, undoAction,
 } from './status-buttons.ts';
 import { appLink } from '../deep-link.ts';
-import { isAssignable } from '../auth/assignable.ts';
+import { isAssignable, everyoneAssignable } from '../auth/assignable.ts';
+import { createTasks } from '../tasks/create.ts';
 import { applyMentions, mentionedPeople, type Mentionee } from './mentions.ts';
 
 export type LineSource = {
@@ -583,7 +583,8 @@ async function handlePostback(event: LineEventPayload) {
     if (item.state !== 'pending') return;
     const userId = params.get('user');
     if (!userId) return;
-    await db().update(inboxItem).set({ suggestedAssigneeUserId: userId })
+    // Picking one person replaces ทุกคน: the draft is now theirs alone.
+    await db().update(inboxItem).set({ suggestedAssigneeUserId: userId, assignAll: false })
       .where(and(eq(inboxItem.id, inboxId), eq(inboxItem.state, 'pending')));
 
     // Remember the correction for this workspace, so the same phrase resolves
@@ -627,32 +628,45 @@ async function handlePostback(event: LineEventPayload) {
     .returning({ id: inboxItem.id });
   if (!claimed.length) return;
 
-  const taskId = crypto.randomUUID();
+  // One task, or one copy per person for an @All message. Either way the
+  // reminders are planned now: this path used to skip that, so a task
+  // confirmed in LINE got no reminder until someone touched it in the app.
+  const assignees = item.assignAll
+    ? await everyoneAssignable(item.workspaceId, actorUserId)
+    : [item.suggestedAssigneeUserId];
+  let made: { ids: string[]; batchId: string | null };
   try {
-    await db().insert(task).values({
-      id: taskId,
+    made = await createTasks({
       workspaceId: item.workspaceId,
       title: item.suggestedTitle || 'งานจาก LINE',
-      note: '',
-      assigneeUserId: item.suggestedAssigneeUserId,
-      primaryAssigneeUserId: item.suggestedAssigneeUserId,
+      assignees: assignees.length ? assignees : [null],
       source: item.lineGroupId ? 'LINE · กลุ่ม' : 'LINE · DM',
       dueAt: item.suggestedDueAt,
       createdByUserId: actorUserId,
+      eventDetail: 'ยืนยันจากข้อความใน LINE',
     });
   } catch (error) {
     // Hand the draft back rather than leave it claimed with no task behind it.
     await db().update(inboxItem).set({ state: 'pending' }).where(eq(inboxItem.id, inboxId));
     throw error;
   }
-  await db().insert(taskEvent).values({
-    id: crypto.randomUUID(),
-    taskId,
-    workspaceId: item.workspaceId,
-    actorUserId,
-    kind: 'created',
-    detail: 'ยืนยันจากข้อความใน LINE',
-  });
+  const taskId = made.ids[0];
+
+  if (made.batchId && event.replyToken) {
+    // Everyone has their own copy, so one set of status buttons would only
+    // move one of them. Each person works theirs from the app or the DM link.
+    await replyMessage(
+      event.replyToken,
+      [{
+        type: 'text',
+        text: `สร้างงานให้ทุกคนแล้ว (${made.ids.length} คน): ${item.suggestedTitle}${
+          item.suggestedDueAt ? `\nกำหนดส่ง ${formatForReply(item.suggestedDueAt)}` : ''
+        }\nแต่ละคนกดรับและส่งงานของตัวเองในแอป${appLink() ? `\n${appLink()}` : ''}`,
+      }],
+      { workspaceId: item.workspaceId },
+    ).catch(() => {});
+    return;
+  }
 
   if (event.replyToken) {
     // The confirmation carries the five worker actions, so the person who has
@@ -802,6 +816,15 @@ async function handleMessage(event: LineEventPayload) {
     if (await isAssignable(resolved.workspaceId, userId)) people.push({ userId, text: m.text });
   }
   const drafts = applyMentions(extracted, people);
+  // @All (LINE's mention-everyone): the work is everyone's. Confirming makes
+  // one copy per person, so each ticks off their own. It wins over a person
+  // named in the same message: tagging everyone is the more deliberate act.
+  const mentionsAll =
+    (event.message?.mention?.mentionees ?? []).some((m) => m.type === 'all') ||
+    /@all(?![\p{L}\p{N}_])/iu.test(text);
+  const everyoneCount = mentionsAll
+    ? (await everyoneAssignable(resolved.workspaceId, await actorFor(event))).length
+    : 0;
 
   const draftIds: string[] = [];
   for (const d of drafts) {
@@ -820,7 +843,8 @@ async function handleMessage(event: LineEventPayload) {
         // unique, which is what makes a redelivered message a no-op.
         lineMessageId: draftIds.length === 1 ? (event.message?.id ?? null) : null,
         suggestedTitle: d.title,
-        suggestedAssigneeUserId: d.assigneeUserId,
+        suggestedAssigneeUserId: mentionsAll ? null : d.assigneeUserId,
+        assignAll: mentionsAll,
         suggestedDueAt: d.dueAt,
         confidence: d.confidence,
         replyToken: event.replyToken ?? null,
@@ -863,8 +887,10 @@ async function handleMessage(event: LineEventPayload) {
           title: d.title,
           dueAt: d.dueAt,
           dueSource: d.dueSource,
-          assigneeName: nameOf(d.assigneeUserId),
-          assigneeSource: d.assigneeSource,
+          assigneeName: mentionsAll
+            ? `ทุกคน · ${everyoneCount} คน`
+            : nameOf(d.assigneeUserId),
+          assigneeSource: mentionsAll ? '@All' : d.assigneeSource,
           workspaceName: resolved.dmWorkspaceName,
         }),
       ),
@@ -951,8 +977,9 @@ async function replyDraft(event: LineEventPayload, inboxId: string, notice: stri
   const item = rows[0];
   if (!item) return;
   const members = await knownMembers(item.workspaceId);
-  const assigneeName =
-    members.find((m) => m.userId === item.suggestedAssigneeUserId)?.name ?? null;
+  const assigneeName = item.assignAll
+    ? `ทุกคน · ${(await everyoneAssignable(item.workspaceId, await actorFor(event))).length} คน`
+    : (members.find((m) => m.userId === item.suggestedAssigneeUserId)?.name ?? null);
   await replyMessage(
     event.replyToken,
     [

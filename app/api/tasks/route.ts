@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { and, eq, desc, ne, or, sql } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
-import { task, taskEvent, workspace, workspaceMember } from '@/lib/db/schema.ts';
+import { task, workspace, workspaceMember } from '@/lib/db/schema.ts';
 import { requireMembership, requireSession } from '@/lib/auth/session.ts';
-import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { errorResponse, withIdempotency } from '@/lib/api/handler.ts';
-import { assertAssignable } from '@/lib/auth/assignable.ts';
+import { assertAssignable, everyoneAssignable } from '@/lib/auth/assignable.ts';
+import { createTasks } from '@/lib/tasks/create.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,7 +43,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'กำหนดส่งไม่ถูกต้อง' }, { status: 400 });
     }
 
-    const assigneeUserId = await assertAssignable(workspaceId, body.assigneeUserId);
+    // ทุกคน: one copy per person who can be given work here, minus whoever is
+    // asking. Otherwise one task for the one person named (or nobody yet).
+    const assignees: Array<string | null> =
+      body.assignAll === true
+        ? await everyoneAssignable(workspaceId, membership.userId)
+        : [await assertAssignable(workspaceId, body.assigneeUserId)];
+    if (!assignees.length) {
+      return NextResponse.json(
+        { error: 'ยังไม่รู้จักใครในพื้นที่งานนี้ ให้ทีมพิมพ์ในกลุ่มหรือเข้าแอปก่อน' },
+        { status: 400 },
+      );
+    }
 
     const { result, replayedId } = await withIdempotency(
       {
@@ -52,29 +63,19 @@ export async function POST(req: Request) {
         route: 'POST /api/tasks',
       },
       async () => {
-        const id = crypto.randomUUID();
-        await db().insert(task).values({
-          id,
+        const created = await createTasks({
           workspaceId,
           title,
           note: String(body.note ?? ''),
-          assigneeUserId,
-          primaryAssigneeUserId: assigneeUserId,
+          assignees,
           source: String(body.source ?? 'สร้างในทันงาน'),
           dueAt,
           priority: String(body.priority ?? 'normal'),
           createdByUserId: membership.userId,
+          eventDetail: title,
         });
-        await db().insert(taskEvent).values({
-          id: crypto.randomUUID(),
-          taskId: id,
-          workspaceId,
-          actorUserId: membership.userId,
-          kind: 'created',
-          detail: title,
-        });
-        await planRemindersForTask(id);
-        return { id };
+        // The first copy stands for the batch; the idempotency record needs one id.
+        return { id: created.ids[0], batchId: created.batchId, created: created.ids.length };
       },
     );
 
@@ -87,7 +88,10 @@ export async function POST(req: Request) {
       // Same key, and the first request is still running. Not a failure.
       return NextResponse.json({ error: 'กำลังบันทึกอยู่ ลองอีกครั้งในอีกครู่' }, { status: 409 });
     }
-    return NextResponse.json({ id: result.id }, { status: 201 });
+    return NextResponse.json(
+      { id: result.id, batchId: result.batchId, created: result.created },
+      { status: 201 },
+    );
   } catch (error) {
     return errorResponse(error);
   }

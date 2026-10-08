@@ -80,6 +80,7 @@ export type UiTask = {
   blockedReason?: string | null;
   /** Who asked for the work. Null when nobody is recorded. */
   createdById?: string | null;
+  batchId?: string | null;
   submittedAt?: string | null;
   closedAt?: string | null;
 };
@@ -108,6 +109,7 @@ export function toUiTask(t: ApiTask): UiTask {
     // who does a task cannot close it when someone else asked for it, so the
     // button must not be offered and then refused.
     createdById: t.createdByUserId ?? null,
+    batchId: t.batchId ?? null,
     submittedAt: t.submittedAt ?? null,
     closedAt: t.closedAt ?? null,
   };
@@ -125,6 +127,7 @@ export type UiCapture = {
   dueText: string;
   dueAt: string | null;
   confidence: ApiInboxItem['confidence'];
+  assignAll?: boolean;
   state: 'pending' | 'created' | 'dismissed';
 };
 
@@ -148,6 +151,7 @@ export function toUiCapture(item: ApiInboxItem): UiCapture {
         : formatDeadline(item.suggestedDueAt),
     dueAt: item.suggestedDueAt,
     confidence: item.confidence,
+    assignAll: Boolean(item.assignAll),
     state: 'pending',
   };
 }

@@ -54,6 +54,8 @@ export type ApiTask = {
   closedAt?: string | null;
   createdByUserId?: string | null;
   evidenceUrl: string | null;
+  /** Shared by every copy of a ทุกคน (@All) task. */
+  batchId?: string | null;
   pendingAssigneeUserId?: string | null;
   blockedReason?: string | null;
   statusChangedAt?: string;
@@ -67,7 +69,21 @@ export type ApiInboxItem = {
   suggestedTitle: string;
   suggestedAssigneeUserId: string | null;
   suggestedDueAt: string | null;
+  /** Tagged @All: confirming gives everyone their own copy. */
+  assignAll?: boolean;
   confidence: 'explicit' | 'inferred' | 'fallback';
+};
+
+/** Something everyone in a workspace needs to know. */
+export type ApiAnnouncement = {
+  id: string;
+  workspaceId: string;
+  workspaceName: string;
+  title: string;
+  body: string;
+  authorName: string | null;
+  createdAt: string;
+  read: boolean;
 };
 
 export class ApiError extends Error {
@@ -143,6 +159,29 @@ export const api = {
       body: JSON.stringify({ workspaceId }),
     }),
 
+  /** Announcements this person has not closed, from every workspace they are in. */
+  unreadAnnouncements: () =>
+    request<{ announcements: ApiAnnouncement[] }>('/api/announcements'),
+
+  /** Closed with X or รับทราบ: it will not pop up again, on any device. */
+  readAnnouncement: (id: string) =>
+    request<{ ok: true }>(`/api/announcements/${encodeURIComponent(id)}/read`, { method: 'POST' }),
+
+  announcements: (workspaceId: string) =>
+    request<{ announcements: ApiAnnouncement[] }>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/announcements`,
+    ),
+
+  /** Owners and admins only; the server checks. */
+  postAnnouncement: (workspaceId: string, input: { title: string; body: string }, idempotencyKey: string) =>
+    request<{ id: string; replayed?: boolean }>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/announcements`,
+      { method: 'POST', body: JSON.stringify(input), idempotencyKey },
+    ),
+
+  deleteAnnouncement: (id: string) =>
+    request<{ ok: true }>(`/api/announcements/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
   /** Confirm several drafts exactly as read. Each is claimed, so none doubles. */
   confirmInboxBatch: (ids: string[]) =>
     request<{ created: number; skipped: number }>('/api/inbox/confirm-batch', {
@@ -185,10 +224,12 @@ export const api = {
       dueAt?: string | null;
       priority?: string;
       source?: string;
+      /** ทุกคน: one copy per person who can be given work here. */
+      assignAll?: boolean;
     },
     idempotencyKey: string,
   ) =>
-    request<{ id: string; replayed?: boolean }>('/api/tasks', {
+    request<{ id: string; replayed?: boolean; batchId?: string | null; created?: number }>('/api/tasks', {
       method: 'POST',
       body: JSON.stringify(input),
       idempotencyKey,
@@ -296,10 +337,10 @@ export const api = {
 
   confirmInbox: (
     id: string,
-    input: { title?: string; assigneeUserId?: string | null; dueAt?: string | null },
+    input: { title?: string; assigneeUserId?: string | null; assignAll?: boolean; dueAt?: string | null },
     idempotencyKey: string,
   ) =>
-    request<{ id: string; replayed?: boolean }>(
+    request<{ id: string; replayed?: boolean; created?: number }>(
       `/api/inbox/${encodeURIComponent(id)}/confirm`,
       { method: 'POST', body: JSON.stringify(input), idempotencyKey },
     ),

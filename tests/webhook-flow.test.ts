@@ -148,6 +148,41 @@ describe('LINE flow: message to draft to task', { skip: !URL_ ? 'TEST_DATABASE_U
     assert.match(replyText(), /ยืนยันไปแล้ว/, 'the second tap says so');
   });
 
+  test('a task confirmed in LINE has its reminder planned (it used to wait for the app)', async () => {
+    await handleEvent(message('@ทันงาน @เมย์ ส่งใบเสนอราคา พรุ่งนี้ 16:00'));
+    const [draft] = await db().select().from(schema.inboxItem);
+    await handleEvent(event({ type: 'postback', postback: { data: `action=confirm&inbox=${draft.id}` } }));
+    const [made] = await db().select().from(schema.task);
+    assert.ok(made.dueAt, 'the deadline was read');
+    const reminders = await db().select().from(schema.reminder).where(eq(schema.reminder.taskId, made.id));
+    assert.ok(reminders.length >= 1, 'a reminder exists without anyone opening the app');
+  });
+
+  test('@All makes a ทุกคน draft, and confirming gives everyone their own copy', async () => {
+    await db().insert(schema.lineUser).values({ id: 'u-third', lineUserId: 'U-third', displayName: 'นนท์', isOaFriend: true });
+    await db().insert(schema.lineGroupMember).values({ lineGroupId: groupRow, userId: 'u-third' });
+    const text = '@ทันงาน @All ส่ง timesheet พรุ่งนี้';
+    await handleEvent(event({
+      type: 'message',
+      message: {
+        id: 'msg-all', type: 'text', text,
+        mention: { mentionees: [{ index: 0, length: 7, type: 'user', isSelf: true }, { index: 8, length: 4, type: 'all' }] },
+      },
+    }));
+    const [draft] = await db().select().from(schema.inboxItem);
+    assert.equal(draft.assignAll, true);
+    assert.doesNotMatch(draft.suggestedTitle, /@all/i, '@All is not part of the task name');
+    assert.match(replyText(), /ทุกคน/, 'the card says who it is for');
+
+    sent = [];
+    await handleEvent(event({ type: 'postback', postback: { data: `action=confirm&inbox=${draft.id}` } }));
+    const tasks = await db().select().from(schema.task);
+    // Everyone except the person confirming (the boss): เมย์ and นนท์.
+    assert.deepEqual(tasks.map((t) => t.assigneeUserId).sort(), [worker.id, 'u-third'].sort());
+    assert.ok(tasks[0].batchId && tasks.every((t) => t.batchId === tasks[0].batchId), 'linked as one batch');
+    assert.match(replyText(), /สร้างงานให้ทุกคนแล้ว \(2 คน\)/);
+  });
+
   test('a stranger cannot confirm a draft', async () => {
     await handleEvent(message('@ทันงาน ส่งรายงาน วันนี้'));
     const [draft] = await db().select().from(schema.inboxItem);

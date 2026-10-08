@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
-import { inboxItem, task, taskEvent } from '@/lib/db/schema.ts';
+import { inboxItem } from '@/lib/db/schema.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
-import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { errorResponse, withIdempotency } from '@/lib/api/handler.ts';
-import { assertAssignable } from '@/lib/auth/assignable.ts';
+import { assertAssignable, everyoneAssignable } from '@/lib/auth/assignable.ts';
+import { createTasks } from '@/lib/tasks/create.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,10 +42,24 @@ export async function POST(
     if (dueAt && !Number.isFinite(dueAt.getTime())) {
       return NextResponse.json({ error: 'กำหนดส่งไม่ถูกต้อง' }, { status: 400 });
     }
-    const assigneeUserId = await assertAssignable(
-      item.workspaceId,
-      body.assigneeUserId ?? item.suggestedAssigneeUserId ?? null,
-    );
+    // A draft from an @All message goes to everyone, unless the person
+    // confirming chose someone else (or ทุกคน again) in the app.
+    const toEveryone =
+      body.assignAll === true || (item.assignAll && body.assigneeUserId === undefined);
+    const assignees: Array<string | null> = toEveryone
+      ? await everyoneAssignable(item.workspaceId, membership.userId)
+      : [
+          await assertAssignable(
+            item.workspaceId,
+            body.assigneeUserId ?? item.suggestedAssigneeUserId ?? null,
+          ),
+        ];
+    if (!assignees.length) {
+      return NextResponse.json(
+        { error: 'ยังไม่รู้จักใครในพื้นที่งานนี้ ให้ทีมพิมพ์ในกลุ่มหรือเข้าแอปก่อน' },
+        { status: 400 },
+      );
+    }
 
     const { result, replayedId } = await withIdempotency(
       {
@@ -69,18 +83,16 @@ export async function POST(
           .returning({ id: inboxItem.id });
         if (!claimed.length) throw new HttpError(409, 'ข้อความนี้ถูกจัดการไปแล้ว');
 
-        const taskId = crypto.randomUUID();
+        let created: { ids: string[]; batchId: string | null };
         try {
-          await db().insert(task).values({
-            id: taskId,
+          created = await createTasks({
             workspaceId: item.workspaceId,
             title,
-            note: '',
-            assigneeUserId,
-            primaryAssigneeUserId: assigneeUserId,
+            assignees,
             source: item.lineGroupId ? 'LINE · กลุ่ม' : 'LINE · DM',
             dueAt,
             createdByUserId: membership.userId,
+            eventDetail: 'ยืนยันจากข้อความใน LINE',
           });
         } catch (error) {
           // Hand the draft back rather than leave it claimed with no task.
@@ -90,16 +102,7 @@ export async function POST(
             .where(eq(inboxItem.id, id));
           throw error;
         }
-        await db().insert(taskEvent).values({
-          id: crypto.randomUUID(),
-          taskId,
-          workspaceId: item.workspaceId,
-          actorUserId: membership.userId,
-          kind: 'created',
-          detail: 'ยืนยันจากข้อความใน LINE',
-        });
-        await planRemindersForTask(taskId);
-        return { id: taskId };
+        return { id: created.ids[0], created: created.ids.length };
       },
     );
 
@@ -108,7 +111,7 @@ export async function POST(
       // Same key, and the first request is still running. Not a failure.
       return NextResponse.json({ error: 'กำลังบันทึกอยู่ ลองอีกครั้งในอีกครู่' }, { status: 409 });
     }
-    return NextResponse.json({ id: result.id }, { status: 201 });
+    return NextResponse.json({ id: result.id, created: result.created }, { status: 201 });
   } catch (error) {
     return errorResponse(error);
   }

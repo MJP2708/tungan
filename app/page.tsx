@@ -21,6 +21,7 @@ import {
   ListTodo,
   LogIn,
   LogOut,
+  Megaphone,
   Menu,
   MessageCircle,
   Pencil,
@@ -94,7 +95,7 @@ import {
   type DayBucket,
 } from '@/lib/deadline';
 import { th } from 'date-fns/locale';
-import { api, ApiError, newIdempotencyKey } from '@/lib/api/client';
+import { api, ApiError, newIdempotencyKey, type ApiAnnouncement } from '@/lib/api/client';
 import { taskIdFromSearch, pageFromSearch, pageUrl } from '@/lib/deep-link.ts';
 import { BLOCKED_REASONS } from '@/lib/tasks/reasons';
 import { mayEditTaskFields } from '@/lib/tasks/permissions';
@@ -118,7 +119,7 @@ import {
 type Status = 'todo' | 'progress' | 'blocked' | 'review' | 'done';
 type Priority = 'urgent' | 'high' | 'normal';
 type ReviewState = 'working' | 'review' | 'approved' | 'revision';
-type ManageTab = 'members' | 'teams' | 'projects' | 'ai';
+type ManageTab = 'members' | 'teams' | 'projects' | 'announce' | 'ai';
 type ProjectSource = 'line' | 'manual';
 type Evidence = { label: string; url: string };
 type Member = {
@@ -171,6 +172,8 @@ type Task = {
   blockedReason?: string | null;
   /** Who asked for the work. Decides who may sign it off. */
   createdById?: string | null;
+  /** Shared by every copy of a ทุกคน (@All) task. */
+  batchId?: string | null;
   submittedAt?: string | null;
   closedAt?: string | null;
 };
@@ -187,6 +190,8 @@ type Capture = {
   dueText: string;
   /** What the rules read out of it, or null when nothing was named. */
   dueAt: string | null;
+  /** Tagged @All: everyone gets their own copy when it is confirmed. */
+  assignAll?: boolean;
   confidence: 'explicit' | 'inferred' | 'fallback';
   state: 'pending' | 'created' | 'dismissed';
 };
@@ -605,6 +610,13 @@ export default function Home() {
   const [mineOnly, setMineOnly] = useState(false);
   const [calendarDay, setCalendarDay] = useState<DayBucket>('today');
   const [manageTab, setManageTab] = useState<ManageTab>('members');
+  /**
+   * Announcements: the unread ones pop up one at a time when the app opens,
+   * and closing one (X or รับทราบ) is recorded on the server, so it shows
+   * once per person on any device. The history lives on ทีม → ประกาศ.
+   */
+  const [unreadAnnouncements, setUnreadAnnouncements] = useState<ApiAnnouncement[]>([]);
+  const [announcementHistory, setAnnouncementHistory] = useState<ApiAnnouncement[]>([]);
   const [deadlineMode, setDeadlineMode] = useState<'picker' | 'natural'>(
     'picker',
   );
@@ -814,7 +826,13 @@ export default function Home() {
           ? { assignee: editTarget.capture.assigneeId, dueAt: editTarget.capture.dueAt, priority: 'normal' as Priority }
           : null;
     if (editing) {
-      setTaskAssignee(editing.assignee ? `member:${editing.assignee}` : '');
+      setTaskAssignee(
+        editTarget?.kind === 'capture' && editTarget.capture.assignAll
+          ? 'all'
+          : editing.assignee
+            ? `member:${editing.assignee}`
+            : '',
+      );
       setTaskPriority(editing.priority);
       const wall = editing.dueAt ? bangkokWallClock(editing.dueAt) : null;
       // Shown as the date it already has, so saving without touching it
@@ -1187,6 +1205,19 @@ export default function Home() {
     // recreated each render; its inputs are listed instead.
     [tasks, selectedProjectId, projects, meUserId],
   );
+  /** Every copy of each ทุกคน task, by batch. */
+  const batches = useMemo(() => {
+    const map = new Map<string, Task[]>();
+    for (const task of tasks) {
+      if (!task.batchId) continue;
+      map.set(task.batchId, [...(map.get(task.batchId) ?? []), task]);
+    }
+    return map;
+  }, [tasks]);
+  const batchProgress = (batchId: string) => {
+    const copies = batches.get(batchId) ?? [];
+    return { copies, done: copies.filter((c) => c.status === 'done').length, total: copies.length };
+  };
   const projectCaptures = captures.filter(
     (capture) =>
       capture.state === 'pending' &&
@@ -1597,15 +1628,21 @@ export default function Home() {
     value,
     onChange,
     label = 'ผู้รับผิดชอบหลัก',
+    allowAll = false,
   }: {
     project: Project;
     value: string;
     onChange: (value: string) => void;
     label?: string;
+    /** Offer ทุกคน: one copy of the task per person. Only where a new task
+     *  is being made — never for a hand-off or a question. */
+    allowAll?: boolean;
   }) {
     const [type, id] = value.split(':');
     const current =
-      type && id
+      value === 'all'
+        ? { label: 'ทุกคนในพื้นที่งาน', initials: 'ทุก' }
+        : type && id
         ? getAssignee({
             projectId: project.id,
             assigneeType: type as 'member' | 'team',
@@ -1625,6 +1662,19 @@ export default function Home() {
           alignItemWithTrigger={false}
           className="themed-select-content"
         >
+          {allowAll && (
+            <SelectGroup>
+              <SelectItem value="all">
+                <span className="team-option-icon">
+                  <Users />
+                </span>
+                <span className="option-copy">
+                  <strong>ทุกคนในพื้นที่งาน</strong>
+                  <small>ทุกคนได้งานนี้คนละชิ้น · คุณเห็นว่าใครเสร็จแล้ว</small>
+                </span>
+              </SelectItem>
+            </SelectGroup>
+          )}
           <SelectGroup>
             <SelectLabel>สมาชิกในกลุ่ม</SelectLabel>
             {project.members.map((member) => (
@@ -2001,7 +2051,8 @@ export default function Home() {
       setForwardError(late);
       return showEntryError(event.currentTarget, late);
     }
-    const assigneeUserId = (forwardAssignee || '').split(':')[1] || null;
+    const forwardToAll = forwardAssignee === 'all';
+    const assigneeUserId = forwardToAll ? null : (forwardAssignee || '').split(':')[1] || null;
     setBusy(true);
     try {
       const created = await api.createTask(
@@ -2010,6 +2061,7 @@ export default function Home() {
           title,
           note: `ส่งต่อจาก LINE: “${message}”`,
           assigneeUserId,
+          assignAll: forwardToAll,
           dueAt: forwardDueAt,
           source: 'นำเข้าด้วยมือ',
         },
@@ -2037,7 +2089,10 @@ export default function Home() {
         capture.id,
         {
           title: capture.title,
-          assigneeUserId: capture.assigneeId || null,
+          // An @All draft goes to everyone; the server makes the copies.
+          ...(capture.assignAll
+            ? { assignAll: true }
+            : { assigneeUserId: capture.assigneeId || null }),
           dueAt: capture.dueAt ?? null,
         },
         // One key per draft, so a second tap — or a retry after a dropped
@@ -2113,19 +2168,21 @@ export default function Home() {
       setTaskError(late);
       return showEntryError(event.currentTarget, late);
     }
-    const assignee = (taskAssignee || '').split(':')[1] || null;
+    const assignAll = taskAssignee === 'all';
+    const assignee = assignAll ? null : (taskAssignee || '').split(':')[1] || null;
     const note = String(form.get('note') || '');
 
-    if (editTarget) return saveEdit(editTarget, { title, note, assignee, dueAt });
+    if (editTarget) return saveEdit(editTarget, { title, note, assignee, assignAll, dueAt });
 
     setBusy(true);
     try {
-      await api.createTask(
+      const made = await api.createTask(
         {
           workspaceId: taskProject.id,
           title,
           note,
           assigneeUserId: assignee,
+          assignAll,
           dueAt,
           priority: taskPriority,
           source: 'สร้างในทันงาน',
@@ -2136,7 +2193,9 @@ export default function Home() {
       setTaskDialog(false);
       setNaturalDeadline('');
       navigate('tasks');
-      setNotice('สร้างงานเรียบร้อย');
+      setNotice(
+        made.batchId ? `สร้างงานให้ทุกคนแล้ว · ${made.created ?? 0} คน` : 'สร้างงานเรียบร้อย',
+      );
     } catch (err) {
       reportError(err, 'สร้างงานไม่สำเร็จ');
     } finally {
@@ -2146,7 +2205,7 @@ export default function Home() {
   /** Save the entry sheet when it was opened on an existing task or a draft. */
   async function saveEdit(
     target: NonNullable<typeof editTarget>,
-    values: { title: string; note: string; assignee: string | null; dueAt: string },
+    values: { title: string; note: string; assignee: string | null; assignAll?: boolean; dueAt: string },
   ) {
     setBusy(true);
     try {
@@ -2171,7 +2230,7 @@ export default function Home() {
         c.id,
         {
           title: values.title,
-          assigneeUserId: values.assignee,
+          ...(values.assignAll ? { assignAll: true } : { assigneeUserId: values.assignee }),
           // Untouched means "keep what was read from the message".
           dueAt: dueTouched ? values.dueAt : (c.dueAt ?? null),
         },
@@ -2179,7 +2238,7 @@ export default function Home() {
       );
       await refreshWorkspace(c.projectId);
       setTaskDialog(false);
-      setNotice('สร้างงานและมอบหมายแล้ว');
+      setNotice(values.assignAll ? 'สร้างงานให้ทุกคนแล้ว' : 'สร้างงานและมอบหมายแล้ว');
     } catch (err) {
       reportError(err, target.kind === 'task' ? 'บันทึกไม่สำเร็จ' : 'ยืนยันไม่สำเร็จ');
     } finally {
@@ -2498,7 +2557,13 @@ export default function Home() {
           <small className={late ? 'is-late' : ''}>
             {/* Lists are scanned: "อีก 2 ชม." answers the reader's question,
                 where an absolute date makes them do the subtraction. */}
-            {relativeDeadline(task.dueAt, now)} · {assignee.label}
+            {relativeDeadline(task.dueAt, now)} ·{' '}
+            {task.batchId && !belongsToMe(task)
+              ? `ทุกคน · เสร็จ ${batchProgress(task.batchId).done}/${batchProgress(task.batchId).total}`
+              : assignee.label}
+            {task.batchId && belongsToMe(task)
+              ? ` · ทุกคน ${batchProgress(task.batchId).done}/${batchProgress(task.batchId).total}`
+              : ''}
             {state}
           </small>
         </span>
@@ -2582,6 +2647,81 @@ export default function Home() {
   const myNickname =
     selectedProject.members.find((member) => member.id === meUserId)?.nickname ||
     account.displayName;
+
+  useEffect(() => {
+    if (!account.loggedIn) return;
+    let cancelled = false;
+    api
+      .unreadAnnouncements()
+      .then((res) => {
+        if (!cancelled) setUnreadAnnouncements(res.announcements ?? []);
+      })
+      .catch(() => {
+        // Non-fatal: the app works without its announcements.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [account.loggedIn]);
+
+  const announceWorkspaceId = selectedProject.id;
+  useEffect(() => {
+    if (page !== 'manage' || manageTab !== 'announce' || !account.loggedIn) return;
+    if (!projects.some((project) => project.id === announceWorkspaceId)) return;
+    api
+      .announcements(announceWorkspaceId)
+      .then((res) => setAnnouncementHistory(res.announcements ?? []))
+      .catch((error) => reportError(error, 'โหลดประกาศไม่สำเร็จ'));
+    // reportError and projects are read, not watched.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, manageTab, announceWorkspaceId, account.loggedIn]);
+
+  /** Close the announcement on top. It goes at once; the server catches up. */
+  function closeAnnouncement() {
+    const top = unreadAnnouncements[0];
+    if (!top) return;
+    setUnreadAnnouncements((list) => list.filter((a) => a.id !== top.id));
+    void api.readAnnouncement(top.id).catch(() => {
+      // If this did not reach the server it shows again next time, which is
+      // the safe way round for something everyone needs to know.
+    });
+  }
+
+  async function postAnnouncement(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const title = String(data.get('announceTitle') ?? '').trim();
+    const body = String(data.get('announceBody') ?? '').trim();
+    if (!title) return setNotice('ใส่หัวข้อประกาศก่อน');
+    setBusy(true);
+    try {
+      await api.postAnnouncement(selectedProject.id, { title, body }, newIdempotencyKey());
+      form.reset();
+      const res = await api.announcements(selectedProject.id);
+      setAnnouncementHistory(res.announcements ?? []);
+      setNotice('ประกาศแล้ว · ทุกคนในพื้นที่งานจะเห็นเมื่อเปิดแอปครั้งถัดไป');
+    } catch (error) {
+      reportError(error, 'ประกาศไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeAnnouncement(id: string) {
+    if (armedDelete !== `announce:${id}`) return setArmedDelete(`announce:${id}`);
+    setArmedDelete(null);
+    setBusy(true);
+    try {
+      await api.deleteAnnouncement(id);
+      setAnnouncementHistory((list) => list.filter((a) => a.id !== id));
+      setNotice('ลบประกาศแล้ว');
+    } catch (error) {
+      reportError(error, 'ลบประกาศไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const addFriendCard =
     account.loggedIn && !account.lineConnected ? (
@@ -3029,12 +3169,18 @@ export default function Home() {
                   </button>
                   <button
                     type="button"
-                    className={`line-field ${capture.assigneeId ? '' : 'is-missing'}`}
-                    aria-label={`แก้ผู้รับผิดชอบ: ${capture.assigneeId ? assignee.label : 'ยังไม่รู้ว่าให้ใคร'}`}
+                    className={`line-field ${capture.assigneeId || capture.assignAll ? '' : 'is-missing'}`}
+                    aria-label={`แก้ผู้รับผิดชอบ: ${capture.assignAll ? 'ทุกคนในพื้นที่งาน' : capture.assigneeId ? assignee.label : 'ยังไม่รู้ว่าให้ใคร'}`}
                     onClick={() => openEditCapture(capture)}
                   >
                     <small>ใคร</small>
-                    <strong>{capture.assigneeId ? assignee.label : 'ยังไม่รู้ว่าให้ใคร'}</strong>
+                    <strong>
+                      {capture.assignAll
+                        ? 'ทุกคนในพื้นที่งาน · คนละชิ้น'
+                        : capture.assigneeId
+                          ? assignee.label
+                          : 'ยังไม่รู้ว่าให้ใคร'}
+                    </strong>
                     <PencilLine />
                   </button>
                   <button
@@ -3079,7 +3225,15 @@ export default function Home() {
    * task. The groups carry the order, so rows are not numbered.
    */
   const renderTasks = () => {
-    const sorted = [...filteredTasks].sort((a, b) => deadlineRank(a) - deadlineRank(b));
+    // A ทุกคน task is ten copies; list it once — your own copy if you have
+    // one, otherwise one row standing for all of them.
+    const shown = filteredTasks.filter((task) => {
+      if (!task.batchId) return true;
+      const copies = batches.get(task.batchId) ?? [task];
+      const stand = copies.find((c) => belongsToMe(c)) ?? copies[0];
+      return stand.id === task.id;
+    });
+    const sorted = [...shown].sort((a, b) => deadlineRank(a) - deadlineRank(b));
     const open = sorted.filter((task) => task.status !== 'done');
     const late = open.filter(
       (task) => task.status !== 'review' && isOverdue(task.dueAt, now),
@@ -3952,6 +4106,7 @@ export default function Home() {
             // stored them, a reload lost them) and the server assigns work to
             // people, not teams, so picking one could never be saved.
             { tab: 'projects', label: 'พื้นที่งาน', Icon: LayoutGrid },
+            { tab: 'announce', label: 'ประกาศ', Icon: Megaphone },
             { tab: 'ai', label: 'โควตา AI', Icon: BrainCircuit },
           ] as const
         ).map(({ tab, label, Icon }) => (
@@ -4078,6 +4233,69 @@ export default function Home() {
             )}
           </div>
         </>
+      )}
+      {manageTab === 'announce' && (
+        <div className="announce-tab">
+          {isWorkspaceManager() ? (
+            <form className="panel announce-composer" onSubmit={postAnnouncement}>
+              <div>
+                <h3>ประกาศถึงทุกคนใน {selectedProject.name}</h3>
+                <p>ทุกคนจะเห็นครั้งเดียวเมื่อเปิดแอป และกด X เพื่อปิด · ไม่ส่งเข้า LINE จึงไม่เสียโควตาข้อความ</p>
+              </div>
+              <label>
+                <span>หัวข้อ</span>
+                <Input name="announceTitle" maxLength={120} required placeholder="เช่น ประชุมทีมย้ายเป็นวันศุกร์ 10:00" />
+              </label>
+              <label>
+                <span>รายละเอียด <small>ไม่บังคับ</small></span>
+                <Textarea name="announceBody" maxLength={2000} rows={4} placeholder="สิ่งที่ทุกคนต้องรู้หรือต้องทำ" />
+              </label>
+              <Button type="submit" disabled={busy}>
+                <Megaphone />
+                ประกาศ
+              </Button>
+            </form>
+          ) : (
+            <p className="announce-note">เจ้าของและผู้ดูแลพื้นที่งานเป็นคนประกาศ ประกาศใหม่จะขึ้นเมื่อคุณเปิดแอป</p>
+          )}
+          <section className="announce-history" aria-label="ประกาศล่าสุด">
+            <h3 className="today-label">ประกาศล่าสุด</h3>
+            {announcementHistory.length ? (
+              <div className="today-list">
+                {announcementHistory.map((item) => (
+                  <article className="announce-item" key={item.id}>
+                    <div>
+                      <strong>{item.title}</strong>
+                      {item.body && <p>{item.body}</p>}
+                      <small>
+                        {item.authorName ?? 'ผู้ดูแล'} · {formatDeadline(item.createdAt, { now })}
+                      </small>
+                    </div>
+                    {isWorkspaceManager() && (
+                      <button
+                        type="button"
+                        className={`reminder-delete ${armedDelete === `announce:${item.id}` ? 'armed' : ''}`}
+                        aria-label={
+                          armedDelete === `announce:${item.id}`
+                            ? `แตะอีกครั้งเพื่อลบประกาศ ${item.title}`
+                            : `ลบประกาศ ${item.title}`
+                        }
+                        disabled={busy}
+                        onClick={() => void removeAnnouncement(item.id)}
+                      >
+                        {armedDelete === `announce:${item.id}` ? 'ลบ?' : <Trash2 />}
+                      </button>
+                    )}
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="today-list today-empty">
+                <EmptyState title="ยังไม่มีประกาศ" body="ประกาศที่ทุกคนต้องรู้จะอยู่ตรงนี้" />
+              </div>
+            )}
+          </section>
+        </div>
       )}
       {manageTab === 'projects' && (
         <>
@@ -4521,6 +4739,8 @@ export default function Home() {
                   project={taskProject}
                   value={taskAssignee}
                   onChange={setTaskAssignee}
+                  // Editing a task that already exists keeps it one person's.
+                  allowAll={editTarget?.kind !== 'task'}
                 />
               </label>
               <section
@@ -5035,6 +5255,7 @@ export default function Home() {
                   project={forwardProject}
                   value={forwardAssignee}
                   onChange={setForwardAssignee}
+                  allowAll
                 />
               </label>
               <div className="forward-deadline-row">
@@ -5220,6 +5441,28 @@ export default function Home() {
                     )}
                 </div>
               </div>
+              {selectedTask.batchId && (
+                <section className="batch-progress" aria-label="งานของทุกคน">
+                  <h3>
+                    งานของทุกคน · เสร็จ {batchProgress(selectedTask.batchId).done}/
+                    {batchProgress(selectedTask.batchId).total}
+                  </h3>
+                  <div className="batch-people">
+                    {batchProgress(selectedTask.batchId).copies.map((copy) => (
+                      <button
+                        type="button"
+                        key={copy.id}
+                        className={`batch-person ${copy.id === selectedTask.id ? 'is-current' : ''}`}
+                        onClick={() => setSelectedTaskId(copy.id)}
+                      >
+                        <span className={`status-dot is-${copy.status}`} aria-hidden="true" />
+                        <span>{getAssignee(copy).label}</span>
+                        <small>{statusMeta[copy.status].label}</small>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
               {canEditFields(selectedTask) && selectedTask.status !== 'done' && (
                 <Button
                   variant="outline"
@@ -5494,6 +5737,40 @@ export default function Home() {
           )}
         </SheetContent>
       </Sheet>
+      {/* One announcement at a time, oldest first. X or รับทราบ closes it for
+          good; the next one, if any, takes its place. */}
+      <Dialog
+        open={account.loggedIn && unreadAnnouncements.length > 0}
+        onOpenChange={(open) => {
+          if (!open) closeAnnouncement();
+        }}
+      >
+        {unreadAnnouncements[0] && (
+          <DialogContent className="announcement-dialog">
+            <DialogHeader>
+              <span className="announcement-kicker">
+                <Megaphone />
+                ประกาศ · {unreadAnnouncements[0].workspaceName}
+                {unreadAnnouncements.length > 1 ? ` · 1/${unreadAnnouncements.length}` : ''}
+              </span>
+              <DialogTitle>{unreadAnnouncements[0].title}</DialogTitle>
+              <DialogDescription className="announcement-meta">
+                {unreadAnnouncements[0].authorName ?? 'ผู้ดูแล'} ·{' '}
+                {formatDeadline(unreadAnnouncements[0].createdAt, { now })}
+              </DialogDescription>
+            </DialogHeader>
+            {unreadAnnouncements[0].body && (
+              <p className="announcement-body">{unreadAnnouncements[0].body}</p>
+            )}
+            <DialogFooter>
+              <Button className="announcement-ack" onClick={closeAnnouncement}>
+                <Check />
+                {unreadAnnouncements.length > 1 ? 'รับทราบ · ดูประกาศถัดไป' : 'รับทราบ'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
       <Dialog open={evidenceOpen} onOpenChange={setEvidenceOpen}>
         <DialogContent>
           <DialogHeader>

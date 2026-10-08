@@ -212,12 +212,16 @@ export const task = pgTable(
     statusChangedAt: timestamp('status_changed_at', { withTimezone: true }).notNull().defaultNow(),
     evidenceUrl: text('evidence_url'),
     createdByUserId: text('created_by_user_id').references(() => lineUser.id, { onDelete: 'set null' }),
+    /** Set on every copy of an @All task (ทุกคน): one task per person, so each
+     *  ticks off their own, and whoever asked sees how many are done. */
+    batchId: text('batch_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('task_workspace_idx').on(t.workspaceId),
     index('task_due_idx').on(t.dueAt),
+    index('task_batch_idx').on(t.batchId),
   ],
 );
 
@@ -270,6 +274,8 @@ export const inboxItem = pgTable(
     lineMessageId: text('line_message_id'),
     suggestedTitle: text('suggested_title').notNull().default(''),
     suggestedAssigneeUserId: text('suggested_assignee_user_id'),
+    /** The message tagged @All: confirming creates one task per person. */
+    assignAll: boolean('assign_all').notNull().default(false),
     suggestedDueAt: timestamp('suggested_due_at', { withTimezone: true }),
     /** explicit | inferred | fallback — drives whether we ask for confirmation. */
     confidence: text('confidence').notNull().default('fallback'),
@@ -476,4 +482,34 @@ export const idempotencyKey = pgTable(
     resultId: text('result_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
+);
+
+/**
+ * Something everyone in a workspace needs to know (2026-10-08). Owners and
+ * admins post; every member sees it once, as a popup the next time they open
+ * the app, and closes it with X. In the app only: posting to the LINE group
+ * would cost one counted message per member.
+ */
+export const announcement = pgTable(
+  'announcement',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull().references(() => workspace.id, { onDelete: 'cascade' }),
+    authorUserId: text('author_user_id').references(() => lineUser.id, { onDelete: 'set null' }),
+    title: text('title').notNull(),
+    body: text('body').notNull().default(''),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('announcement_workspace_idx').on(t.workspaceId, t.createdAt)],
+);
+
+/** Who has closed which announcement, so it shows once per person, on any device. */
+export const announcementRead = pgTable(
+  'announcement_read',
+  {
+    announcementId: text('announcement_id').notNull().references(() => announcement.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => lineUser.id, { onDelete: 'cascade' }),
+    readAt: timestamp('read_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.announcementId, t.userId] })],
 );

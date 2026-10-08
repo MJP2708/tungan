@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
-import { inboxItem, task, taskEvent } from '@/lib/db/schema.ts';
+import { inboxItem } from '@/lib/db/schema.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
-import { planRemindersForTask } from '@/lib/reminders/plan.ts';
+import { everyoneAssignable } from '@/lib/auth/assignable.ts';
+import { createTasks } from '@/lib/tasks/create.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -44,27 +45,26 @@ export async function POST(req: Request) {
         skipped += 1;
         continue;
       }
-      const taskId = crypto.randomUUID();
-      await db().insert(task).values({
-        id: taskId,
-        workspaceId: item.workspaceId,
-        title: item.suggestedTitle || 'งานจาก LINE',
-        assigneeUserId: item.suggestedAssigneeUserId,
-        primaryAssigneeUserId: item.suggestedAssigneeUserId,
-        source: item.lineGroupId ? 'LINE · กลุ่ม' : 'LINE · DM',
-        dueAt: item.suggestedDueAt,
-        createdByUserId: membership.userId,
-      });
-      await db().insert(taskEvent).values({
-        id: crypto.randomUUID(),
-        taskId,
-        workspaceId: item.workspaceId,
-        actorUserId: membership.userId,
-        kind: 'created',
-        detail: 'ยืนยันพร้อมกันหลายรายการ',
-      });
-      await planRemindersForTask(taskId);
-      created.push(taskId);
+      // An @All draft becomes one copy per person, like everywhere else.
+      const assignees = item.assignAll
+        ? await everyoneAssignable(item.workspaceId, membership.userId)
+        : [item.suggestedAssigneeUserId];
+      try {
+        const made = await createTasks({
+          workspaceId: item.workspaceId,
+          title: item.suggestedTitle || 'งานจาก LINE',
+          assignees: assignees.length ? assignees : [null],
+          source: item.lineGroupId ? 'LINE · กลุ่ม' : 'LINE · DM',
+          dueAt: item.suggestedDueAt,
+          createdByUserId: membership.userId,
+          eventDetail: 'ยืนยันพร้อมกันหลายรายการ',
+        });
+        created.push(...made.ids);
+      } catch (error) {
+        // Hand this draft back rather than leave it claimed with no task.
+        await db().update(inboxItem).set({ state: 'pending' }).where(eq(inboxItem.id, item.id));
+        throw error;
+      }
     }
 
     return NextResponse.json({ created: created.length, skipped }, { status: 201 });
