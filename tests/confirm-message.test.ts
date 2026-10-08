@@ -49,8 +49,8 @@ test('the card offers confirm, both edits and dismiss', () => {
   const kinds = actions.map((a: any) => `${a.type}:${a.label}`);
   assert.deepEqual(kinds, [
     'postback:ยืนยันสร้างงาน',
-    'datetimepicker:เวลา',
-    'postback:คน',
+    'datetimepicker:เปลี่ยนเวลา',
+    'postback:เปลี่ยนคน',
     'postback:ไม่ใช่งาน',
   ]);
   // Every action carries the draft id, so a tap is unambiguous.
