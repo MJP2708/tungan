@@ -25,6 +25,7 @@ describe('LINE flow: message to draft to task', { skip: !URL_ ? 'TEST_DATABASE_U
   let schema: typeof import('../lib/db/schema.ts');
   let handleEvent: typeof import('../lib/line/handle-event.ts').handleEvent;
   let eq: typeof import('drizzle-orm').eq;
+  let and: typeof import('drizzle-orm').and;
   let pool: import('pg').Pool;
 
   const ws = 'ws-1';
@@ -57,7 +58,7 @@ describe('LINE flow: message to draft to task', { skip: !URL_ ? 'TEST_DATABASE_U
 
   before(async () => {
     schema = await import('../lib/db/schema.ts');
-    ({ eq } = await import('drizzle-orm'));
+    ({ eq, and } = await import('drizzle-orm'));
     const { drizzle } = await import('drizzle-orm/node-postgres');
     const pg = (await import('pg')).default;
     const dbModule = await import('../lib/db/index.ts');
@@ -181,6 +182,61 @@ describe('LINE flow: message to draft to task', { skip: !URL_ ? 'TEST_DATABASE_U
     assert.deepEqual(tasks.map((t) => t.assigneeUserId).sort(), [worker.id, 'u-third'].sort());
     assert.ok(tasks[0].batchId && tasks.every((t) => t.batchId === tasks[0].batchId), 'linked as one batch');
     assert.match(replyText(), /สร้างงานให้ทุกคนแล้ว \(2 คน\)/);
+  });
+
+  /** Events from a group the test setup did NOT bind. */
+  const NEW_GROUP = 'C0000000000000000000000000000new';
+  const inNewGroup = (extra: Record<string, unknown>, userId = boss.lineUserId) =>
+    event({ source: { type: 'group', groupId: NEW_GROUP, userId }, ...extra });
+  const newGroupWorkspace = async () => {
+    const [g] = await db().select().from(schema.lineGroup).where(eq(schema.lineGroup.lineGroupId, NEW_GROUP));
+    if (!g) return null;
+    const [b] = await db().select().from(schema.groupWorkspace).where(eq(schema.groupWorkspace.lineGroupId, g.id));
+    return b?.workspaceId ?? null;
+  };
+  const roleIn = async (workspaceId: string, userId: string) =>
+    (await db().select().from(schema.workspaceMember)
+      .where(and(eq(schema.workspaceMember.workspaceId, workspaceId), eq(schema.workspaceMember.userId, userId))))[0]?.role ?? null;
+
+  test('adding the bot to a group sets up its workspace, with nothing to press', async () => {
+    await handleEvent(inNewGroup({ type: 'join' }));
+    const workspaceId = await newGroupWorkspace();
+    assert.ok(workspaceId, 'the group is linked the moment the bot joins');
+    assert.match(replyText(), /พร้อมแล้ว/, 'the welcome says it is ready');
+    assert.doesNotMatch(replyText(), /สร้างพื้นที่งานของกลุ่มนี้/, 'and does not send anyone to a button');
+  });
+
+  test('chatting lets you in; the first to tag @ทันงาน becomes owner; the next is a member', async () => {
+    await handleEvent(inNewGroup({ type: 'join' }));
+    const workspaceId = (await newGroupWorkspace())!;
+
+    await handleEvent(inNewGroup({ type: 'message', message: { id: 'chat-1', type: 'text', text: 'สวัสดีทุกคน' } }, worker.lineUserId));
+    assert.equal(await roleIn(workspaceId, worker.id), 'member', 'seen in the group → in the workspace');
+
+    await handleEvent(inNewGroup({ type: 'message', message: { id: 'tag-1', type: 'text', text: '@ทันงาน ส่งรายงาน พรุ่งนี้' } }));
+    assert.equal(await roleIn(workspaceId, boss.id), 'owner', 'the first to tag the bot owns it');
+
+    await handleEvent(inNewGroup({ type: 'message', message: { id: 'tag-2', type: 'text', text: '@ทันงาน โทรหาลูกค้า พรุ่งนี้' } }, worker.lineUserId));
+    assert.equal(await roleIn(workspaceId, worker.id), 'member', 'tagging later does not take it over');
+  });
+
+  test('a group the bot joined before this existed is set up at its next message', async () => {
+    // A group row with no binding, as groups were before 2026-10-08.
+    await db().insert(schema.lineGroup).values({ id: 'g-old', lineGroupId: NEW_GROUP, name: 'กลุ่มเก่า' });
+    assert.equal(await newGroupWorkspace(), null);
+    await handleEvent(inNewGroup({ type: 'message', message: { id: 'old-1', type: 'text', text: 'มีใครอยู่ไหม' } }));
+    const workspaceId = await newGroupWorkspace();
+    assert.ok(workspaceId);
+    const [ws_] = await db().select().from(schema.workspace).where(eq(schema.workspace.id, workspaceId!));
+    assert.equal(ws_.name, 'กลุ่มเก่า', 'named after the group');
+  });
+
+  test('the bot leaving and coming back keeps the same workspace', async () => {
+    await handleEvent(inNewGroup({ type: 'join' }));
+    const first = await newGroupWorkspace();
+    await handleEvent(inNewGroup({ type: 'leave' }));
+    await handleEvent(inNewGroup({ type: 'join' }));
+    assert.equal(await newGroupWorkspace(), first, 'not a second, empty workspace');
   });
 
   test('a stranger cannot confirm a draft', async () => {

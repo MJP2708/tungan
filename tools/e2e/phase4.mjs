@@ -134,6 +134,33 @@ await step('@All in the LINE group becomes a ทุกคน draft; confirming i
   expect(rows.length === 2 && rows[0].batch_id, `copies ${rows.length}`);
 });
 
+await step('adding the bot to a new group links it by itself; the first to tag it owns it', boss.page, async () => {
+  const GROUP = 'C0000000000000000000000000000e2e';
+  const send = async (evt) => {
+    const body = JSON.stringify({ destination: 'Ue2e', events: [{
+      mode: 'active', timestamp: Date.now(), webhookEventId: `auto-${Date.now()}-${Math.random()}`,
+      deliveryContext: { isRedelivery: false }, replyToken: `rt-${Date.now()}`,
+      source: { type: 'group', groupId: GROUP, userId: 'U00000000000000000000000000000b05' }, ...evt,
+    }] });
+    const sig = crypto.createHmac('sha256', 'e2e-channel-secret').update(body).digest('base64');
+    const res = await fetch(BASE + '/api/webhooks/line', { method: 'POST', headers: { 'content-type': 'application/json', 'x-line-signature': sig }, body });
+    expect(res.status === 200, `webhook ${res.status}`);
+    await sleep(1500);
+  };
+  await send({ type: 'join' });
+  await send({ type: 'message', message: { id: `auto-m-${Date.now()}`, type: 'text', text: '@ทันงาน เริ่มใช้ทันงาน พรุ่งนี้' } });
+  const [bound] = await q("select gw.workspace_id from group_workspace gw join line_group g on g.id=gw.line_group_id where g.line_group_id=$1", [GROUP]);
+  expect(bound, 'not linked');
+  const [m] = await q("select role from workspace_member where workspace_id=$1 and user_id='u-boss'", [bound.workspace_id]);
+  expect(m && m.role === 'owner', `role ${m?.role}`);
+  // And it is simply there in the app's workspace list — no button pressed.
+  const p = boss.page;
+  await p.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await p.locator('.mobile-project.themed-workspace-trigger').click();
+  await p.getByRole('option', { name: /ทีมจาก LINE/ }).first().waitFor({ timeout: 5000 });
+  await p.keyboard.press('Escape');
+});
+
 for (const [who, p] of [['boss', boss], ['เมย์', may]]) {
   if (p.errors.length) console.log(`errors seen by ${who}:`, [...new Set(p.errors)]);
 }

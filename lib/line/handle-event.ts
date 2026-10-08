@@ -41,6 +41,7 @@ import {
 } from './status-buttons.ts';
 import { appLink } from '../deep-link.ts';
 import { isAssignable, everyoneAssignable } from '../auth/assignable.ts';
+import { admitToGroupWorkspace, ensureGroupWorkspace } from '../auth/membership.ts';
 import { createTasks } from '../tasks/create.ts';
 import { applyMentions, mentionedPeople, type Mentionee } from './mentions.ts';
 
@@ -172,7 +173,9 @@ async function setFriendship(lineUserId: string | undefined, isFriend: boolean) 
 async function handleJoin(event: LineEventPayload) {
   const groupId = event.source?.groupId ?? event.source?.roomId;
   if (!groupId) return;
-  await ensureGroupKnown(groupId);
+  // The group's workspace exists from this moment: named after the group,
+  // bound to it, with nobody having to open the app and press anything.
+  await ensureGroupWorkspace(await ensureGroupKnown(groupId));
   // Say what the bot reads, keeps and deletes, before anyone has to ask.
   if (event.replyToken) {
     const base = (process.env.APP_BASE_URL ?? '').replace(/\/$/, '');
@@ -222,7 +225,11 @@ async function fillGroupName(rowId: string, lineGroupId: string) {
   if (name) await db().update(lineGroup).set({ name }).where(eq(lineGroup.id, rowId));
 }
 
-async function noteGroupMember(lineGroupId: string, lineUserId: string): Promise<string> {
+async function noteGroupMember(
+  lineGroupId: string,
+  lineUserId: string,
+  options: { mayOwn?: boolean } = {},
+): Promise<string> {
   const groupRowId = await ensureGroupKnown(lineGroupId);
   const userRowId = await ensureUserKnown(lineUserId, { groupOrRoomId: lineGroupId });
   await db()
@@ -232,21 +239,19 @@ async function noteGroupMember(lineGroupId: string, lineUserId: string): Promise
       target: [lineGroupMember.lineGroupId, lineGroupMember.userId],
       set: { lastSeenAt: new Date() },
     });
+  // Seen in the group means let into the group's workspace, now — not at
+  // their next sign-in, and without anyone pressing "link team". (A group
+  // the bot joined before this existed gets its workspace here.)
+  await admitToGroupWorkspace(groupRowId, userRowId, options);
   return userRowId;
 }
 
-async function handleLeave(event: LineEventPayload) {
-  const groupId = event.source?.groupId ?? event.source?.roomId;
-  if (!groupId) return;
-  // The binding goes, the group row stays so history still resolves.
-  const rows = await db()
-    .select({ id: lineGroup.id })
-    .from(lineGroup)
-    .where(eq(lineGroup.lineGroupId, groupId))
-    .limit(1);
-  if (rows[0]) {
-    await db().delete(groupWorkspace).where(eq(groupWorkspace.lineGroupId, rows[0].id));
-  }
+async function handleLeave(_event: LineEventPayload) {
+  // Nothing to undo. The group row stays so history still resolves, and its
+  // workspace binding stays too: groups get their workspace automatically
+  // now, so dropping the binding would make adding the bot back create a
+  // second, empty workspace with the same name while the team's tasks sat in
+  // the first. Unlinking on purpose is still in ตั้งค่า (ยกเลิกการเชื่อม).
 }
 
 /**
@@ -729,8 +734,13 @@ async function handleMessage(event: LineEventPayload) {
   if (event.source?.userId) {
     if (isGroup && groupId) {
       // Speaking is how most members become known, since the member-list
-      // endpoint needs a Verified or Premium account.
-      await noteGroupMember(groupId, event.source.userId);
+      // endpoint needs a Verified or Premium account. Tagging @ทันงาน is the
+      // deliberate act that may make someone owner of a workspace that set
+      // itself up; chatting never does.
+      const tagsBot =
+        /@ทันงาน|@tungan/i.test(text) ||
+        (event.message?.mention?.mentionees ?? []).some((m) => m.isSelf);
+      await noteGroupMember(groupId, event.source.userId, { mayOwn: tagsBot });
     } else {
       await ensureUserKnown(event.source.userId);
       // A person who can message the OA in a 1:1 chat has added it, so this

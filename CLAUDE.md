@@ -158,6 +158,18 @@ proves nothing here.
   task is made goes through `lib/tasks/create.ts` → `createTasks()` (which
   also plans reminders — the LINE confirm path used to skip that).
 
+## Groups link themselves (decided 2026-10-08)
+
+When the bot joins a LINE group, the group gets its own workspace at once,
+named after the group and bound to it (`ensureGroupWorkspace` in
+`lib/auth/membership.ts`) — nobody presses "link team". Everyone seen in the
+group is let in as a member as they appear (`admitToGroupWorkspace`). The
+workspace has no owner until the first person who **tags @ทันงาน** (or opens
+the app from the group) claims it; chatting never makes anyone owner. Groups
+joined before this get their workspace at their next message. The bot
+leaving no longer removes the binding, so coming back reuses the same
+workspace; unlinking on purpose is still in ตั้งค่า.
+
 ## Data rules
 
 - Identity is the **LINE user ID**. Nicknames are per-workspace display data
@@ -381,7 +393,7 @@ node tools/visual/contrast.mjs  # light text left on a light surface
 **End-to-end against a real backend** lives in `tools/e2e/` (README there):
 the production build, a throwaway local Postgres, two signed-in people, a
 webhook signed with a fake channel secret, and every step checked in the
-database — 50 checks (53 after 17:00 Bangkok) across create → review → approve, LINE drafts,
+database — 51 checks (54 after 17:00 Bangkok) across create → review → approve, LINE drafts,
 reminders, settings, workspaces, cron, logout, announcements and ทุกคน tasks. Every key in `.env.local`
 must be overridden when starting that server, because `.env.local` is
 production; `tools/e2e/lib.mjs` refuses a non-localhost database.

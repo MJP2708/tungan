@@ -6,7 +6,10 @@ import {
   groupWorkspace,
   workspaceMember,
   lineUser,
+  lineGroup,
+  workspace,
 } from '../db/schema.ts';
+import { isUniqueViolation } from '../db/errors.ts';
 
 /**
  * Give a signed-in user access to every workspace whose LINE group they are
@@ -57,7 +60,92 @@ export async function syncGroupMemberships(userId: string): Promise<string[]> {
     )
     .onConflictDoNothing();
 
+  // Opening the app counts as stepping up: a group workspace that set itself
+  // up has no owner until someone from the group arrives.
+  for (const workspaceId of eligible.map((r) => r.workspaceId)) {
+    await claimOwnershipIfNone(workspaceId, userId);
+  }
+
   return missing;
+}
+
+/**
+ * A LINE group's own workspace, made the moment the bot is in the group
+ * (2026-10-08). Nobody has to open the app and press anything: the
+ * workspace is named after the group, bound to it, and everyone seen in the
+ * group is let in as they appear. If two events race, the unique index on
+ * group_workspace keeps one and the other's empty workspace is removed.
+ */
+export async function ensureGroupWorkspace(lineGroupRowId: string): Promise<string> {
+  const bound = await boundWorkspaceOf(lineGroupRowId);
+  if (bound) return bound;
+
+  const [group] = await db()
+    .select({ name: lineGroup.name })
+    .from(lineGroup)
+    .where(eq(lineGroup.id, lineGroupRowId))
+    .limit(1);
+  const workspaceId = crypto.randomUUID();
+  await db().insert(workspace).values({ id: workspaceId, name: group?.name || 'ทีมจาก LINE' });
+  try {
+    await db().insert(groupWorkspace).values({ lineGroupId: lineGroupRowId, workspaceId });
+  } catch (error) {
+    await db().delete(workspace).where(eq(workspace.id, workspaceId));
+    if (!isUniqueViolation(error)) throw error;
+    const winner = await boundWorkspaceOf(lineGroupRowId);
+    if (winner) return winner;
+    throw error;
+  }
+  await grantWorkspaceToGroup(lineGroupRowId, workspaceId);
+  return workspaceId;
+}
+
+/**
+ * Someone seen in the group: let them into its workspace now, not at their
+ * next sign-in. `mayOwn` is set when they tagged @ทันงาน — a deliberate act —
+ * and then, if the workspace has no owner yet, they become it. Chatting in
+ * the group never makes anyone owner.
+ */
+export async function admitToGroupWorkspace(
+  lineGroupRowId: string,
+  userId: string,
+  options: { mayOwn?: boolean } = {},
+): Promise<string> {
+  const workspaceId = await ensureGroupWorkspace(lineGroupRowId);
+  const [profile] = await db()
+    .select({ displayName: lineUser.displayName })
+    .from(lineUser)
+    .where(eq(lineUser.id, userId))
+    .limit(1);
+  await db()
+    .insert(workspaceMember)
+    .values({ workspaceId, userId, role: 'member', nickname: profile?.displayName ?? '' })
+    .onConflictDoNothing();
+  if (options.mayOwn) await claimOwnershipIfNone(workspaceId, userId);
+  return workspaceId;
+}
+
+/** Make this member the owner, only if the workspace has none at all. */
+async function claimOwnershipIfNone(workspaceId: string, userId: string): Promise<void> {
+  const owners = await db()
+    .select({ userId: workspaceMember.userId })
+    .from(workspaceMember)
+    .where(and(eq(workspaceMember.workspaceId, workspaceId), eq(workspaceMember.role, 'owner')))
+    .limit(1);
+  if (owners.length) return;
+  await db()
+    .update(workspaceMember)
+    .set({ role: 'owner' })
+    .where(and(eq(workspaceMember.workspaceId, workspaceId), eq(workspaceMember.userId, userId)));
+}
+
+async function boundWorkspaceOf(lineGroupRowId: string): Promise<string | null> {
+  const [row] = await db()
+    .select({ workspaceId: groupWorkspace.workspaceId })
+    .from(groupWorkspace)
+    .where(eq(groupWorkspace.lineGroupId, lineGroupRowId))
+    .limit(1);
+  return row?.workspaceId ?? null;
 }
 
 /**
