@@ -18,6 +18,9 @@ export type ConfirmDraft = {
   assigneeSource: string | null;
   /** Set in a 1:1 chat, where the workspace was chosen rather than implied. */
   workspaceName?: string | null;
+  /** What just changed ("แก้กำหนดส่งแล้ว"), shown on its own line. It used
+   *  to be glued onto the task name, which then read as part of the task. */
+  notice?: string | null;
 };
 
 /** LINE shows at most 13 quick reply items. */
@@ -36,6 +39,7 @@ export function confirmBody(draft: ConfirmDraft, now = new Date()): string {
     ? derivation(draft.assigneeSource, draft.assigneeName)
     : 'ยังไม่ระบุ · แตะ เปลี่ยนผู้รับผิดชอบ';
   return [
+    ...(draft.notice ? [`✓ ${draft.notice}`] : []),
     `งาน: ${draft.title}`,
     `ใคร: ${who}`,
     `เมื่อไหร่: ${due}`,
@@ -52,8 +56,37 @@ function isoLocal(at: Date, timeZone = PRODUCT_TIME_ZONE): string {
   return parts.replace(' ', 't').slice(0, 16);
 }
 
+/** The site's palette, as LINE Flex colours (#RRGGBBAA where see-through). */
+const INK = '#090909';
+const INK_3 = '#5D5D57';
+const BLUE = '#0080FF';
+const AMBER = '#B45309';
+
+/** One fact on the card: a small label, the reading, and what produced it. */
+function fact(label: string, value: string | null, source: string | null, missingHint: string) {
+  return {
+    type: 'box',
+    layout: 'vertical',
+    spacing: 'xs',
+    contents: [
+      { type: 'text', text: label, size: 'xs', color: INK_3 },
+      value
+        ? { type: 'text', text: value, size: 'md', weight: 'bold', color: INK, wrap: true }
+        : { type: 'text', text: 'ยังไม่ระบุ', size: 'md', weight: 'bold', color: AMBER },
+      value
+        ? source
+          ? { type: 'text', text: `อ่านจาก “${source}”`, size: 'xxs', color: INK_3, wrap: true }
+          : null
+        : { type: 'text', text: missingHint, size: 'xxs', color: INK_3, wrap: true },
+    ].filter(Boolean),
+  };
+}
+
 /**
- * The confirmation message.
+ * The confirmation card, as a Flex Message in the app's look (2026-10-08):
+ * a pastel gradient, a frosted panel for who and when, an ink primary button
+ * and quieter glass ones. LINE draws it, so no blur and no custom fonts —
+ * the gradient, the translucent white and the hierarchy carry the look.
  *
  * A datetime picker rather than asking someone to type a date: typing a date
  * on a phone keyboard, in a chat, is where people give up.
@@ -64,42 +97,181 @@ export function confirmMessage(draft: ConfirmDraft, now = new Date()) {
   // deadline gets no reminders and quietly dies, so "none" is not a safe
   // default to leave sitting there.
   const suggested = draft.dueAt ?? new Date(now.getTime() + 24 * 3600000);
+  const due = draft.dueAt ? formatDeadline(draft.dueAt, { now }) : null;
+
+  const panel: Array<Record<string, unknown>> = [
+    fact('ใคร', draft.assigneeName, draft.assigneeSource, 'แตะ “เปลี่ยนคน” ด้านล่าง'),
+    { type: 'separator', color: '#09090914' },
+    fact('เมื่อไร', due, draft.dueSource, 'แตะ “เปลี่ยนเวลา” ด้านล่าง · ไม่มีกำหนดจะไม่มีการเตือน'),
+  ];
+  if (draft.workspaceName) {
+    panel.push({ type: 'separator', color: '#09090914' });
+    panel.push(fact('ที่', draft.workspaceName, null, ''));
+  }
+
+  const glassButton = (label: string, action: Record<string, unknown>) => ({
+    type: 'button',
+    style: 'secondary',
+    color: '#FFFFFFCC',
+    height: 'sm',
+    flex: 1,
+    action: { ...action, label },
+  });
+
   return {
-    type: 'template',
+    type: 'flex',
     altText: body.replace(/\n/g, ' · ').slice(0, 380),
-    template: {
-      type: 'buttons',
-      text: body.slice(0, 160),
-      actions: [
-        {
-          type: 'postback',
-          label: 'ยืนยันสร้างงาน',
-          data: `action=confirm&inbox=${draft.id}`,
-          displayText: 'ยืนยันสร้างงาน',
+    contents: {
+      type: 'bubble',
+      size: 'mega',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'lg',
+        paddingAll: '20px',
+        background: {
+          type: 'linearGradient',
+          angle: '150deg',
+          startColor: '#FFE1D8',
+          centerColor: '#F6F2FB',
+          endColor: '#D9E6FF',
+          centerPosition: '45%',
         },
-        {
-          type: 'datetimepicker',
-          label: 'เปลี่ยนกำหนดส่ง',
-          data: `action=setdue&inbox=${draft.id}`,
-          mode: 'datetime',
-          initial: isoLocal(suggested),
-          min: isoLocal(new Date(now.getTime() - 60 * 60000)),
-        },
-        {
-          type: 'postback',
-          label: 'เปลี่ยนผู้รับผิดชอบ',
-          data: `action=pickassignee&inbox=${draft.id}`,
-          displayText: 'เปลี่ยนผู้รับผิดชอบ',
-        },
-        {
-          type: 'postback',
-          label: 'ไม่ใช่งาน',
-          data: `action=dismiss&inbox=${draft.id}`,
-          displayText: 'ไม่ใช่งาน',
-        },
-      ],
+        contents: [
+          {
+            type: 'box',
+            layout: 'horizontal',
+            alignItems: 'center',
+            contents: [
+              { type: 'text', text: 'ทันงาน', size: 'sm', weight: 'bold', color: INK, flex: 0 },
+              {
+                type: 'box',
+                layout: 'vertical',
+                width: '7px',
+                height: '7px',
+                cornerRadius: '4px',
+                backgroundColor: BLUE,
+                margin: 'xs',
+                offsetTop: '3px',
+                contents: [],
+              },
+              { type: 'text', text: 'ร่างงาน · รอยืนยัน', size: 'xxs', color: INK_3, align: 'end' },
+            ],
+          },
+          ...(draft.notice
+            ? [
+                {
+                  type: 'box',
+                  layout: 'horizontal',
+                  contents: [
+                    {
+                      type: 'box',
+                      layout: 'vertical',
+                      flex: 0,
+                      backgroundColor: '#0080FF1F',
+                      cornerRadius: '12px',
+                      paddingTop: '4px',
+                      paddingBottom: '4px',
+                      paddingStart: '10px',
+                      paddingEnd: '10px',
+                      contents: [
+                        { type: 'text', text: `✓ ${draft.notice}`, size: 'xs', weight: 'bold', color: BLUE },
+                      ],
+                    },
+                  ],
+                },
+              ]
+            : []),
+          {
+            type: 'text',
+            text: draft.title,
+            size: 'xl',
+            color: INK,
+            wrap: true,
+            maxLines: 4,
+          },
+          {
+            type: 'box',
+            layout: 'vertical',
+            spacing: 'md',
+            paddingAll: '14px',
+            cornerRadius: '16px',
+            backgroundColor: '#FFFFFFB8',
+            borderWidth: '1px',
+            borderColor: '#FFFFFFE6',
+            contents: panel,
+          },
+          {
+            type: 'box',
+            layout: 'vertical',
+            spacing: 'sm',
+            margin: 'sm',
+            contents: [
+              {
+                type: 'button',
+                style: 'primary',
+                color: INK,
+                height: 'md',
+                action: {
+                  type: 'postback',
+                  label: 'ยืนยันสร้างงาน',
+                  data: `action=confirm&inbox=${draft.id}`,
+                  displayText: 'ยืนยันสร้างงาน',
+                },
+              },
+              {
+                type: 'box',
+                layout: 'horizontal',
+                spacing: 'sm',
+                contents: [
+                  glassButton('เปลี่ยนเวลา', {
+                    type: 'datetimepicker',
+                    data: `action=setdue&inbox=${draft.id}`,
+                    mode: 'datetime',
+                    initial: isoLocal(suggested),
+                    min: isoLocal(new Date(now.getTime() - 60 * 60000)),
+                  }),
+                  glassButton('เปลี่ยนคน', {
+                    type: 'postback',
+                    data: `action=pickassignee&inbox=${draft.id}`,
+                    displayText: 'เปลี่ยนผู้รับผิดชอบ',
+                  }),
+                ],
+              },
+              {
+                type: 'button',
+                style: 'link',
+                color: INK_3,
+                height: 'sm',
+                action: {
+                  type: 'postback',
+                  label: 'ไม่ใช่งาน',
+                  data: `action=dismiss&inbox=${draft.id}`,
+                  displayText: 'ไม่ใช่งาน',
+                },
+              },
+            ],
+          },
+        ],
+      },
     },
   };
+}
+
+/** Every action on the card, in reading order — for tests and checks. */
+export function cardActions(message: ReturnType<typeof confirmMessage>) {
+  const found: Array<Record<string, unknown>> = [];
+  const walk = (node: unknown) => {
+    if (!node || typeof node !== 'object') return;
+    const n = node as Record<string, unknown>;
+    if (n.type === 'button' && n.action) found.push(n.action as Record<string, unknown>);
+    for (const value of Object.values(n)) {
+      if (Array.isArray(value)) value.forEach(walk);
+      else if (value && typeof value === 'object') walk(value);
+    }
+  };
+  walk(message.contents);
+  return found;
 }
 
 /**

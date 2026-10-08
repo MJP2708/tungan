@@ -39,6 +39,9 @@ const BOT_MENTION = /@ทันงาน|@tungan/i;
 function cleanTitle(text: string, names: string[]): string {
   let out = text;
   out = out.replace(BOT_MENTION, ' ');
+  // LINE's mention-everyone arrives as the literal text "@All" (any case).
+  // It addresses the group, not a person, and is never part of the task.
+  out = out.replace(/@all(?![\p{L}\p{N}_])/giu, ' ');
   for (const name of names) {
     out = out.replaceAll(`@${name}`, ' ');
   }

@@ -139,3 +139,12 @@ test('messages addressed to the bot, DMs and non-message events are kept', () =>
   assert.equal(mayStoreEventPayload({ type: 'join', source: { type: 'group' } }), true);
   assert.equal(mayStoreEventPayload({ type: 'postback', source: { type: 'group' } }), true);
 });
+
+test('LINE\u2019s @All addresses the group and never becomes part of the task name', () => {
+  const draft = extractDraft('@ทันงาน @All ทำรายงานสรุปยอดขาย พรุ่งนี้', { members: MEMBERS, now: NOW, isGroup: true });
+  assert.doesNotMatch(draft.title, /@all/i);
+  assert.match(draft.title, /รายงานสรุปยอดขาย/);
+  // A name that merely starts with "All" is someone's name, not @All.
+  const named = extractDraft('@ทันงาน @Allison ส่งรายงาน', { members: [{ userId: 'u-a', names: ['Allison'] }], now: NOW, isGroup: true });
+  assert.equal(named.assigneeUserId, 'u-a');
+});

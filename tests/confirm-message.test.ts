@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   confirmBody,
   confirmMessage,
+  cardActions,
   assigneePicker,
   QUICK_REPLY_LIMIT,
 } from '../lib/line/confirm-message.ts';
@@ -43,15 +44,18 @@ test('the card offers confirm, both edits and dismiss', () => {
     { id: 'd1', title: 'x', dueAt: null, dueSource: null, assigneeName: null, assigneeSource: null },
     NOW,
   ) as any;
-  const kinds = msg.template.actions.map((a: any) => `${a.type}:${a.label}`);
+  const actions = cardActions(msg);
+  const kinds = actions.map((a: any) => `${a.type}:${a.label}`);
   assert.deepEqual(kinds, [
     'postback:ยืนยันสร้างงาน',
-    'datetimepicker:เปลี่ยนกำหนดส่ง',
-    'postback:เปลี่ยนผู้รับผิดชอบ',
+    'datetimepicker:เปลี่ยนเวลา',
+    'postback:เปลี่ยนคน',
     'postback:ไม่ใช่งาน',
   ]);
   // Every action carries the draft id, so a tap is unambiguous.
-  for (const a of msg.template.actions) assert.match(a.data, /inbox=d1/);
+  for (const a of actions) assert.match(a.data as string, /inbox=d1/);
+  // LINE caps button labels at 20 characters.
+  for (const a of actions) assert.ok((a.label as string).length <= 20, a.label as string);
 });
 
 test('the picker opens on a suggestion rather than on nothing', () => {
@@ -59,7 +63,7 @@ test('the picker opens on a suggestion rather than on nothing', () => {
     { id: 'd1', title: 'x', dueAt: null, dueSource: null, assigneeName: null, assigneeSource: null },
     NOW,
   ) as any;
-  const picker = msg.template.actions[1];
+  const picker = cardActions(msg)[1] as any;
   assert.equal(picker.mode, 'datetime');
   assert.ok(picker.initial, 'should propose a time');
   // Local wall clock, not UTC, which is what LINE expects.
@@ -96,4 +100,37 @@ test('a 1:1 chat card says which workspace the draft went to; a group card does 
   const base = { id: 'd', title: 'ส่งรายงาน', dueAt: null, dueSource: null, assigneeName: null, assigneeSource: null };
   assert.match(confirmBody({ ...base, workspaceName: 'ทีม Ops' }), /ที่: ทีม Ops/);
   assert.doesNotMatch(confirmBody(base), /ที่:/);
+});
+
+test('the card is a Flex Message in the app\u2019s look, with readable alt text', () => {
+  const msg = confirmMessage(
+    { id: 'd1', title: 'ส่งรายงาน', dueAt: null, dueSource: null, assigneeName: 'สมชาย', assigneeSource: null },
+    NOW,
+  ) as any;
+  assert.equal(msg.type, 'flex');
+  assert.equal(msg.contents.type, 'bubble');
+  assert.equal(msg.contents.body.background.type, 'linearGradient');
+  // The notification preview on a locked phone is the alt text.
+  assert.match(msg.altText, /งาน: ส่งรายงาน/);
+  assert.ok(msg.altText.length <= 400);
+});
+
+test('after an edit, what changed is its own line, never part of the task name', () => {
+  const msg = confirmMessage(
+    {
+      id: 'd1', title: 'ส่งรายงาน', notice: 'แก้กำหนดส่งแล้ว',
+      dueAt: null, dueSource: null, assigneeName: null, assigneeSource: null,
+    },
+    NOW,
+  ) as any;
+  const texts: string[] = [];
+  const walk = (n: any) => {
+    if (!n || typeof n !== 'object') return;
+    if (n.type === 'text') texts.push(n.text);
+    Object.values(n).forEach((v) => (Array.isArray(v) ? v.forEach(walk) : walk(v)));
+  };
+  walk(msg.contents);
+  assert.ok(texts.includes('ส่งรายงาน'), 'the title stands alone');
+  assert.ok(texts.includes('✓ แก้กำหนดส่งแล้ว'), 'the notice has its own line');
+  assert.ok(!texts.some((t) => t.includes('แก้กำหนดส่งแล้ว ·')), 'never glued to the name');
 });

@@ -958,7 +958,8 @@ async function replyDraft(event: LineEventPayload, inboxId: string, notice: stri
     [
       confirmMessage({
         id: inboxId,
-        title: `${notice} · ${item.suggestedTitle}`,
+        title: item.suggestedTitle,
+        notice,
         dueAt: item.suggestedDueAt,
         // The reading now came from a picker, not from the text.
         dueSource: null,
