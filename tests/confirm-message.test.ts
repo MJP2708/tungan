@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   confirmBody,
   confirmMessage,
+  confirmCarousel,
   cardActions,
   assigneePicker,
   QUICK_REPLY_LIMIT,
@@ -48,8 +49,8 @@ test('the card offers confirm, both edits and dismiss', () => {
   const kinds = actions.map((a: any) => `${a.type}:${a.label}`);
   assert.deepEqual(kinds, [
     'postback:ยืนยันสร้างงาน',
-    'datetimepicker:เปลี่ยนเวลา',
-    'postback:เปลี่ยนคน',
+    'datetimepicker:เวลา',
+    'postback:คน',
     'postback:ไม่ใช่งาน',
   ]);
   // Every action carries the draft id, so a tap is unambiguous.
@@ -133,4 +134,30 @@ test('after an edit, what changed is its own line, never part of the task name',
   assert.ok(texts.includes('ส่งรายงาน'), 'the title stands alone');
   assert.ok(texts.includes('✓ แก้กำหนดส่งแล้ว'), 'the notice has its own line');
   assert.ok(!texts.some((t) => t.includes('แก้กำหนดส่งแล้ว ·')), 'never glued to the name');
+});
+
+test('several drafts from one message are one swipeable card, not a stack', () => {
+  const base = { dueAt: null, dueSource: null, assigneeName: null, assigneeSource: null };
+  const msg = confirmCarousel(
+    [
+      { id: 'd1', title: 'ส่งรายงาน', ...base },
+      { id: 'd2', title: 'โทรหาลูกค้า', ...base },
+    ],
+    NOW,
+  ) as any;
+  assert.equal(msg.type, 'flex');
+  assert.equal(msg.contents.type, 'carousel');
+  assert.equal(msg.contents.contents.length, 2);
+  // Each bubble still carries its own draft's actions.
+  const data = cardActions(msg).map((a) => a.data as string);
+  assert.ok(data.some((d) => d.includes('inbox=d1')) && data.some((d) => d.includes('inbox=d2')));
+  assert.match(msg.altText, /ร่างงาน 2 รายการ/);
+});
+
+test('one draft is still one plain card', () => {
+  const msg = confirmCarousel(
+    [{ id: 'd1', title: 'ส่งรายงาน', dueAt: null, dueSource: null, assigneeName: null, assigneeSource: null }],
+    NOW,
+  ) as any;
+  assert.equal(msg.contents.type, 'bubble');
 });

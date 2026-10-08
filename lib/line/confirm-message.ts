@@ -62,54 +62,35 @@ const INK_3 = '#5D5D57';
 const BLUE = '#0080FF';
 const AMBER = '#B45309';
 
-/** One fact on the card: a small label, the reading, and what produced it. */
-function fact(label: string, value: string | null, source: string | null, missingHint: string) {
+/** One line of the card: a short label, then the value (amber when missing). */
+function factLine(label: string, value: string | null, missing: string) {
   return {
     type: 'box',
-    layout: 'vertical',
-    spacing: 'xs',
+    layout: 'baseline',
+    spacing: 'sm',
     contents: [
-      { type: 'text', text: label, size: 'xs', color: INK_3 },
+      { type: 'text', text: label, size: 'xs', color: INK_3, flex: 0 },
       value
-        ? { type: 'text', text: value, size: 'md', weight: 'bold', color: INK, wrap: true }
-        : { type: 'text', text: 'ยังไม่ระบุ', size: 'md', weight: 'bold', color: AMBER },
-      value
-        ? source
-          ? { type: 'text', text: `อ่านจาก “${source}”`, size: 'xxs', color: INK_3, wrap: true }
-          : null
-        : { type: 'text', text: missingHint, size: 'xxs', color: INK_3, wrap: true },
-    ].filter(Boolean),
+        ? { type: 'text', text: value, size: 'sm', weight: 'bold', color: INK, wrap: true, flex: 1 }
+        : { type: 'text', text: missing, size: 'sm', weight: 'bold', color: AMBER, wrap: true, flex: 1 },
+    ],
   };
 }
 
 /**
- * The confirmation card, as a Flex Message in the app's look (2026-10-08):
- * a pastel gradient, a frosted panel for who and when, an ink primary button
- * and quieter glass ones. LINE draws it, so no blur and no custom fonts —
- * the gradient, the translucent white and the hierarchy carry the look.
- *
- * A datetime picker rather than asking someone to type a date: typing a date
- * on a phone keyboard, in a chat, is where people give up.
+ * One draft as a compact bubble (2026-10-08). LINE never lets a bot delete
+ * or edit a message it sent, so a card stays in the chat for good; the only
+ * way to make it take less room is to make it small. Name, who, when, the
+ * confirm button and one row of small buttons — about half the old height.
+ * What a deadline was read from stays in the notification text (altText).
  */
-export function confirmMessage(draft: ConfirmDraft, now = new Date()) {
-  const body = confirmBody(draft, now);
+export function confirmBubble(draft: ConfirmDraft, now = new Date()) {
   // Suggest a time rather than opening the picker on nothing. A task with no
   // deadline gets no reminders and quietly dies, so "none" is not a safe
   // default to leave sitting there.
   const suggested = draft.dueAt ?? new Date(now.getTime() + 24 * 3600000);
   const due = draft.dueAt ? formatDeadline(draft.dueAt, { now }) : null;
-
-  const panel: Array<Record<string, unknown>> = [
-    fact('ใคร', draft.assigneeName, draft.assigneeSource, 'แตะ “เปลี่ยนคน” ด้านล่าง'),
-    { type: 'separator', color: '#09090914' },
-    fact('เมื่อไร', due, draft.dueSource, 'แตะ “เปลี่ยนเวลา” ด้านล่าง · ไม่มีกำหนดจะไม่มีการเตือน'),
-  ];
-  if (draft.workspaceName) {
-    panel.push({ type: 'separator', color: '#09090914' });
-    panel.push(fact('ที่', draft.workspaceName, null, ''));
-  }
-
-  const glassButton = (label: string, action: Record<string, unknown>) => ({
+  const small = (label: string, action: Record<string, unknown>) => ({
     type: 'button',
     style: 'secondary',
     color: '#FFFFFFCC',
@@ -119,141 +100,115 @@ export function confirmMessage(draft: ConfirmDraft, now = new Date()) {
   });
 
   return {
-    type: 'flex',
-    altText: body.replace(/\n/g, ' · ').slice(0, 380),
-    contents: {
-      type: 'bubble',
-      size: 'mega',
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'lg',
-        paddingAll: '20px',
-        background: {
-          type: 'linearGradient',
-          angle: '150deg',
-          startColor: '#FFE1D8',
-          centerColor: '#F6F2FB',
-          endColor: '#D9E6FF',
-          centerPosition: '45%',
-        },
-        contents: [
-          {
-            type: 'box',
-            layout: 'horizontal',
-            alignItems: 'center',
-            contents: [
-              { type: 'text', text: 'ทันงาน', size: 'sm', weight: 'bold', color: INK, flex: 0 },
-              {
-                type: 'box',
-                layout: 'vertical',
-                width: '7px',
-                height: '7px',
-                cornerRadius: '4px',
-                backgroundColor: BLUE,
-                margin: 'xs',
-                offsetTop: '3px',
-                contents: [],
-              },
-              { type: 'text', text: 'ร่างงาน · รอยืนยัน', size: 'xxs', color: INK_3, align: 'end' },
-            ],
-          },
-          ...(draft.notice
-            ? [
-                {
-                  type: 'box',
-                  layout: 'horizontal',
-                  contents: [
-                    {
-                      type: 'box',
-                      layout: 'vertical',
-                      flex: 0,
-                      backgroundColor: '#0080FF1F',
-                      cornerRadius: '12px',
-                      paddingTop: '4px',
-                      paddingBottom: '4px',
-                      paddingStart: '10px',
-                      paddingEnd: '10px',
-                      contents: [
-                        { type: 'text', text: `✓ ${draft.notice}`, size: 'xs', weight: 'bold', color: BLUE },
-                      ],
-                    },
-                  ],
-                },
-              ]
-            : []),
-          {
-            type: 'text',
-            text: draft.title,
-            size: 'xl',
-            color: INK,
-            wrap: true,
-            maxLines: 4,
-          },
-          {
-            type: 'box',
-            layout: 'vertical',
-            spacing: 'md',
-            paddingAll: '14px',
-            cornerRadius: '16px',
-            backgroundColor: '#FFFFFFB8',
-            borderWidth: '1px',
-            borderColor: '#FFFFFFE6',
-            contents: panel,
-          },
-          {
-            type: 'box',
-            layout: 'vertical',
-            spacing: 'sm',
-            margin: 'sm',
-            contents: [
-              {
-                type: 'button',
-                style: 'primary',
-                color: INK,
-                height: 'md',
-                action: {
-                  type: 'postback',
-                  label: 'ยืนยันสร้างงาน',
-                  data: `action=confirm&inbox=${draft.id}`,
-                  displayText: 'ยืนยันสร้างงาน',
-                },
-              },
-              {
-                type: 'box',
-                layout: 'horizontal',
-                spacing: 'sm',
-                contents: [
-                  glassButton('เปลี่ยนเวลา', {
-                    type: 'datetimepicker',
-                    data: `action=setdue&inbox=${draft.id}`,
-                    mode: 'datetime',
-                    initial: isoLocal(suggested),
-                    min: isoLocal(new Date(now.getTime() - 60 * 60000)),
-                  }),
-                  glassButton('เปลี่ยนคน', {
-                    type: 'postback',
-                    data: `action=pickassignee&inbox=${draft.id}`,
-                    displayText: 'เปลี่ยนผู้รับผิดชอบ',
-                  }),
-                ],
-              },
-              {
-                type: 'button',
-                style: 'link',
-                color: INK_3,
-                height: 'sm',
-                action: {
-                  type: 'postback',
-                  label: 'ไม่ใช่งาน',
-                  data: `action=dismiss&inbox=${draft.id}`,
-                  displayText: 'ไม่ใช่งาน',
-                },
-              },
-            ],
-          },
-        ],
+    type: 'bubble',
+    size: 'kilo',
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'sm',
+      paddingAll: '14px',
+      background: {
+        type: 'linearGradient',
+        angle: '150deg',
+        startColor: '#FFE1D8',
+        centerColor: '#F6F2FB',
+        endColor: '#D9E6FF',
+        centerPosition: '45%',
       },
+      contents: [
+        {
+          type: 'box',
+          layout: 'horizontal',
+          alignItems: 'center',
+          contents: [
+            {
+              type: 'box',
+              layout: 'vertical',
+              width: '7px',
+              height: '7px',
+              cornerRadius: '4px',
+              backgroundColor: BLUE,
+              flex: 0,
+              contents: [],
+            },
+            {
+              type: 'text',
+              text: draft.notice ? `✓ ${draft.notice}` : 'ร่างงาน · รอยืนยัน',
+              size: 'xxs',
+              color: draft.notice ? BLUE : INK_3,
+              weight: draft.notice ? 'bold' : 'regular',
+              margin: 'sm',
+            },
+          ],
+        },
+        { type: 'text', text: draft.title, size: 'md', weight: 'bold', color: INK, wrap: true, maxLines: 3 },
+        factLine('ใคร', draft.assigneeName, 'ยังไม่ระบุ'),
+        factLine('เมื่อไร', due, 'ยังไม่มีกำหนด'),
+        ...(draft.workspaceName ? [factLine('ที่', draft.workspaceName, '')] : []),
+        {
+          type: 'button',
+          style: 'primary',
+          color: INK,
+          height: 'sm',
+          margin: 'md',
+          action: {
+            type: 'postback',
+            label: 'ยืนยันสร้างงาน',
+            data: `action=confirm&inbox=${draft.id}`,
+            displayText: 'ยืนยันสร้างงาน',
+          },
+        },
+        {
+          type: 'box',
+          layout: 'horizontal',
+          spacing: 'xs',
+          contents: [
+            small('เวลา', {
+              type: 'datetimepicker',
+              data: `action=setdue&inbox=${draft.id}`,
+              mode: 'datetime',
+              initial: isoLocal(suggested),
+              min: isoLocal(new Date(now.getTime() - 60 * 60000)),
+            }),
+            small('คน', {
+              type: 'postback',
+              data: `action=pickassignee&inbox=${draft.id}`,
+              displayText: 'เปลี่ยนผู้รับผิดชอบ',
+            }),
+            small('ไม่ใช่งาน', {
+              type: 'postback',
+              data: `action=dismiss&inbox=${draft.id}`,
+              displayText: 'ไม่ใช่งาน',
+            }),
+          ],
+        },
+      ],
+    },
+  };
+}
+
+/** One draft, one compact card. */
+export function confirmMessage(draft: ConfirmDraft, now = new Date()) {
+  return {
+    type: 'flex',
+    altText: confirmBody(draft, now).replace(/\n/g, ' · ').slice(0, 380),
+    contents: confirmBubble(draft, now),
+  };
+}
+
+/**
+ * Several drafts from one message: one card you swipe through, the height of
+ * a single draft, instead of a tall stack of them down the chat.
+ */
+export function confirmCarousel(drafts: ConfirmDraft[], now = new Date()) {
+  if (drafts.length === 1) return confirmMessage(drafts[0], now);
+  return {
+    type: 'flex',
+    altText: `ร่างงาน ${drafts.length} รายการ: ${drafts.map((d) => d.title).join(' · ')}`.slice(0, 380),
+    contents: {
+      type: 'carousel',
+      // LINE allows 12 bubbles in a carousel.
+      contents: drafts.slice(0, 12).map((d) => confirmBubble(d, now)),
     },
   };
 }

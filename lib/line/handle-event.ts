@@ -25,7 +25,7 @@ import {
 import { extractDraft, mayStoreEventPayload, shouldProcessGroupMessage, splitInstructions } from './extract.ts';
 import { fromZonedWallClock } from '../deadline.ts';
 import { isHelpRequest, helpMessage, joinMessage } from './help.ts';
-import { confirmMessage, assigneePicker } from './confirm-message.ts';
+import { confirmMessage, confirmCarousel, assigneePicker } from './confirm-message.ts';
 import {
   replyMessage,
   isFriendOfOa,
@@ -877,23 +877,27 @@ async function handleMessage(event: LineEventPayload) {
           extraNames.find((n) => n.id === userId)?.name ??
           null)
         : null;
-    // One reply call carries every card. A reply is free whatever it holds,
-    // so two instructions cost the same as one.
+    // One reply, one card: several drafts from one message are a carousel you
+    // swipe, not a stack down the chat. (A bot can never delete what it
+    // sent, so the only way to take less room is to send less.) Replies are
+    // free whatever they hold.
     await replyMessage(
       event.replyToken,
-      drafts.slice(0, 5).map((d, i) =>
-        confirmMessage({
-          id: draftIds[i],
-          title: d.title,
-          dueAt: d.dueAt,
-          dueSource: d.dueSource,
-          assigneeName: mentionsAll
-            ? `ทุกคน · ${everyoneCount} คน`
-            : nameOf(d.assigneeUserId),
-          assigneeSource: mentionsAll ? '@All' : d.assigneeSource,
-          workspaceName: resolved.dmWorkspaceName,
-        }),
-      ),
+      [
+        confirmCarousel(
+          drafts.slice(0, 5).map((d, i) => ({
+            id: draftIds[i],
+            title: d.title,
+            dueAt: d.dueAt,
+            dueSource: d.dueSource,
+            assigneeName: mentionsAll
+              ? `ทุกคน · ${everyoneCount} คน`
+              : nameOf(d.assigneeUserId),
+            assigneeSource: mentionsAll ? '@All' : d.assigneeSource,
+            workspaceName: resolved.dmWorkspaceName,
+          })),
+        ),
+      ],
       { workspaceId: resolved.workspaceId },
     ).catch((error) => console.error('[webhook][processing-error] reply failed', error));
   }

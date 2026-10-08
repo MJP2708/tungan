@@ -1,11 +1,11 @@
 {
   "type": "bubble",
-  "size": "mega",
+  "size": "kilo",
   "body": {
     "type": "box",
     "layout": "vertical",
-    "spacing": "lg",
-    "paddingAll": "20px",
+    "spacing": "sm",
+    "paddingAll": "14px",
     "background": {
       "type": "linearGradient",
       "angle": "150deg",
@@ -21,227 +21,160 @@
         "alignItems": "center",
         "contents": [
           {
-            "type": "text",
-            "text": "ทันงาน",
-            "size": "sm",
-            "weight": "bold",
-            "color": "#090909",
-            "flex": 0
-          },
-          {
             "type": "box",
             "layout": "vertical",
             "width": "7px",
             "height": "7px",
             "cornerRadius": "4px",
             "backgroundColor": "#0080FF",
-            "margin": "xs",
-            "offsetTop": "3px",
+            "flex": 0,
             "contents": []
           },
           {
             "type": "text",
-            "text": "ร่างงาน · รอยืนยัน",
+            "text": "✓ แก้กำหนดส่งแล้ว",
             "size": "xxs",
-            "color": "#5D5D57",
-            "align": "end"
-          }
-        ]
-      },
-      {
-        "type": "box",
-        "layout": "horizontal",
-        "contents": [
-          {
-            "type": "box",
-            "layout": "vertical",
-            "flex": 0,
-            "backgroundColor": "#0080FF1F",
-            "cornerRadius": "12px",
-            "paddingTop": "4px",
-            "paddingBottom": "4px",
-            "paddingStart": "10px",
-            "paddingEnd": "10px",
-            "contents": [
-              {
-                "type": "text",
-                "text": "✓ แก้กำหนดส่งแล้ว",
-                "size": "xs",
-                "weight": "bold",
-                "color": "#0080FF"
-              }
-            ]
+            "color": "#0080FF",
+            "weight": "bold",
+            "margin": "sm"
           }
         ]
       },
       {
         "type": "text",
         "text": "ส่งใบเสนอราคาให้ลูกค้า ABC พร้อมแนบแบบบูธ",
-        "size": "xl",
+        "size": "md",
+        "weight": "bold",
         "color": "#090909",
         "wrap": true,
-        "maxLines": 4
+        "maxLines": 3
       },
       {
         "type": "box",
-        "layout": "vertical",
-        "spacing": "md",
-        "paddingAll": "14px",
-        "cornerRadius": "16px",
-        "backgroundColor": "#FFFFFFB8",
-        "borderWidth": "1px",
-        "borderColor": "#FFFFFFE6",
+        "layout": "baseline",
+        "spacing": "sm",
         "contents": [
           {
-            "type": "box",
-            "layout": "vertical",
-            "spacing": "xs",
-            "contents": [
-              {
-                "type": "text",
-                "text": "ใคร",
-                "size": "xs",
-                "color": "#5D5D57"
-              },
-              {
-                "type": "text",
-                "text": "เมย์",
-                "size": "md",
-                "weight": "bold",
-                "color": "#090909",
-                "wrap": true
-              },
-              {
-                "type": "text",
-                "text": "อ่านจาก “@เมย์”",
-                "size": "xxs",
-                "color": "#5D5D57",
-                "wrap": true
-              }
-            ]
+            "type": "text",
+            "text": "ใคร",
+            "size": "xs",
+            "color": "#5D5D57",
+            "flex": 0
           },
           {
-            "type": "separator",
-            "color": "#09090914"
-          },
-          {
-            "type": "box",
-            "layout": "vertical",
-            "spacing": "xs",
-            "contents": [
-              {
-                "type": "text",
-                "text": "เมื่อไร",
-                "size": "xs",
-                "color": "#5D5D57"
-              },
-              {
-                "type": "text",
-                "text": "พรุ่งนี้ 16:00",
-                "size": "md",
-                "weight": "bold",
-                "color": "#090909",
-                "wrap": true
-              },
-              {
-                "type": "text",
-                "text": "อ่านจาก “พรุ่งนี้ 4 โมงเย็น”",
-                "size": "xxs",
-                "color": "#5D5D57",
-                "wrap": true
-              }
-            ]
-          },
-          {
-            "type": "separator",
-            "color": "#09090914"
-          },
-          {
-            "type": "box",
-            "layout": "vertical",
-            "spacing": "xs",
-            "contents": [
-              {
-                "type": "text",
-                "text": "ที่",
-                "size": "xs",
-                "color": "#5D5D57"
-              },
-              {
-                "type": "text",
-                "text": "ทีม Ops",
-                "size": "md",
-                "weight": "bold",
-                "color": "#090909",
-                "wrap": true
-              }
-            ]
+            "type": "text",
+            "text": "เมย์",
+            "size": "sm",
+            "weight": "bold",
+            "color": "#090909",
+            "wrap": true,
+            "flex": 1
           }
         ]
       },
       {
         "type": "box",
-        "layout": "vertical",
+        "layout": "baseline",
         "spacing": "sm",
-        "margin": "sm",
+        "contents": [
+          {
+            "type": "text",
+            "text": "เมื่อไร",
+            "size": "xs",
+            "color": "#5D5D57",
+            "flex": 0
+          },
+          {
+            "type": "text",
+            "text": "พรุ่งนี้ 16:00",
+            "size": "sm",
+            "weight": "bold",
+            "color": "#090909",
+            "wrap": true,
+            "flex": 1
+          }
+        ]
+      },
+      {
+        "type": "box",
+        "layout": "baseline",
+        "spacing": "sm",
+        "contents": [
+          {
+            "type": "text",
+            "text": "ที่",
+            "size": "xs",
+            "color": "#5D5D57",
+            "flex": 0
+          },
+          {
+            "type": "text",
+            "text": "ทีม Ops",
+            "size": "sm",
+            "weight": "bold",
+            "color": "#090909",
+            "wrap": true,
+            "flex": 1
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "style": "primary",
+        "color": "#090909",
+        "height": "sm",
+        "margin": "md",
+        "action": {
+          "type": "postback",
+          "label": "ยืนยันสร้างงาน",
+          "data": "action=confirm&inbox=s1",
+          "displayText": "ยืนยันสร้างงาน"
+        }
+      },
+      {
+        "type": "box",
+        "layout": "horizontal",
+        "spacing": "xs",
         "contents": [
           {
             "type": "button",
-            "style": "primary",
-            "color": "#090909",
-            "height": "md",
+            "style": "secondary",
+            "color": "#FFFFFFCC",
+            "height": "sm",
+            "flex": 1,
             "action": {
-              "type": "postback",
-              "label": "ยืนยันสร้างงาน",
-              "data": "action=confirm&inbox=sample-1",
-              "displayText": "ยืนยันสร้างงาน"
+              "type": "datetimepicker",
+              "data": "action=setdue&inbox=s1",
+              "mode": "datetime",
+              "initial": "2026-10-09t16:00",
+              "min": "2026-10-08t15:59",
+              "label": "เวลา"
             }
           },
           {
-            "type": "box",
-            "layout": "horizontal",
-            "spacing": "sm",
-            "contents": [
-              {
-                "type": "button",
-                "style": "secondary",
-                "color": "#FFFFFFCC",
-                "height": "sm",
-                "flex": 1,
-                "action": {
-                  "type": "datetimepicker",
-                  "data": "action=setdue&inbox=sample-1",
-                  "mode": "datetime",
-                  "initial": "2026-10-09t16:00",
-                  "min": "2026-10-08t15:20",
-                  "label": "เปลี่ยนเวลา"
-                }
-              },
-              {
-                "type": "button",
-                "style": "secondary",
-                "color": "#FFFFFFCC",
-                "height": "sm",
-                "flex": 1,
-                "action": {
-                  "type": "postback",
-                  "data": "action=pickassignee&inbox=sample-1",
-                  "displayText": "เปลี่ยนผู้รับผิดชอบ",
-                  "label": "เปลี่ยนคน"
-                }
-              }
-            ]
+            "type": "button",
+            "style": "secondary",
+            "color": "#FFFFFFCC",
+            "height": "sm",
+            "flex": 1,
+            "action": {
+              "type": "postback",
+              "data": "action=pickassignee&inbox=s1",
+              "displayText": "เปลี่ยนผู้รับผิดชอบ",
+              "label": "คน"
+            }
           },
           {
             "type": "button",
-            "style": "link",
-            "color": "#5D5D57",
+            "style": "secondary",
+            "color": "#FFFFFFCC",
             "height": "sm",
+            "flex": 1,
             "action": {
               "type": "postback",
-              "label": "ไม่ใช่งาน",
-              "data": "action=dismiss&inbox=sample-1",
-              "displayText": "ไม่ใช่งาน"
+              "data": "action=dismiss&inbox=s1",
+              "displayText": "ไม่ใช่งาน",
+              "label": "ไม่ใช่งาน"
             }
           }
         ]
