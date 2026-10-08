@@ -173,6 +173,17 @@ joined before this get their workspace at their next message. The bot
 leaving no longer removes the binding, so coming back reuses the same
 workspace; unlinking on purpose is still in ตั้งค่า.
 
+## Manager overview (2026-10-08)
+
+ผลงาน became **ภาพรวม** (`?p=reports`, kicker `05 — OVERVIEW`): what needs
+chasing, then each person's load; the share card moved below it. The rules
+are in `lib/tasks/overview.ts` (pure, tested), not in render code. Each open
+task lands in at most one list, first match wins: เลยกำหนด → ติดปัญหา →
+รอตรวจ → ไม่มีคนรับผิดชอบ → ยังไม่กดรับ (after a day, or due within one) →
+ไม่ขยับ 3 วัน (from `status_changed_at`). Handed-in work is never late.
+"งานเยอะ" needs both 5+ open and twice the team average. Every member can
+see it, like the task list itself.
+
 ## Data rules
 
 - Identity is the **LINE user ID**. Nicknames are per-workspace display data

@@ -285,11 +285,13 @@ await step('a new workspace opens empty, and the old one keeps its members', bos
   await p.goto(BASE + '/?p=manage', { waitUntil: 'networkidle' });
   await p.getByText('เมย์').first().waitFor({ timeout: 6000 });
 });
-await step('กำหนดส่ง and ผลงาน load without errors', boss.page, async () => {
+await step('กำหนดส่ง and ภาพรวม load without errors', boss.page, async () => {
   const p = boss.page;
   const before = boss.errors.length;
   await p.goto(BASE + '/?p=calendar', { waitUntil: 'networkidle' });
   await p.goto(BASE + '/?p=reports', { waitUntil: 'networkidle' });
+  await p.getByRole('heading', { name: 'ต้องดูตอนนี้' }).waitFor({ timeout: 6000 });
+  await p.getByRole('heading', { name: 'แต่ละคน' }).waitFor({ timeout: 6000 });
   await p.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
   const [res] = await Promise.all([
     p.waitForResponse((r) => r.url().includes('/summary'), { timeout: 8000 }),

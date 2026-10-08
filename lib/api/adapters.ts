@@ -83,6 +83,8 @@ export type UiTask = {
   batchId?: string | null;
   submittedAt?: string | null;
   closedAt?: string | null;
+  /** When the status last changed: how long something has been stuck. */
+  statusChangedAt?: string | null;
 };
 
 export function toUiTask(t: ApiTask): UiTask {
@@ -112,6 +114,7 @@ export function toUiTask(t: ApiTask): UiTask {
     batchId: t.batchId ?? null,
     submittedAt: t.submittedAt ?? null,
     closedAt: t.closedAt ?? null,
+    statusChangedAt: t.statusChangedAt ?? null,
   };
 }
 

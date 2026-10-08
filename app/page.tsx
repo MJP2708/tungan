@@ -98,6 +98,7 @@ import { th } from 'date-fns/locale';
 import { api, ApiError, newIdempotencyKey, type ApiAnnouncement } from '@/lib/api/client';
 import { taskIdFromSearch, pageFromSearch, pageUrl } from '@/lib/deep-link.ts';
 import { BLOCKED_REASONS } from '@/lib/tasks/reasons';
+import { teamOverview, formatSpan, ATTENTION_ORDER, type AttentionKind } from '@/lib/tasks/overview';
 import { mayEditTaskFields } from '@/lib/tasks/permissions';
 import { useToast, ToastHost } from '@/components/toast-host';
 import * as queue from '@/lib/api/queue';
@@ -176,6 +177,7 @@ type Task = {
   batchId?: string | null;
   submittedAt?: string | null;
   closedAt?: string | null;
+  statusChangedAt?: string | null;
 };
 type Capture = {
   id: string;
@@ -227,6 +229,16 @@ const statusMeta: Record<Status, { label: string; icon: typeof Circle }> = {
   review: { label: 'รอตรวจ', icon: Hourglass },
   done: { label: 'ปิดงานแล้ว', icon: CheckCircle2 },
 };
+/** The manager overview's lists, in the order they are shown. */
+const attentionMeta: Record<AttentionKind, string> = {
+  late: 'เลยกำหนด',
+  blocked: 'ติดปัญหา',
+  review: 'รอตรวจ',
+  unassigned: 'ยังไม่มีคนรับผิดชอบ',
+  unaccepted: 'ยังไม่กดรับงาน',
+  quiet: 'ไม่ขยับ 3 วันขึ้นไป',
+};
+const ATTENTION_PREVIEW = 4;
 const navigationIcons = {
   home: LayoutGrid,
   inbox: Inbox,
@@ -1271,20 +1283,21 @@ export default function Home() {
   const completionRate = totalTaskCount
     ? Math.round((counts.done / totalTaskCount) * 100)
     : 0;
-  const acceptedCount = projectTasks.filter((task) => task.acceptedAt).length;
   const progressCount = projectTasks.filter(
     (task) => task.status === 'progress',
   ).length;
-  const statusBreakdown = (
-    ['todo', 'progress', 'blocked', 'review', 'done'] as Status[]
-  ).map((status) => ({
-    status,
-    count: projectTasks.filter((task) => task.status === status).length,
-  }));
-  const maxStatusCount = Math.max(
-    1,
-    ...statusBreakdown.map((item) => item.count),
+  // The manager overview on ภาพรวม. What counts as needing attention is decided
+  // in lib/tasks/overview.ts, not here; this only picks the people to show.
+  // "งานของฉัน" spans workspaces, so it has no team to list.
+  const overviewMemberIds = useMemo(
+    () => (selectedProjectId === 'mine' ? [] : selectedProject.members.map((m) => m.id)),
+    [selectedProjectId, selectedProject.members],
   );
+  const overview = useMemo(
+    () => teamOverview(projectTasks, overviewMemberIds, now),
+    [projectTasks, overviewMemberIds, now],
+  );
+  const [expandedAttention, setExpandedAttention] = useState<AttentionKind | null>(null);
   const calendarDates = useMemo(() => {
     const bangkokParts = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Bangkok',
@@ -2528,14 +2541,16 @@ export default function Home() {
    * phone; now a screen of scrolling holds about nine tasks instead of four.
    * Still `.task-row` underneath, so tests and the harness find it.
    */
-  function TaskRow({ task }: { task: Task }) {
+  /** `why` replaces the status note: the overview says how long ("รอตรวจ 2 วัน"). */
+  function TaskRow({ task, why }: { task: Task; why?: string }) {
     const assignee = getAssignee(task);
     const editable = canEditTask(task);
     const waiting = queued.some((q) => q.taskId === task.id);
     const late =
       task.status !== 'done' && task.status !== 'review' && isOverdue(task.dueAt, now);
-    const state =
-      task.pendingAssigneeId
+    const state = why !== undefined
+      ? why && ` · ${why}`
+      : task.pendingAssigneeId
         ? ' · รอรับงานที่ส่งต่อ'
         : task.status === 'blocked'
           ? ` · ${task.blockedReason || 'ติดปัญหา'}`
@@ -3429,81 +3444,118 @@ export default function Home() {
     <section className="page-section report-page">
       <div className="section-intro">
         <div>
-          <h2 data-kicker={pageKicker('reports')}>ผลงาน</h2>
+          <h2 data-kicker={pageKicker('reports')}>ภาพรวม</h2>
         </div>
       </div>
       <div className="report-layout">
         <div className="report-data">
           <section className="report-metrics">
             <article>
-              <span>งานทั้งหมด</span>
-              <strong>{totalTaskCount}</strong>
-              <small>{counts.open} งานยังเปิดอยู่</small>
+              <span>ต้องตามตอนนี้</span>
+              <strong>{overview.attentionTotal}</strong>
+              <small>จาก {overview.open} งานที่ยังเปิดอยู่</small>
             </article>
             <article>
-              <span>ปิดงานแล้ว</span>
-              <strong>{completionRate}%</strong>
-              <small>{counts.done} งานอนุมัติหรือเสร็จสิ้น</small>
+              <span>ปิดใน 7 วัน</span>
+              <strong>{overview.closedLast7Days}</strong>
+              <small>สัปดาห์ก่อน {overview.closedPrevious7Days} งาน</small>
             </article>
             <article>
-              <span>มีคนรับงานแล้ว</span>
-              <strong>{acceptedCount}</strong>
-              <small>{dailyBrief.unaccepted} งานยังรอคนรับ</small>
+              <span>รอตรวจ</span>
+              <strong>{overview.attention.review.length}</strong>
+              <small>ส่งแล้ว รอคนสั่งงานตรวจ</small>
             </article>
           </section>
-          <section className="panel status-breakdown-panel">
+          <section className="panel overview-attention">
             <div className="panel-heading">
               <div>
-                <h3>สถานะงาน</h3>
+                <h3>ต้องดูตอนนี้</h3>
               </div>
             </div>
-            <div className="status-breakdown">
-              {statusBreakdown.map((item) => (
-                <div key={item.status}>
-                  <span>{statusMeta[item.status].label}</span>
-                  <i>
-                    <b
-                      style={{
-                        width: `${(item.count / maxStatusCount) * 100}%`,
-                      }}
-                    />
-                  </i>
-                  <strong>{item.count}</strong>
-                </div>
-              ))}
-            </div>
+            {overview.attentionTotal === 0 ? (
+              <EmptyState
+                title="ไม่มีงานค้าง"
+                body="ไม่มีงานเลยกำหนด ติดปัญหา หรือรอตรวจ"
+              />
+            ) : (
+              ATTENTION_ORDER.filter((kind) => overview.attention[kind].length > 0).map(
+                (kind) => {
+                  const items = overview.attention[kind];
+                  const expanded = expandedAttention === kind;
+                  const shown = expanded ? items : items.slice(0, ATTENTION_PREVIEW);
+                  return (
+                    <div className={`overview-group is-${kind}`} key={kind}>
+                      <h4>
+                        {attentionMeta[kind]} <span>{items.length}</span>
+                      </h4>
+                      <div className="task-list">
+                        {shown.map(({ task, forMs }) => {
+                          const full = task as Task;
+                          const span = formatSpan(forMs);
+                          const why =
+                            kind === 'late'
+                              ? ''
+                              : kind === 'blocked'
+                                ? `${full.blockedReason || 'ติดปัญหา'} ${span}`
+                                : kind === 'review'
+                                  ? `รอตรวจ ${span}`
+                                  : kind === 'unassigned'
+                                    ? 'ไม่มีคนรับผิดชอบ'
+                                    : kind === 'unaccepted'
+                                      ? `${full.pendingAssigneeId ? 'รอรับงานที่ส่งต่อ' : 'ยังไม่รับ'} ${span}`
+                                      : `สถานะเดิม ${span}`;
+                          return <TaskRow key={task.id} task={full} why={why} />;
+                        })}
+                      </div>
+                      {items.length > ATTENTION_PREVIEW && (
+                        <button
+                          type="button"
+                          className="overview-more"
+                          onClick={() => setExpandedAttention(expanded ? null : kind)}
+                        >
+                          {expanded ? 'ย่อ' : `ดูทั้งหมด ${items.length} งาน`}
+                        </button>
+                      )}
+                    </div>
+                  );
+                },
+              )
+            )}
           </section>
           <section className="panel workload-panel">
             <div className="panel-heading">
               <div>
-                <h3>ภาระงาน</h3>
+                <h3>แต่ละคน</h3>
               </div>
             </div>
-            {selectedProject.members.map((member) => {
-              // Counted per person in every view. The "mine" view used to
-              // hand each member the workspace total, so everyone's bar was
-              // full and the chart said nothing (audit BUG-10).
-              const memberTasks = projectTasks.filter((task) => {
-                if (task.assigneeType === 'member') return task.assigneeId === member.id;
-                return !!getProject(task.projectId)
-                  .teams.find((team) => team.id === task.assigneeId)
-                  ?.memberIds.includes(member.id);
-              }).length;
-              return (
-                <div className="load-row" key={member.id}>
-                  <PersonAvatar initials={member.initials} size="sm" />
-                  <span>{member.nickname}</span>
-                  <i>
-                    <b
-                      style={{
-                        width: `${totalTaskCount ? (memberTasks / totalTaskCount) * 100 : 0}%`,
-                      }}
-                    />
-                  </i>
-                  <strong>{memberTasks} งาน</strong>
-                </div>
-              );
-            })}
+            {overview.people.length === 0 ? (
+              <p className="overview-note">เลือกทีมด้านบน เพื่อดูงานของแต่ละคน</p>
+            ) : (
+              overview.people.map((person) => {
+                const member = selectedProject.members.find((m) => m.id === person.memberId);
+                if (!member) return null;
+                const most = Math.max(1, ...overview.people.map((p) => p.open));
+                return (
+                  <div className={`load-row overview-person ${person.heavy ? 'is-heavy' : ''}`} key={member.id}>
+                    <PersonAvatar initials={member.initials} size="sm" />
+                    <span>
+                      {member.nickname}
+                      <small>
+                        {person.late > 0 && <b className="is-late">เลย {person.late}</b>}
+                        {person.late > 0 && ' · '}
+                        สัปดาห์นี้ {person.dueThisWeek}
+                        {person.inReview > 0 && ` · รอตรวจ ${person.inReview}`}
+                        {person.heavy && ' · งานเยอะกว่าคนอื่น'}
+                      </small>
+                    </span>
+                    <i>
+                      <b style={{ width: `${(person.open / most) * 100}%` }} />
+                    </i>
+                    <strong>{person.open} งาน</strong>
+                  </div>
+                );
+              })
+            )}
           </section>
         </div>
         <aside className="story-shell">
