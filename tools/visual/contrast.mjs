@@ -10,16 +10,25 @@ function scan() {
   const rgb = (s) => (s.match(/[\d.]+/g) || []).map(Number);
   const isLight = ([r, g, b]) => r > 200 && g > 200 && b > 200;
   const colourStops = () => /rgba?\((\d+), (\d+), (\d+)(?:, ([\d.]+))?\)/g;
+  // "Dark enough for white text": at least 3:1 against white by WCAG
+  // luminance. Brand blue #0080ff (3.9:1, the selected state) passes; the
+  // glass fill over a dark chip that this file exists to catch does not.
+  // (It used to sum the channels, which called brand blue light.)
+  const lum = ([r, g, b]) => {
+    const c = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * c(r) + 0.7152 * c(g) + 0.0722 * c(b);
+  };
+  const darkEnough = (r, g, b) => 1.05 / (lum([r, g, b]) + 0.05) >= 3;
   const hasDarkBg = (el) => {
     for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
       const cs = getComputedStyle(n);
       const [r, g, b, a = 1] = rgb(cs.backgroundColor);
-      if (a > 0.5) return r + g + b < 360;
+      if (a > 0.5) return darkEnough(r, g, b);
       const img = cs.backgroundImage;
       if (img && img !== 'none') {
         const re = colourStops();
         let m, dark = false;
-        while ((m = re.exec(img))) { const al = m[4] === undefined ? 1 : +m[4]; if (al > 0.5 && +m[1] + +m[2] + +m[3] < 240) dark = true; }
+        while ((m = re.exec(img))) { const al = m[4] === undefined ? 1 : +m[4]; if (al > 0.5 && darkEnough(+m[1], +m[2], +m[3])) dark = true; }
         if (dark) return true;
       }
     }

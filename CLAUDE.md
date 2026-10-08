@@ -192,6 +192,18 @@ task lands in at most one list, first match wins: เลยกำหนด → �
 "งานเยอะ" needs both 5+ open and twice the team average. Every member can
 see it, like the task list itself.
 
+## Calendar view (2026-10-09)
+
+กำหนดส่ง is a month calendar of what is already stored — deadlines by
+Bangkok calendar day (`lib/calendar.ts`, tested), Sunday first, six rows,
+Buddhist-era year in the title. A day shows its count (red when any of it
+is late); picking a day lists its tasks and who has how many. Undated work
+is a link to งาน. **Not a calendar of its own**: no events, no sync —
+calendar sync stays out of scope. Seven `minmax(0, 1fr)` columns down to
+320px; side by side with the day from 1021px. `tools/visual/contrast.mjs`
+now judges "dark enough for white text" by WCAG contrast (≥ 3:1), so brand
+blue selected states pass and glass-on-dark still fails.
+
 ## Data rules
 
 - Identity is the **LINE user ID**. Nicknames are per-workspace display data

@@ -289,6 +289,18 @@ await step('กำหนดส่ง and ภาพรวม load without errors'
   const p = boss.page;
   const before = boss.errors.length;
   await p.goto(BASE + '/?p=calendar', { waitUntil: 'networkidle' });
+  // The month calendar: today marked once; its count is the list below it,
+  // and every task listed is due today (Bangkok) in the database.
+  const today = p.locator('.month-day.is-today');
+  expect((await today.count()) === 1, 'today is not marked once');
+  const shown = Number((await today.locator('small').textContent().catch(() => '0')) || 0);
+  const titles = await p.locator('.calendar-agenda .task-row strong').allTextContents();
+  expect(shown === titles.length, `today's cell says ${shown}, the list has ${titles.length}`);
+  for (const title of titles) {
+    const rows = await q(`select 1 from task where title = $1
+      and (due_at at time zone 'Asia/Bangkok')::date = (now() at time zone 'Asia/Bangkok')::date`, [title]);
+    expect(rows.length > 0, `"${title}" is listed today but not due today`);
+  }
   await p.goto(BASE + '/?p=reports', { waitUntil: 'networkidle' });
   await p.getByRole('heading', { name: 'ต้องดูตอนนี้' }).waitFor({ timeout: 6000 });
   await p.getByRole('heading', { name: 'แต่ละคน' }).waitFor({ timeout: 6000 });

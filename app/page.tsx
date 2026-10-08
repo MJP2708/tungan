@@ -11,6 +11,7 @@ import {
   CalendarDays,
   Check,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   Circle,
   Clock3,
@@ -93,8 +94,16 @@ import {
   zonedDateParts,
   quickDayDate,
   relativeDeadline,
-  type DayBucket,
 } from '@/lib/deadline';
+import {
+  dayKey,
+  monthGrid,
+  shiftMonth,
+  tasksByDay,
+  monthTitle,
+  THAI_WEEKDAYS_SHORT,
+  type DayKey,
+} from '@/lib/calendar';
 import { th } from 'date-fns/locale';
 import { api, ApiError, newIdempotencyKey, type ApiAnnouncement } from '@/lib/api/client';
 import { taskIdFromSearch, pageFromSearch, pageUrl } from '@/lib/deep-link.ts';
@@ -622,7 +631,10 @@ export default function Home() {
   const [filter, setFilter] = useState<'all' | Status>('all');
   // งาน's ของฉัน chip: only work that is mine, alongside any status filter.
   const [mineOnly, setMineOnly] = useState(false);
-  const [calendarDay, setCalendarDay] = useState<DayBucket>('today');
+  // กำหนดส่ง: the month on screen and the day picked in it. null = today,
+  // so the selection follows the date when the app is left open overnight.
+  const [calendarMonth, setCalendarMonth] = useState<{ year: number; month: number } | null>(null);
+  const [calendarPick, setCalendarPick] = useState<DayKey | null>(null);
   const [manageTab, setManageTab] = useState<ManageTab>('members');
   /**
    * Announcements: the unread ones pop up one at a time when the app opens,
@@ -1300,30 +1312,16 @@ export default function Home() {
     [projectTasks, overviewMemberIds, now],
   );
   const [expandedAttention, setExpandedAttention] = useState<AttentionKind | null>(null);
-  const calendarDates = useMemo(() => {
-    const bangkokParts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Bangkok',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).formatToParts(now);
-    const value = (type: Intl.DateTimeFormatPartTypes) =>
-      Number(bangkokParts.find((part) => part.type === type)?.value || 0);
-    const base = new Date(
-      Date.UTC(value('year'), value('month') - 1, value('day')),
-    );
-    const tomorrow = new Date(base);
-    tomorrow.setUTCDate(base.getUTCDate() + 1);
-    const friday = new Date(base);
-    const daysUntilFriday = (5 - base.getUTCDay() + 7) % 7 || 7;
-    friday.setUTCDate(base.getUTCDate() + daysUntilFriday);
-    const number = (date: Date) => String(date.getUTCDate()).padStart(2, '0');
-    return {
-      today: number(base),
-      tomorrow: number(tomorrow),
-      friday: number(friday),
-    };
-  }, [now]);
+  const todayKey = dayKey(now)!;
+  const shownMonth = calendarMonth ?? (() => {
+    const p = zonedDateParts(now);
+    return { year: p.year, month: p.month };
+  })();
+  const selectedDayKey = calendarPick ?? todayKey;
+  const calendarLoad = useMemo(
+    () => tasksByDay(projectTasks, now, { includeDone: settings.showCompleted }),
+    [projectTasks, now, settings.showCompleted],
+  );
   function getAssignee(
     task: Pick<Task, 'projectId' | 'assigneeType' | 'assigneeId'>,
   ) {
@@ -3379,74 +3377,125 @@ export default function Home() {
     );
   };
 
-  const renderCalendar = () => (
-    <section className="page-section">
-      <div className="section-intro">
-        <div>
-          <h2 data-kicker={pageKicker('calendar')}>กำหนดส่ง</h2>
-        </div>
-      </div>
-      <div className="calendar-strip">
-        {(
-          [
-            { key: 'today', label: 'วันนี้', number: calendarDates.today },
-            {
-              key: 'tomorrow',
-              label: 'พรุ่งนี้',
-              number: calendarDates.tomorrow,
-            },
-            { key: 'friday', label: 'ศุกร์', number: calendarDates.friday },
-            { key: 'later', label: 'ถัดไป', number: '—' },
-          ] as const
-        ).map((item) => (
-          <button
-            key={item.key}
-            className={calendarDay === item.key ? 'active' : ''}
-            onClick={() => setCalendarDay(item.key)}
-          >
-            <span>{item.label}</span>
-            <strong>{item.number}</strong>
-            <small>
-              {
-                projectTasks.filter(
-                  (task) => dayBucket(task.dueAt, now) === item.key,
-                ).length
-              }{' '}
-              งาน
-            </small>
-          </button>
-        ))}
-      </div>
-      <div className="panel calendar-agenda">
-        <div className="panel-heading">
+  const renderCalendar = () => {
+    const weeks = monthGrid(shownMonth.year, shownMonth.month);
+    const picked = calendarLoad.get(selectedDayKey);
+    const pickedTasks = picked?.tasks ?? [];
+    const [py, pm, pd] = selectedDayKey.split('-').map(Number);
+    // Noon UTC on that date: formatted in UTC, it is that calendar day.
+    const pickedLabel = new Intl.DateTimeFormat('th-TH', {
+      timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long',
+    }).format(new Date(Date.UTC(py, pm - 1, pd, 12)));
+    // Who has work that day: the per-person load the month view promised.
+    const perPerson = new Map<string, number>();
+    for (const task of pickedTasks) {
+      const label = getAssignee(task).label;
+      perPerson.set(label, (perPerson.get(label) ?? 0) + 1);
+    }
+    const undated = projectTasks.filter((task) => !task.dueAt && task.status !== 'done').length;
+    const thisMonth = zonedDateParts(now);
+    const onThisMonth = shownMonth.year === thisMonth.year && shownMonth.month === thisMonth.month;
+    const goMonth = (by: number) => setCalendarMonth(shiftMonth(shownMonth, by));
+
+    return (
+      <section className="page-section calendar-page">
+        <div className="section-intro">
           <div>
-            <h3>
-              {calendarDay === 'today'
-                ? 'วันนี้'
-                : calendarDay === 'tomorrow'
-                  ? 'พรุ่งนี้'
-                  : 'กำหนดส่งถัดไป'}
-            </h3>
+            <h2 data-kicker={pageKicker('calendar')}>กำหนดส่ง</h2>
           </div>
         </div>
-        <div className="task-list">
-          {projectTasks
-            .filter((task) => dayBucket(task.dueAt, now) === calendarDay)
-            .map((task) => (
+        <div className="panel month-calendar">
+          <div className="month-head">
+            <button type="button" className="month-step" aria-label="เดือนก่อน" onClick={() => goMonth(-1)}>
+              <ChevronLeft />
+            </button>
+            <h3>{monthTitle(shownMonth.year, shownMonth.month)}</h3>
+            <button type="button" className="month-step" aria-label="เดือนถัดไป" onClick={() => goMonth(1)}>
+              <ChevronRight />
+            </button>
+            {(!onThisMonth || selectedDayKey !== todayKey) && (
+              <button
+                type="button"
+                className="month-today"
+                onClick={() => {
+                  setCalendarMonth(null);
+                  setCalendarPick(null);
+                }}
+              >
+                วันนี้
+              </button>
+            )}
+          </div>
+          <div className="month-grid">
+            {THAI_WEEKDAYS_SHORT.map((label) => (
+              <span className="month-weekday" key={label} aria-hidden="true">
+                {label}
+              </span>
+            ))}
+            {weeks.flat().map((cell) => {
+              const load = calendarLoad.get(cell.key);
+              const count = load?.tasks.length ?? 0;
+              return (
+                <button
+                  type="button"
+                  key={cell.key}
+                  className={[
+                    'month-day',
+                    cell.inMonth ? '' : 'is-outside',
+                    cell.key === todayKey ? 'is-today' : '',
+                    cell.key === selectedDayKey ? 'is-selected' : '',
+                    load?.late ? 'has-late' : '',
+                  ].join(' ')}
+                  aria-pressed={cell.key === selectedDayKey}
+                  aria-label={`${cell.day}${count ? ` · ${count} งาน` : ''}${load?.late ? ` · เลยกำหนด ${load.late}` : ''}`}
+                  onClick={() => {
+                    setCalendarPick(cell.key);
+                    if (!cell.inMonth) {
+                      const [y, m] = cell.key.split('-').map(Number);
+                      setCalendarMonth({ year: y, month: m });
+                    }
+                  }}
+                >
+                  <span>{cell.day}</span>
+                  {count > 0 && <small>{count}</small>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="panel calendar-agenda">
+          <div className="panel-heading">
+            <div>
+              <h3>{selectedDayKey === todayKey ? `วันนี้ · ${pickedLabel}` : pickedLabel}</h3>
+              {pickedTasks.length > 0 && (
+                <p className="calendar-people">
+                  {pickedTasks.length} งาน ·{' '}
+                  {[...perPerson.entries()].map(([name, n]) => `${name} ${n}`).join(' · ')}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="task-list">
+            {pickedTasks.map((task) => (
               <TaskRow key={task.id} task={task} />
             ))}
-          {projectTasks.filter((task) => dayBucket(task.dueAt, now) === calendarDay)
-            .length ===
-            0 && (
-            <EmptyState
-              title="ไม่มีงานในวันนี้"
-              body="เลือกวันอื่น หรือสร้างงานพร้อมกำหนดเวลา"
-            />
-          )}
+            {pickedTasks.length === 0 && (
+              <EmptyState
+                title={selectedDayKey === todayKey ? 'วันนี้ไม่มีงานถึงกำหนด' : 'วันนั้นไม่มีงานถึงกำหนด'}
+                body="เลือกวันอื่นในปฏิทิน หรือสร้างงานพร้อมกำหนดเวลา"
+              />
+            )}
+          </div>
         </div>
-      </div>
-    </section>
-  );
+        {undated > 0 && (
+          <button type="button" className="calendar-undated" onClick={() => navigate('tasks')}>
+            ไม่มีกำหนดส่ง {undated} งาน · ดูในหน้างาน
+            <ChevronRight />
+          </button>
+        )}
+      </section>
+    );
+  };
 
   const renderReports = () => (
     <section className="page-section report-page">

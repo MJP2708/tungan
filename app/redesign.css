@@ -1441,3 +1441,187 @@ details.delegate-section > summary:focus-visible {
 .announce-item > div > small {
   display: block;
 }
+
+/* ══ กำหนดส่ง: month calendar (2026-10-09) ═══════════════════════════════
+   Seven columns that shrink to 320px, as the task dialog's calendar does.
+   Brand blue for today and the picked day only; red count when work is late. */
+.month-calendar {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.month-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.month-head h3 {
+  flex: 1;
+  margin: 0;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.month-step,
+.month-today {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+}
+
+.month-step svg {
+  width: 20px;
+  height: 20px;
+}
+
+.month-today {
+  order: 4;
+  padding: 0 12px;
+  background: rgba(0, 128, 255, 0.1);
+  color: #0080ff;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.month-step:focus-visible,
+.month-today:focus-visible,
+.month-day:focus-visible,
+.calendar-undated:focus-visible {
+  outline: 2px solid #0080ff;
+  outline-offset: 2px;
+}
+
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.month-weekday {
+  padding: 2px 0 6px;
+  color: var(--ink-3);
+  text-align: center;
+  font-size: 12px;
+}
+
+.month-day {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 1px;
+  min-width: 0;
+  min-height: 48px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--fg, #090909);
+  font-size: 14px;
+}
+
+.month-day small {
+  min-width: 18px;
+  border-radius: 999px;
+  background: rgba(9, 9, 9, 0.07);
+  padding: 0 5px;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 16px;
+}
+
+.month-day.has-late small {
+  background: #c4241f;
+  color: #ffffff;
+}
+
+.month-day.is-outside {
+  color: var(--ink-3);
+  opacity: 0.55;
+}
+
+.month-day.is-today > span {
+  color: #0080ff;
+  font-weight: 600;
+}
+
+.month-day.is-selected {
+  background: #0080ff;
+  color: #ffffff;
+}
+
+.month-day.is-selected > span {
+  color: #ffffff;
+}
+
+.month-day.is-selected small {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+.month-day.is-selected.has-late small {
+  background: #ffffff;
+  color: #c4241f;
+}
+
+.calendar-people {
+  margin: 2px 0 0;
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+
+.calendar-undated {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 0 16px;
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+
+.calendar-undated svg {
+  width: 18px;
+  height: 18px;
+}
+
+.calendar-page .calendar-agenda {
+  min-height: 0;
+}
+
+/* Desktop: the month and the picked day side by side, not one stretched row. */
+@media (min-width: 1021px) {
+  .calendar-page {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 16px;
+  }
+
+  .calendar-page > .section-intro {
+    grid-column: 1 / -1;
+  }
+
+  .calendar-page > .month-calendar {
+    grid-column: 1;
+    grid-row: 2 / span 2;
+  }
+
+  .calendar-page > .calendar-agenda,
+  .calendar-page > .calendar-undated {
+    grid-column: 2;
+  }
+}
