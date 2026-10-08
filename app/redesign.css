@@ -1379,3 +1379,65 @@ details.delegate-section > summary:focus-visible {
     flex-direction: column;
   }
 }
+
+/* Join button for an announcement's meeting link: a brand-blue pill, the
+   one action besides รับทราบ. */
+.announce-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  margin: 6px 0;
+  border-radius: 999px;
+  background: #0080ff;
+  padding: 0 18px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.announce-link svg {
+  width: 18px;
+  height: 18px;
+}
+
+.announce-link:focus-visible {
+  outline: 2px solid #0080ff;
+  outline-offset: 2px;
+}
+
+.announcement-join {
+  width: 100%;
+  min-height: 48px;
+  margin: 0;
+}
+
+/* Who has not seen it yet, folded away (author, owners, admins only). */
+.announce-unread summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: #0080ff;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.announce-unread p {
+  margin: 0 0 4px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+/* In the history the join button is its own line, with the meta under it. */
+.announce-item .announce-link {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.announce-item > div > small {
+  display: block;
+}

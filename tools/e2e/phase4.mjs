@@ -30,10 +30,17 @@ await step('the owner posts one from ทีม → ประกาศ', boss.pag
   const form = p.locator('.announce-composer');
   await form.locator('input[name="announceTitle"]').fill('E2E ประชุมทีมย้ายเป็นศุกร์ 10:00');
   await form.locator('textarea[name="announceBody"]').fill('ห้องประชุมใหญ่ ชั้น 3');
+  // A link that is not a web link is refused before anything is sent.
+  await form.locator('input[name="announceLink"]').fill('meet.google.com/abc');
+  await form.locator('button[type="submit"]').click();
+  await sleep(600);
+  expect((await q("select count(*)::int n from announcement"))[0].n === 0, 'a bad link was stored');
+  await form.locator('input[name="announceLink"]').fill('https://meet.google.com/e2e-test-abc');
   await form.locator('button[type="submit"]').click();
   await sleep(1000);
   const [a] = await q("select * from announcement where title like 'E2E ประชุม%'");
   expect(a && a.author_user_id === 'u-boss', 'not stored');
+  expect(a.link === 'https://meet.google.com/e2e-test-abc', `link ${a.link}`);
   await p.locator('.announce-item', { hasText: 'E2E ประชุมทีม' }).waitFor({ timeout: 5000 });
   // The author gets the same notice as everyone, right away; X closes it.
   await popup(p).waitFor({ timeout: 5000 });
@@ -47,6 +54,9 @@ await step('เมย์ sees it as a popup when she opens the app; X closes it 
   await p.goto(BASE + '/', { waitUntil: 'networkidle' });
   await popup(p).waitFor({ timeout: 6000 });
   expect((await popup(p).innerText()).includes('E2E ประชุมทีมย้ายเป็นศุกร์'), 'wrong popup');
+  const join = popup(p).locator('a.announcement-join');
+  expect((await join.getAttribute('href')) === 'https://meet.google.com/e2e-test-abc', 'no join link');
+  expect((await join.innerText()).includes('Google Meet'), 'join button does not say where');
   await popup(p).getByRole('button', { name: 'Close' }).click();
   await sleep(800);
   expect(!(await popup(p).isVisible()), 'still open');
@@ -55,6 +65,24 @@ await step('เมย์ sees it as a popup when she opens the app; X closes it 
   await p.reload({ waitUntil: 'networkidle' });
   await sleep(800);
   expect(!(await popup(p).isVisible()), 'it came back after a reload');
+});
+
+await step('read receipts: the owner sees who has not seen it; a member gets the count only', boss.page, async () => {
+  const [{ n }] = await q("select count(*)::int n from workspace_member where workspace_id='ws-team'");
+  const p = boss.page;
+  await p.goto(BASE + '/?p=manage', { waitUntil: 'networkidle' });
+  await p.locator('.manage-tabs button', { hasText: 'ประกาศ' }).click();
+  const item = p.locator('.announce-item', { hasText: 'E2E ประชุมทีม' });
+  await item.waitFor({ timeout: 5000 });
+  // The owner and เมย์ have both closed it.
+  expect((await item.innerText()).includes(`รับทราบแล้ว 2/${n}`), `count: ${await item.innerText()}`);
+  if (n > 2) {
+    await item.locator('.announce-unread summary').click();
+    expect((await item.locator('.announce-unread').innerText()).includes(`ยังไม่เห็น ${n - 2} คน`), 'names missing');
+  }
+  const res = await may.page.request.get(BASE + '/api/workspaces/ws-team/announcements');
+  const [mine] = (await res.json()).announcements.filter((x) => x.title.startsWith('E2E ประชุม'));
+  expect(mine.readCount === 2 && mine.unreadNames === null, `member got ${JSON.stringify(mine)}`);
 });
 
 await step('two new announcements come one after the other with รับทราบ', may.page, async () => {

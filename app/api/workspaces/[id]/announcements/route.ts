@@ -14,7 +14,10 @@ export async function GET(
   try {
     const { id } = await params;
     const membership = await requireMembership(id);
-    return NextResponse.json({ announcements: await listAnnouncements(id, membership.userId) });
+    const manager = membership.role === 'owner' || membership.role === 'admin';
+    return NextResponse.json({
+      announcements: await listAnnouncements(id, membership.userId, { manager }),
+    });
   } catch (error) {
     return errorResponse(error);
   }
@@ -37,6 +40,7 @@ export async function POST(
           authorUserId: membership.userId,
           title: String(body.title ?? ''),
           body: String(body.body ?? ''),
+          link: body.link == null ? null : String(body.link),
         }),
     );
     if (replayedId) return NextResponse.json({ id: replayedId, replayed: true });

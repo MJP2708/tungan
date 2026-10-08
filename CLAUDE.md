@@ -153,6 +153,14 @@ proves nothing here.
   not return on another phone. **In the app only** — never posted to the LINE
   group, which would cost one counted message per member. Data access in
   `lib/announcements.ts`; history on ทีม → ประกาศ.
+- **Read receipts and meeting links (2026-10-09):** the history shows
+  "รับทราบแล้ว x/y" (current members who closed it) to everyone; the names of
+  who has not are sent **only** to the author, owners and admins — `null`
+  for everyone else, decided on the server. An announcement may carry one
+  link (`announcement.link`, migration 0014) shown as a "เข้าร่วม Google Meet /
+  Zoom / Teams / เปิดใน LINE" button; `lib/meeting-link.ts` validates and
+  labels it. In LINE the first link in `ประกาศ:` becomes the button and is
+  taken out of the text. ทันงาน does **not** run voice or video calls itself.
 - **ทุกคน / @All tasks:** one copy per person, linked by `task.batch_id`, so
   each person ticks off their own and whoever asked sees "ทุกคน · เสร็จ x/y".
   "Everyone" = workspace members + people seen in a bound LINE group, minus
@@ -407,7 +415,7 @@ node tools/visual/contrast.mjs  # light text left on a light surface
 **End-to-end against a real backend** lives in `tools/e2e/` (README there):
 the production build, a throwaway local Postgres, two signed-in people, a
 webhook signed with a fake channel secret, and every step checked in the
-database — 52 checks (55 after 17:00 Bangkok) across create → review → approve, LINE drafts,
+database — 53 checks (56 after 17:00 Bangkok) across create → review → approve, LINE drafts,
 reminders, settings, workspaces, cron, logout, announcements and ทุกคน tasks. Every key in `.env.local`
 must be overridden when starting that server, because `.env.local` is
 production; `tools/e2e/lib.mjs` refuses a non-localhost database.

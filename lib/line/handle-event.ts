@@ -802,9 +802,10 @@ async function handleMessage(event: LineEventPayload) {
       authorUserId: author,
       title: announced.title,
       body: announced.body,
+      link: announced.link,
     });
     await say(
-      `ประกาศแล้ว: ${announced.title}\nทุกคนในพื้นที่งานจะเห็นเป็นหน้าต่างแจ้งเตือนครั้งเดียวเมื่อเปิดแอป${
+      `ประกาศแล้ว: ${announced.title}${announced.link ? '\nพร้อมปุ่มเข้าร่วมจากลิงก์ที่แนบ' : ''}\nทุกคนในพื้นที่งานจะเห็นเป็นหน้าต่างแจ้งเตือนครั้งเดียวเมื่อเปิดแอป${
         appLink() ? `\n${appLink()}` : ''
       }`,
     );

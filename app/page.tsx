@@ -36,6 +36,7 @@ import {
   ShieldCheck,
   Sparkles,
   Users,
+  Video,
   UserRound,
   Trash2,
   Hourglass,
@@ -98,6 +99,7 @@ import { th } from 'date-fns/locale';
 import { api, ApiError, newIdempotencyKey, type ApiAnnouncement } from '@/lib/api/client';
 import { taskIdFromSearch, pageFromSearch, pageUrl } from '@/lib/deep-link.ts';
 import { BLOCKED_REASONS } from '@/lib/tasks/reasons';
+import { normalizeMeetingLink, meetingLinkLabel } from '@/lib/meeting-link';
 import { teamOverview, formatSpan, ATTENTION_ORDER, type AttentionKind } from '@/lib/tasks/overview';
 import { mayEditTaskFields } from '@/lib/tasks/permissions';
 import { useToast, ToastHost } from '@/components/toast-host';
@@ -2718,9 +2720,15 @@ export default function Home() {
     const title = String(data.get('announceTitle') ?? '').trim();
     const body = String(data.get('announceBody') ?? '').trim();
     if (!title) return setNotice('ใส่หัวข้อประกาศก่อน');
+    let link: string | null;
+    try {
+      link = normalizeMeetingLink(data.get('announceLink'));
+    } catch (error) {
+      return setNotice((error as Error).message);
+    }
     setBusy(true);
     try {
-      await api.postAnnouncement(selectedProject.id, { title, body }, newIdempotencyKey());
+      await api.postAnnouncement(selectedProject.id, { title, body, link }, newIdempotencyKey());
       form.reset();
       const res = await api.announcements(selectedProject.id);
       setAnnouncementHistory(res.announcements ?? []);
@@ -4315,6 +4323,16 @@ export default function Home() {
                 <span>รายละเอียด <small>ไม่บังคับ</small></span>
                 <Textarea name="announceBody" maxLength={2000} rows={4} placeholder="สิ่งที่ทุกคนต้องรู้หรือต้องทำ" />
               </label>
+              <label>
+                <span>ลิงก์ประชุม <small>ไม่บังคับ · Google Meet, Zoom หรือ LINE</small></span>
+                <Input
+                  name="announceLink"
+                  inputMode="url"
+                  autoComplete="off"
+                  maxLength={500}
+                  placeholder="https://meet.google.com/..."
+                />
+              </label>
               <Button type="submit" disabled={busy}>
                 <Megaphone />
                 ประกาศ
@@ -4332,9 +4350,29 @@ export default function Home() {
                     <div>
                       <strong>{item.title}</strong>
                       {item.body && <p>{item.body}</p>}
+                      {item.link && (
+                        <a
+                          className="announce-link"
+                          href={item.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <Video />
+                          {meetingLinkLabel(item.link)}
+                        </a>
+                      )}
                       <small>
                         {item.authorName ?? 'ผู้ดูแล'} · {formatDeadline(item.createdAt, { now })}
+                        {item.audience ? ` · รับทราบแล้ว ${item.readCount ?? 0}/${item.audience}` : ''}
                       </small>
+                      {/* Names only reach the author, owners and admins: the
+                          server sends null to everyone else. */}
+                      {item.unreadNames && item.unreadNames.length > 0 && (
+                        <details className="announce-unread">
+                          <summary>ยังไม่เห็น {item.unreadNames.length} คน</summary>
+                          <p>{item.unreadNames.join(' · ')}</p>
+                        </details>
+                      )}
                     </div>
                     {isWorkspaceManager() && (
                       <button
@@ -5826,6 +5864,17 @@ export default function Home() {
             </DialogHeader>
             {unreadAnnouncements[0].body && (
               <p className="announcement-body">{unreadAnnouncements[0].body}</p>
+            )}
+            {unreadAnnouncements[0].link && (
+              <a
+                className="announce-link announcement-join"
+                href={unreadAnnouncements[0].link}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Video />
+                {meetingLinkLabel(unreadAnnouncements[0].link)}
+              </a>
             )}
             <DialogFooter>
               <Button className="announcement-ack" onClick={closeAnnouncement}>

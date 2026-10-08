@@ -81,9 +81,15 @@ export type ApiAnnouncement = {
   workspaceName: string;
   title: string;
   body: string;
+  link?: string | null;
   authorName: string | null;
   createdAt: string;
   read: boolean;
+  /** On the workspace history only. */
+  readCount?: number;
+  audience?: number;
+  /** Who has not seen it: for the author, owners and admins; else null. */
+  unreadNames?: string[] | null;
 };
 
 export class ApiError extends Error {
@@ -173,7 +179,11 @@ export const api = {
     ),
 
   /** Owners and admins only; the server checks. */
-  postAnnouncement: (workspaceId: string, input: { title: string; body: string }, idempotencyKey: string) =>
+  postAnnouncement: (
+    workspaceId: string,
+    input: { title: string; body: string; link?: string | null },
+    idempotencyKey: string,
+  ) =>
     request<{ id: string; replayed?: boolean }>(
       `/api/workspaces/${encodeURIComponent(workspaceId)}/announcements`,
       { method: 'POST', body: JSON.stringify(input), idempotencyKey },

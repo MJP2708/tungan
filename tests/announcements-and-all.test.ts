@@ -91,6 +91,35 @@ describe('announcements and ทุกคน tasks', { skip: !URL_ ? 'TEST_DATABA
     assert.equal(error?.status, 404);
   });
 
+  test('read receipts: everyone sees the count, only the author and managers see names', async () => {
+    // A third member, so a plain member is not also the author.
+    await db().insert(schema.workspaceMember).values({ workspaceId: ws, userId: nont, role: 'member', nickname: 'นนท์จัง' });
+    const { id } = await ann.postAnnouncement({
+      workspaceId: ws, authorUserId: may, title: 'ประชุมสรุปงาน', body: '',
+      link: 'https://meet.google.com/abc-defg-hij',
+    });
+    await ann.markAnnouncementRead(id, may);
+    await ann.markAnnouncementRead(id, outsider).catch(() => {}); // refused, never counted
+
+    const [asMember] = await ann.listAnnouncements(ws, nont);
+    assert.equal(asMember.link, 'https://meet.google.com/abc-defg-hij');
+    assert.equal(asMember.readCount, 1);
+    assert.equal(asMember.audience, 3);
+    assert.equal(asMember.unreadNames, null, 'a plain member gets no names');
+
+    const [asAuthor] = await ann.listAnnouncements(ws, may);
+    assert.deepEqual([...asAuthor.unreadNames!].sort(), ['นนท์จัง', 'หัวหน้า'].sort(), 'nickname first, then LINE name');
+
+    const [asOwner] = await ann.listAnnouncements(ws, boss, { manager: true });
+    assert.equal(asOwner.unreadNames?.length, 2);
+  });
+
+  test('a meeting link must be a web link', async () => {
+    const error = await ann.postAnnouncement({ workspaceId: ws, authorUserId: boss, title: 'x', body: '', link: 'javascript:alert(1)' })
+      .then(() => null, (e) => e);
+    assert.equal(error?.status, 400);
+  });
+
   test('an announcement needs a title', async () => {
     const error = await ann.postAnnouncement({ workspaceId: ws, authorUserId: boss, title: '  ', body: 'b' }).then(() => null, (e) => e);
     assert.equal(error?.status, 400);

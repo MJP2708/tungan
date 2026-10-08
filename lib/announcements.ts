@@ -3,6 +3,7 @@ import { and, desc, eq, gt, inArray, isNull } from 'drizzle-orm';
 import { db } from './db/index.ts';
 import { announcement, announcementRead, lineUser, workspace, workspaceMember } from './db/schema.ts';
 import { HttpError } from './http-error.ts';
+import { normalizeMeetingLink } from './meeting-link.ts';
 
 /**
  * Announcements: something everyone in a workspace needs to know.
@@ -24,9 +25,22 @@ export type AnnouncementView = {
   workspaceName: string;
   title: string;
   body: string;
+  /** Where to join, when it is about a meeting. */
+  link: string | null;
   authorName: string | null;
   createdAt: Date;
   read: boolean;
+};
+
+/** Read receipts, on the workspace's history only (2026-10-08). */
+export type AnnouncementWithReceipts = AnnouncementView & {
+  /** Current members who have pressed รับทราบ or X. */
+  readCount: number;
+  /** Current members, author included. */
+  audience: number;
+  /** Who has not seen it yet. Only for the author, owners and admins —
+   *  everyone else gets null, so a list of names is not passed around. */
+  unreadNames: string[] | null;
 };
 
 export async function postAnnouncement(params: {
@@ -34,10 +48,17 @@ export async function postAnnouncement(params: {
   authorUserId: string;
   title: string;
   body: string;
+  link?: string | null;
 }): Promise<{ id: string }> {
   const title = params.title.trim().slice(0, TITLE_MAX);
   const body = params.body.trim().slice(0, BODY_MAX);
   if (!title) throw new HttpError(400, 'ใส่หัวข้อประกาศก่อน');
+  let link: string | null;
+  try {
+    link = normalizeMeetingLink(params.link);
+  } catch (error) {
+    throw new HttpError(400, (error as Error).message);
+  }
   const id = crypto.randomUUID();
   await db().insert(announcement).values({
     id,
@@ -45,6 +66,7 @@ export async function postAnnouncement(params: {
     authorUserId: params.authorUserId,
     title,
     body,
+    link,
   });
   // The author sees it too, like everyone else: it is the same notice the
   // whole team gets before using the app, and it confirms what went out.
@@ -61,6 +83,7 @@ export async function unreadAnnouncementsFor(userId: string, now = new Date()): 
       workspaceName: workspace.name,
       title: announcement.title,
       body: announcement.body,
+      link: announcement.link,
       authorName: lineUser.displayName,
       createdAt: announcement.createdAt,
     })
@@ -98,8 +121,16 @@ export async function markAnnouncementRead(announcementId: string, userId: strin
   await db().insert(announcementRead).values({ announcementId, userId }).onConflictDoNothing();
 }
 
-/** The workspace's recent announcements, newest first, with this person's read state. */
-export async function listAnnouncements(workspaceId: string, userId: string): Promise<AnnouncementView[]> {
+/**
+ * The workspace's recent announcements, newest first, with this person's read
+ * state and how many of the team have seen each one. Names of who has not
+ * are for the author and the workspace's owners and admins only.
+ */
+export async function listAnnouncements(
+  workspaceId: string,
+  userId: string,
+  opts: { manager?: boolean } = {},
+): Promise<AnnouncementWithReceipts[]> {
   const rows = await db()
     .select({
       id: announcement.id,
@@ -107,6 +138,8 @@ export async function listAnnouncements(workspaceId: string, userId: string): Pr
       workspaceName: workspace.name,
       title: announcement.title,
       body: announcement.body,
+      link: announcement.link,
+      authorUserId: announcement.authorUserId,
       authorName: lineUser.displayName,
       createdAt: announcement.createdAt,
     })
@@ -117,12 +150,42 @@ export async function listAnnouncements(workspaceId: string, userId: string): Pr
     .orderBy(desc(announcement.createdAt))
     .limit(30);
   if (!rows.length) return [];
-  const read = await db()
-    .select({ id: announcementRead.announcementId })
-    .from(announcementRead)
-    .where(and(eq(announcementRead.userId, userId), inArray(announcementRead.announcementId, rows.map((r) => r.id))));
-  const readIds = new Set(read.map((r) => r.id));
-  return rows.map((r) => ({ ...r, read: readIds.has(r.id) }));
+
+  const [members, reads] = await Promise.all([
+    db()
+      .select({
+        userId: workspaceMember.userId,
+        nickname: workspaceMember.nickname,
+        displayName: lineUser.displayName,
+      })
+      .from(workspaceMember)
+      .leftJoin(lineUser, eq(lineUser.id, workspaceMember.userId))
+      .where(eq(workspaceMember.workspaceId, workspaceId)),
+    db()
+      .select({ id: announcementRead.announcementId, userId: announcementRead.userId })
+      .from(announcementRead)
+      .where(inArray(announcementRead.announcementId, rows.map((r) => r.id))),
+  ]);
+  const readers = new Map<string, Set<string>>();
+  for (const r of reads) {
+    if (!readers.has(r.id)) readers.set(r.id, new Set());
+    readers.get(r.id)!.add(r.userId);
+  }
+
+  return rows.map(({ authorUserId, ...r }) => {
+    const seen = readers.get(r.id) ?? new Set<string>();
+    const missing = members.filter((m) => !seen.has(m.userId));
+    const mayName = opts.manager === true || authorUserId === userId;
+    return {
+      ...r,
+      read: seen.has(userId),
+      readCount: members.length - missing.length,
+      audience: members.length,
+      unreadNames: mayName
+        ? missing.map((m) => m.nickname || m.displayName || 'ไม่ทราบชื่อ')
+        : null,
+    };
+  });
 }
 
 /** The workspace an announcement belongs to, for the delete route's role check. */

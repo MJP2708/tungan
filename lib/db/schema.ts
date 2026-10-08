@@ -498,6 +498,8 @@ export const announcement = pgTable(
     authorUserId: text('author_user_id').references(() => lineUser.id, { onDelete: 'set null' }),
     title: text('title').notNull(),
     body: text('body').notNull().default(''),
+    /** Optional link to join (Meet, Zoom, a LINE call). lib/meeting-link.ts. */
+    link: text('link'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('announcement_workspace_idx').on(t.workspaceId, t.createdAt)],

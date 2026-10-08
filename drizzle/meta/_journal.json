@@ -99,6 +99,13 @@
       "when": 1791451644679,
       "tag": "0013_announcements_and_all",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791478556509,
+      "tag": "0014_announcement_link",
+      "breakpoints": true
     }
   ]
 }
