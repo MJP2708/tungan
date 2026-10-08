@@ -75,7 +75,7 @@ describe('LINE flow: message to draft to task', { skip: !URL_ ? 'TEST_DATABASE_U
 
   beforeEach(async () => {
     sent = [];
-    for (const t of [schema.messageUsage, schema.taskEvent, schema.reminder, schema.task,
+    for (const t of [schema.announcementRead, schema.announcement, schema.messageUsage, schema.taskEvent, schema.reminder, schema.task,
       schema.inboxItem, schema.lineEvent, schema.groupWorkspace, schema.lineGroupMember,
       schema.lineGroup, schema.workspaceMember, schema.workspace, schema.lineUser]) {
       await db().delete(t);
@@ -237,6 +237,34 @@ describe('LINE flow: message to draft to task', { skip: !URL_ ? 'TEST_DATABASE_U
     await handleEvent(inNewGroup({ type: 'leave' }));
     await handleEvent(inNewGroup({ type: 'join' }));
     assert.equal(await newGroupWorkspace(), first, 'not a second, empty workspace');
+  });
+
+  test('the owner can announce from LINE; it is an announcement, not a task', async () => {
+    await handleEvent(message('@ทันงาน ประกาศ: ประชุมย้ายเป็นศุกร์ 10:00\nห้องใหญ่ ชั้น 3'));
+    const rows = await db().select().from(schema.announcement);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].title, 'ประชุมย้ายเป็นศุกร์ 10:00');
+    assert.equal(rows[0].body, 'ห้องใหญ่ ชั้น 3');
+    assert.equal(rows[0].authorUserId, boss.id);
+    assert.equal((await db().select().from(schema.inboxItem)).length, 0, 'no task draft');
+    assert.match(replyText(), /ประกาศแล้ว/);
+    assert.equal(sent.filter((c) => c.url.includes('/message/push')).length, 0, 'nothing pushed to the group');
+  });
+
+  test('a member cannot announce from LINE', async () => {
+    await handleEvent(event({
+      type: 'message',
+      source: { type: 'group', groupId: LINE_GROUP, userId: worker.lineUserId },
+      message: { id: 'ann-member', type: 'text', text: '@ทันงาน ประกาศ: หยุดงานพรุ่งนี้' },
+    }));
+    assert.equal((await db().select().from(schema.announcement)).length, 0);
+    assert.match(replyText(), /เฉพาะเจ้าของหรือผู้ดูแล/);
+  });
+
+  test('a task about announcing something is still a task', async () => {
+    await handleEvent(message('@ทันงาน ประกาศผลสอบให้ทีม พรุ่งนี้'));
+    assert.equal((await db().select().from(schema.announcement)).length, 0);
+    assert.equal((await db().select().from(schema.inboxItem)).length, 1);
   });
 
   test('a stranger cannot confirm a draft', async () => {

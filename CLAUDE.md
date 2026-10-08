@@ -143,10 +143,13 @@ proves nothing here.
 
 ## Announcements and ทุกคน (decided 2026-10-08)
 
-- **Announcements:** owners and admins post (server-checked:
-  `requireMembership(id, { roles: ['owner','admin'] })`); every member sees
-  each one **once**, as a popup the next time they open the app, closed with
-  X or รับทราบ. Closing is stored server-side (`announcement_read`), so it does
+- **Announcements:** owners and admins post — in the app (ทีม → ประกาศ,
+  server-checked: `requireMembership(id, { roles: ['owner','admin'] })`) or
+  in LINE with `@ทันงาน ประกาศ: หัวข้อ` (new line for details; same role
+  check; parsed by `lib/line/announce.ts`, and "ประกาศผล…" stays a task).
+  Every member **including the author** sees each one **once**, as a popup
+  before using the app (re-checked when the app comes back into view),
+  closed with X or รับทราบ. Closing is stored server-side (`announcement_read`), so it does
   not return on another phone. **In the app only** — never posted to the LINE
   group, which would cost one counted message per member. Data access in
   `lib/announcements.ts`; history on ทีม → ประกาศ.
@@ -393,7 +396,7 @@ node tools/visual/contrast.mjs  # light text left on a light surface
 **End-to-end against a real backend** lives in `tools/e2e/` (README there):
 the production build, a throwaway local Postgres, two signed-in people, a
 webhook signed with a fake channel secret, and every step checked in the
-database — 51 checks (54 after 17:00 Bangkok) across create → review → approve, LINE drafts,
+database — 52 checks (55 after 17:00 Bangkok) across create → review → approve, LINE drafts,
 reminders, settings, workspaces, cron, logout, announcements and ทุกคน tasks. Every key in `.env.local`
 must be overridden when starting that server, because `.env.local` is
 production; `tools/e2e/lib.mjs` refuses a non-localhost database.

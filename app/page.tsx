@@ -2651,16 +2651,25 @@ export default function Home() {
   useEffect(() => {
     if (!account.loggedIn) return;
     let cancelled = false;
-    api
-      .unreadAnnouncements()
-      .then((res) => {
-        if (!cancelled) setUnreadAnnouncements(res.announcements ?? []);
-      })
-      .catch(() => {
-        // Non-fatal: the app works without its announcements.
-      });
+    const check = () =>
+      api
+        .unreadAnnouncements()
+        .then((res) => {
+          if (!cancelled) setUnreadAnnouncements(res.announcements ?? []);
+        })
+        .catch(() => {
+          // Non-fatal: the app works without its announcements.
+        });
+    void check();
+    // An announcement made in LINE ("@ทันงาน ประกาศ ...") while the app sat
+    // open in the background shows as soon as the person comes back to it.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void check();
+    };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       cancelled = true;
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [account.loggedIn]);
 
@@ -2700,7 +2709,10 @@ export default function Home() {
       form.reset();
       const res = await api.announcements(selectedProject.id);
       setAnnouncementHistory(res.announcements ?? []);
-      setNotice('ประกาศแล้ว · ทุกคนในพื้นที่งานจะเห็นเมื่อเปิดแอปครั้งถัดไป');
+      // The author gets the same notice as everyone else, right away.
+      const unread = await api.unreadAnnouncements();
+      setUnreadAnnouncements(unread.announcements ?? []);
+      setNotice('ประกาศแล้ว · ทุกคนในพื้นที่งานจะเห็นเมื่อเปิดแอป');
     } catch (error) {
       reportError(error, 'ประกาศไม่สำเร็จ');
     } finally {
@@ -4240,7 +4252,8 @@ export default function Home() {
             <form className="panel announce-composer" onSubmit={postAnnouncement}>
               <div>
                 <h3>ประกาศถึงทุกคนใน {selectedProject.name}</h3>
-                <p>ทุกคนจะเห็นครั้งเดียวเมื่อเปิดแอป และกด X เพื่อปิด · ไม่ส่งเข้า LINE จึงไม่เสียโควตาข้อความ</p>
+                <p>ทุกคน รวมถึงคุณ จะเห็นเป็นหน้าต่างแจ้งเตือนครั้งเดียวเมื่อเปิดแอป และกด X เพื่อปิด · ไม่เสียโควตาข้อความ LINE</p>
+                <p>ประกาศจาก LINE ก็ได้: พิมพ์ในกลุ่ม <strong>@ทันงาน ประกาศ: หัวข้อ</strong> แล้วขึ้นบรรทัดใหม่ใส่รายละเอียด</p>
               </div>
               <label>
                 <span>หัวข้อ</span>

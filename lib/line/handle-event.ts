@@ -42,6 +42,8 @@ import {
 import { appLink } from '../deep-link.ts';
 import { isAssignable, everyoneAssignable } from '../auth/assignable.ts';
 import { admitToGroupWorkspace, ensureGroupWorkspace } from '../auth/membership.ts';
+import { parseAnnouncement } from './announce.ts';
+import { postAnnouncement } from '../announcements.ts';
 import { createTasks } from '../tasks/create.ts';
 import { applyMentions, mentionedPeople, type Mentionee } from './mentions.ts';
 
@@ -774,6 +776,38 @@ async function handleMessage(event: LineEventPayload) {
   }
   if (!resolved) {
     console.warn('[webhook] message from an unbound source', event.source?.type);
+    return;
+  }
+
+  // "@ทันงาน ประกาศ ..." — an announcement for everyone in the workspace,
+  // shown in the app as a popup before they use it. Owners and admins only,
+  // the same rule as the app. The group has already seen the message itself,
+  // so nothing is pushed: the only reply is on the free reply token.
+  const announced = parseAnnouncement(text);
+  if (announced) {
+    const author = await actorFor(event);
+    const role = author ? await roleIn(resolved.workspaceId, author) : null;
+    const say = (reply: string) =>
+      replyTo(event, resolved.workspaceId, [{ type: 'text', text: reply }]);
+    if (!author || (role !== 'owner' && role !== 'admin')) {
+      await say('ประกาศได้เฉพาะเจ้าของหรือผู้ดูแลพื้นที่งาน\nถ้าต้องการให้ทุกคนทำงานนี้ ใช้ @ทันงาน @All แทนได้');
+      return;
+    }
+    if (!announced.title) {
+      await say('พิมพ์หัวข้อต่อจากคำว่าประกาศ เช่น\n@ทันงาน ประกาศ: ประชุมย้ายเป็นศุกร์ 10:00\nบรรทัดถัดไปใส่รายละเอียดได้');
+      return;
+    }
+    await postAnnouncement({
+      workspaceId: resolved.workspaceId,
+      authorUserId: author,
+      title: announced.title,
+      body: announced.body,
+    });
+    await say(
+      `ประกาศแล้ว: ${announced.title}\nทุกคนในพื้นที่งานจะเห็นเป็นหน้าต่างแจ้งเตือนครั้งเดียวเมื่อเปิดแอป${
+        appLink() ? `\n${appLink()}` : ''
+      }`,
+    );
     return;
   }
 

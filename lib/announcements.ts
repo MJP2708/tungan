@@ -46,8 +46,8 @@ export async function postAnnouncement(params: {
     title,
     body,
   });
-  // The author has obviously seen it.
-  await db().insert(announcementRead).values({ announcementId: id, userId: params.authorUserId });
+  // The author sees it too, like everyone else: it is the same notice the
+  // whole team gets before using the app, and it confirms what went out.
   return { id };
 }
 

@@ -6,6 +6,14 @@ const browser = await launch();
 const boss = await person(browser, 'tok-boss-e2e');
 const may = await person(browser, 'tok-may-e2e');
 const popup = (page) => page.locator('.announcement-dialog');
+/** Close every announcement waiting for this person, as they would. */
+async function closeAnnouncements(page) {
+  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+  for (let i = 0; i < 10 && (await popup(page).isVisible().catch(() => false)); i += 1) {
+    await popup(page).getByRole('button', { name: /รับทราบ/ }).click();
+    await sleep(400);
+  }
+}
 
 await step('a member cannot post an announcement (checked on the server)', may.page, async () => {
   const res = await may.page.request.post(BASE + '/api/workspaces/ws-team/announcements', {
@@ -27,7 +35,11 @@ await step('the owner posts one from ทีม → ประกาศ', boss.pag
   const [a] = await q("select * from announcement where title like 'E2E ประชุม%'");
   expect(a && a.author_user_id === 'u-boss', 'not stored');
   await p.locator('.announce-item', { hasText: 'E2E ประชุมทีม' }).waitFor({ timeout: 5000 });
-  expect(!(await popup(p).isVisible()), 'the author got a popup for their own announcement');
+  // The author gets the same notice as everyone, right away; X closes it.
+  await popup(p).waitFor({ timeout: 5000 });
+  expect((await popup(p).innerText()).includes('E2E ประชุมทีม'), 'the author did not get the notice');
+  await popup(p).getByRole('button', { name: 'Close' }).click();
+  await sleep(600);
 });
 
 await step('เมย์ sees it as a popup when she opens the app; X closes it for good', may.page, async () => {
@@ -65,9 +77,34 @@ await step('two new announcements come one after the other with รับทร�
   expect((await q("select count(*)::int n from announcement_read where user_id='u-may'"))[0].n === 3, 'all three recorded');
 });
 
+await step('an announcement typed in LINE pops up in the app', may.page, async () => {
+  const id = `e2e-ann-${Date.now()}`;
+  const body = JSON.stringify({ destination: 'Ue2e', events: [{
+    type: 'message', mode: 'active', timestamp: Date.now(), webhookEventId: id,
+    deliveryContext: { isRedelivery: false }, replyToken: `rt-${id}`,
+    source: { type: 'group', groupId: 'C00000000000000000000000000000001', userId: 'U00000000000000000000000000000b05' },
+    message: { id: `m-${id}`, type: 'text', text: '@ทันงาน ประกาศ: E2E หยุดทำการวันศุกร์\nสำนักงานปิด 1 วัน' },
+  }] });
+  const sig = crypto.createHmac('sha256', 'e2e-channel-secret').update(body).digest('base64');
+  const res = await fetch(BASE + '/api/webhooks/line', { method: 'POST', headers: { 'content-type': 'application/json', 'x-line-signature': sig }, body });
+  expect(res.status === 200, `webhook ${res.status}`);
+  await sleep(1500);
+  const [a] = await q("select * from announcement where title='E2E หยุดทำการวันศุกร์'");
+  expect(a && a.body === 'สำนักงานปิด 1 วัน', 'not stored from LINE');
+  const p = may.page;
+  await p.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await popup(p).waitFor({ timeout: 6000 });
+  expect((await popup(p).innerText()).includes('E2E หยุดทำการวันศุกร์'), 'the LINE announcement did not pop up');
+  await popup(p).getByRole('button', { name: 'Close' }).click();
+  await sleep(500);
+});
+
 const TITLE = 'E2E ส่ง timesheet ทุกคน';
 await step('the owner gives a task to ทุกคน: one copy each, linked', boss.page, async () => {
   const p = boss.page;
+  // The owner has notices of their own waiting now (they see what they post).
+  await closeAnnouncements(p);
+  await closeAnnouncements(may.page);
   await p.goto(BASE + '/', { waitUntil: 'networkidle' });
   await p.getByRole('button', { name: 'สร้างงาน' }).first().click();
   const dlg = p.locator('.task-create-dialog');

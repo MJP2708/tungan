@@ -70,10 +70,10 @@ describe('announcements and ทุกคน tasks', { skip: !URL_ ? 'TEST_DATABA
     await pool.end();
   });
 
-  test('an announcement pops up once for each member, and never for its author or outsiders', async () => {
+  test('an announcement pops up once for every member, its author included, never for outsiders', async () => {
     const { id } = await ann.postAnnouncement({ workspaceId: ws, authorUserId: boss, title: 'ประชุมเลื่อนเป็นศุกร์', body: '10:00' });
     assert.equal((await ann.unreadAnnouncementsFor(may)).length, 1, 'a member sees it');
-    assert.equal((await ann.unreadAnnouncementsFor(boss)).length, 0, 'the author has seen it');
+    assert.equal((await ann.unreadAnnouncementsFor(boss)).length, 1, 'so does the person who posted it');
     assert.equal((await ann.unreadAnnouncementsFor(outsider)).length, 0, 'another company never does');
 
     await ann.markAnnouncementRead(id, may);
