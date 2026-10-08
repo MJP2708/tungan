@@ -97,7 +97,9 @@ export function answer(url) {
 export async function fixturePage(browser, base, { width = 390, height = 844 } = {}) {
   const ctx = await browser.newContext({
     viewport: { width, height }, deviceScaleFactor: 2, isMobile: true, hasTouch: true,
-    locale: 'th-TH', timezoneId: 'Asia/Bangkok',
+    // LOCALE=en-US runs the harness on the English app (the 'auto' setting
+    // follows the browser's language).
+    locale: process.env.LOCALE ?? 'th-TH', timezoneId: 'Asia/Bangkok',
   });
   // The session gate only checks that a cookie exists; the API is faked.
   await ctx.addCookies([{ name: 'tungan_session', value: 'fixture', url: base }]);

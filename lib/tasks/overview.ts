@@ -1,3 +1,4 @@
+import { t } from '../i18n/index.ts';
 /**
  * The manager overview: what in a workspace needs someone's attention now.
  *
@@ -189,7 +190,7 @@ export function teamOverview<T extends OverviewTask>(
 
 /** "3 วัน", "5 ชม.", "ไม่ถึงชั่วโมง" — how long, for a person to read. */
 export function formatSpan(forMs: number): string {
-  if (forMs >= DAY) return `${Math.floor(forMs / DAY)} วัน`;
-  if (forMs >= HOUR) return `${Math.floor(forMs / HOUR)} ชม.`;
-  return 'ไม่ถึงชั่วโมง';
+  if (forMs >= DAY) return t('{0} วัน', Math.floor(forMs / DAY));
+  if (forMs >= HOUR) return t('{0} ชม.', Math.floor(forMs / HOUR));
+  return t('ไม่ถึงชั่วโมง');
 }

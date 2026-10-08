@@ -1,3 +1,4 @@
+import { t, intlLocale } from './i18n/index.ts';
 // Deadline resolution for TUNGAN.
 //
 // Every deadline in this product is a real instant, resolved in Asia/Bangkok
@@ -330,7 +331,7 @@ export function formatDeadline(
   options: { now?: Date; timeZone?: string } = {},
 ): string {
   const at = toInstant(dueAt);
-  if (!at) return 'ไม่มีกำหนด';
+  if (!at) return t('ไม่มีกำหนด');
   const timeZone = options.timeZone ?? PRODUCT_TIME_ZONE;
   const now = options.now ?? new Date();
 
@@ -348,10 +349,10 @@ export function formatDeadline(
     hour12: false,
   }).format(at);
 
-  if (days === 0) return `วันนี้ ${time}`;
-  if (days === 1) return `พรุ่งนี้ ${time}`;
-  if (days === -1) return `เมื่อวาน ${time}`;
-  const date = new Intl.DateTimeFormat('th-TH', {
+  if (days === 0) return t('วันนี้ {0}', time);
+  if (days === 1) return t('พรุ่งนี้ {0}', time);
+  if (days === -1) return t('เมื่อวาน {0}', time);
+  const date = new Intl.DateTimeFormat(intlLocale(), {
     timeZone,
     day: 'numeric',
     month: 'short',
@@ -372,7 +373,7 @@ export function relativeDeadline(
   now: Date = new Date(),
 ): string {
   const at = toInstant(dueAt);
-  if (!at) return 'ไม่มีกำหนด';
+  if (!at) return t('ไม่มีกำหนด');
 
   const diffMs = at.getTime() - now.getTime();
   const late = diffMs < 0;
@@ -381,13 +382,13 @@ export function relativeDeadline(
   const days = Math.floor(hours / 24);
 
   const amount =
-    mins < 1 ? 'ไม่ถึงนาที'
-    : mins < 60 ? `${mins} นาที`
-    : hours < 24 ? `${hours} ชม.`
-    : days < 30 ? `${days} วัน`
-    : `${Math.floor(days / 30)} เดือน`;
+    mins < 1 ? t('ไม่ถึงนาที')
+    : mins < 60 ? t('{0} นาที', mins)
+    : hours < 24 ? t('{0} ชม.', hours)
+    : days < 30 ? t('{0} วัน', days)
+    : t('{0} เดือน', Math.floor(days / 30));
 
-  return late ? `เลย ${amount}` : `อีก ${amount}`;
+  return late ? t('เลย {0}', amount) : t('อีก {0}', amount);
 }
 
 /** How long something has sat in one state: "ติดปัญหา 3 วัน". */
@@ -398,8 +399,8 @@ export function relativeSince(
   const at = toInstant(since);
   if (!at) return '';
   const mins = Math.floor((now.getTime() - at.getTime()) / 60000);
-  if (mins < 60) return `${Math.max(0, mins)} นาที`;
+  if (mins < 60) return t('{0} นาที', Math.max(0, mins));
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} ชม.`;
-  return `${Math.floor(hours / 24)} วัน`;
+  if (hours < 24) return t('{0} ชม.', hours);
+  return t('{0} วัน', Math.floor(hours / 24));
 }

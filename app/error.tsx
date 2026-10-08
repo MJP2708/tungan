@@ -1,5 +1,6 @@
 'use client';
 
+import { t } from '@/lib/i18n';
 import { useEffect } from 'react';
 
 /**
@@ -30,13 +31,13 @@ export default function AppError({
     <main className="auth-page">
       <section className="auth-card">
         <div>
-          <h1>หน้านี้มีปัญหา</h1>
+          <h1>{t('หน้านี้มีปัญหา')}</h1>
           <p>
-            งานของคุณยังอยู่ครบ ไม่มีอะไรหายไป — หน้าจอนี้แสดงผลไม่สำเร็จเท่านั้น
+            {t('งานของคุณยังอยู่ครบ ไม่มีอะไรหายไป — หน้าจอนี้แสดงผลไม่สำเร็จเท่านั้น')}
           </p>
         </div>
         <button type="button" className="auth-line-button" onClick={() => reset()}>
-          ลองใหม่
+          {t('ลองใหม่')}
         </button>
         <button
           type="button"
@@ -45,11 +46,11 @@ export default function AppError({
             window.location.href = '/';
           }}
         >
-          กลับหน้าแรก
+          {t('กลับหน้าแรก')}
         </button>
         {error.digest && (
           // The only thing worth showing: it is what support can look up.
-          <p className="entry-error">รหัสอ้างอิง {error.digest}</p>
+          <p className="entry-error">{t('รหัสอ้างอิง')} {error.digest}</p>
         )}
       </section>
     </main>

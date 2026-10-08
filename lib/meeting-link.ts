@@ -1,3 +1,4 @@
+import { t } from './i18n/index.ts';
 import { isSafeHttpUrl } from './url.ts';
 
 /**
@@ -17,7 +18,7 @@ export function normalizeMeetingLink(value: unknown): string | null {
   const text = String(value ?? '').trim();
   if (!text) return null;
   if (text.length > LINK_MAX || !isSafeHttpUrl(text)) {
-    throw new Error('ลิงก์ต้องขึ้นต้นด้วย https:// เช่น ลิงก์ Google Meet หรือ Zoom');
+    throw new Error(t('ลิงก์ต้องขึ้นต้นด้วย https:// เช่น ลิงก์ Google Meet หรือ Zoom'));
   }
   return text;
 }
@@ -40,12 +41,12 @@ export function meetingLinkLabel(url: string): string {
   try {
     host = new URL(url).hostname.toLowerCase();
   } catch {
-    return 'เปิดลิงก์';
+    return t('เปิดลิงก์');
   }
   const on = (domain: string) => host === domain || host.endsWith(`.${domain}`);
-  if (on('meet.google.com')) return 'เข้าร่วม Google Meet';
-  if (on('zoom.us') || on('zoom.com')) return 'เข้าร่วม Zoom';
-  if (on('teams.microsoft.com') || on('teams.live.com')) return 'เข้าร่วม Teams';
-  if (on('line.me')) return 'เปิดใน LINE';
-  return 'เปิดลิงก์';
+  if (on('meet.google.com')) return t('เข้าร่วม Google Meet');
+  if (on('zoom.us') || on('zoom.com')) return t('เข้าร่วม Zoom');
+  if (on('teams.microsoft.com') || on('teams.live.com')) return t('เข้าร่วม Teams');
+  if (on('line.me')) return t('เปิดใน LINE');
+  return t('เปิดลิงก์');
 }

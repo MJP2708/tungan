@@ -1,5 +1,6 @@
 'use client';
 
+import { translate, type Locale } from '@/lib/i18n';
 import { useEffect, useState } from 'react';
 import { initLiff, signInWithLiff } from '@/lib/liff/client.ts';
 
@@ -13,7 +14,8 @@ import { initLiff, signInWithLiff } from '@/lib/liff/client.ts';
  */
 const TRIED_KEY = 'tungan_liff_tried_at';
 
-export function LiffSignIn({ next }: { next: string }) {
+export function LiffSignIn({ next, locale }: { next: string; locale: Locale }) {
+  const t = (key: string) => translate(locale, key);
   const [state, setState] = useState<'idle' | 'working' | 'failed'>('idle');
 
   useEffect(() => {
@@ -53,14 +55,14 @@ export function LiffSignIn({ next }: { next: string }) {
   if (state === 'working') {
     return (
       <p className="connection-notice" aria-live="polite">
-        กำลังเข้าสู่ระบบด้วย LINE…
+        {t('กำลังเข้าสู่ระบบด้วย LINE…')}
       </p>
     );
   }
   if (state === 'failed') {
     return (
       <p className="entry-error" role="alert">
-        เข้าสู่ระบบอัตโนมัติไม่สำเร็จ กดปุ่มด้านล่างเพื่อลองอีกครั้ง
+        {t('เข้าสู่ระบบอัตโนมัติไม่สำเร็จ กดปุ่มด้านล่างเพื่อลองอีกครั้ง')}
       </p>
     );
   }

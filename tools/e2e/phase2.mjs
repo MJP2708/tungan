@@ -285,6 +285,20 @@ await step('a new workspace opens empty, and the old one keeps its members', bos
   await p.goto(BASE + '/?p=manage', { waitUntil: 'networkidle' });
   await p.getByText('เมย์').first().waitFor({ timeout: 6000 });
 });
+await step('ตั้งค่า → ภาษา: English changes the screens, survives a reload, and goes back', boss.page, async () => {
+  const p = boss.page;
+  await p.goto(BASE + '/?p=settings', { waitUntil: 'networkidle' });
+  await p.locator('[aria-labelledby="language-label"]').click();
+  await p.getByRole('option', { name: 'English' }).click();
+  await p.getByRole('heading', { name: 'Settings' }).waitFor({ timeout: 5000 });
+  expect((await p.locator('html').getAttribute('lang')) === 'en', 'html lang not en');
+  await p.goto(BASE + '/?p=tasks', { waitUntil: 'networkidle' });
+  await p.getByRole('heading', { name: 'Tasks' }).waitFor({ timeout: 5000 });
+  await p.goto(BASE + '/?p=settings', { waitUntil: 'networkidle' });
+  await p.locator('[aria-labelledby="language-label"]').click();
+  await p.getByRole('option', { name: 'ภาษาไทย' }).click();
+  await p.getByRole('heading', { name: 'ตั้งค่า' }).waitFor({ timeout: 5000 });
+});
 await step('กำหนดส่ง and ภาพรวม load without errors', boss.page, async () => {
   const p = boss.page;
   const before = boss.errors.length;

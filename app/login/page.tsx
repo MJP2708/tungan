@@ -1,5 +1,7 @@
 import Link from 'next/link';
+import { headers } from 'next/headers';
 import { safeNextPath } from '@/lib/deep-link.ts';
+import { translate, localeFromAcceptLanguage } from '@/lib/i18n';
 import { LiffSignIn } from './liff-sign-in.tsx';
 
 export const dynamic = 'force-dynamic';
@@ -21,24 +23,28 @@ export default async function LoginPage({
 }) {
   const { error, next: rawNext } = await searchParams;
   const next = safeNextPath(rawNext);
-  const message = error ? (MESSAGES[error] ?? error) : null;
+  // The first screen anyone sees, before there is a setting to read: it
+  // follows the browser's language, as the app's "auto" setting does.
+  const locale = localeFromAcceptLanguage((await headers()).get('accept-language'));
+  const tr = (key: string) => translate(locale, key);
+  const message = error ? tr(MESSAGES[error] ?? error) : null;
 
   return (
     // .auth-page is the app's existing full-height centring wrapper and
     // .auth-card the existing card. The first version of this page invented
     // .auth-screen, which no stylesheet defines, so the card sat unstyled in
     // the top-left corner.
-    <main className="auth-page">
+    <main className="auth-page" lang={locale}>
       <section className="auth-card">
         <span className="brand-art" aria-hidden="true">
           <img src="/tungan-logo-th.png" width={1774} height={887} alt="" />
         </span>
         <span className="sr-only">ทันงาน</span>
         <div>
-          <h1>งานจาก LINE ไม่หล่น</h1>
+          <h1>{tr('งานจาก LINE ไม่หล่น')}</h1>
         </div>
-        <p>เข้าสู่ระบบด้วยบัญชี LINE เพื่อดูงานของคุณ</p>
-        {!message && <LiffSignIn next={next} />}
+        <p>{tr('เข้าสู่ระบบด้วยบัญชี LINE เพื่อดูงานของคุณ')}</p>
+        {!message && <LiffSignIn next={next} locale={locale} />}
         {message && (
           <p className="entry-error" role="alert">
             {message}
@@ -50,7 +56,7 @@ export default async function LoginPage({
               : `/api/auth/line/start?next=${encodeURIComponent(next)}`
           }
         >
-          เข้าสู่ระบบด้วย LINE
+          {tr('เข้าสู่ระบบด้วย LINE')}
         </Link>
       </section>
     </main>

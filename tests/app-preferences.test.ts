@@ -22,6 +22,7 @@ test('preferences survive a persistence round trip, including false values', () 
     notificationBadge: false,
     showCompleted: false,
     reducedMotion: true,
+    language: 'en',
   };
   assert.deepEqual(
     normalizeSettings(JSON.parse(JSON.stringify(settings))),
@@ -60,4 +61,10 @@ test('every screen has a numbered index line, in navigation order', () => {
   for (const { page } of appNavigation) {
     assert.match(pageKicker(page), /^\d{2} — [A-Z ]+$/, page);
   }
+});
+
+test('language: auto unless a known one was chosen', () => {
+  assert.equal(normalizeSettings({}).language, 'auto');
+  assert.equal(normalizeSettings({ language: 'th' }).language, 'th');
+  assert.equal(normalizeSettings({ language: 'fr' }).language, 'auto');
 });

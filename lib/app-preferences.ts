@@ -1,13 +1,15 @@
+import { t } from './i18n/index.ts';
+
 export const appNavigation = [
-  { page: 'home', label: 'วันนี้', icon: 'home' },
-  { page: 'inbox', label: 'จาก LINE', icon: 'inbox' },
-  { page: 'tasks', label: 'งาน', icon: 'tasks' },
-  { page: 'calendar', label: 'กำหนดส่ง', icon: 'calendar' },
-  { page: 'reports', label: 'ภาพรวม', icon: 'reports' },
-  { page: 'reminders', label: 'เตือนฉัน', icon: 'reminders' },
-  { page: 'ai', label: 'AI', icon: 'ai' },
-  { page: 'manage', label: 'ทีม', icon: 'manage' },
-  { page: 'settings', label: 'ตั้งค่า', icon: 'settings' },
+  { page: 'home', get label() { return t('วันนี้'); }, icon: 'home' },
+  { page: 'inbox', get label() { return t('จาก LINE'); }, icon: 'inbox' },
+  { page: 'tasks', get label() { return t('งาน'); }, icon: 'tasks' },
+  { page: 'calendar', get label() { return t('กำหนดส่ง'); }, icon: 'calendar' },
+  { page: 'reports', get label() { return t('ภาพรวม'); }, icon: 'reports' },
+  { page: 'reminders', get label() { return t('เตือนฉัน'); }, icon: 'reminders' },
+  { page: 'ai', get label() { return t('AI'); }, icon: 'ai' },
+  { page: 'manage', get label() { return t('ทีม'); }, icon: 'manage' },
+  { page: 'settings', get label() { return t('ตั้งค่า'); }, icon: 'settings' },
 ] as const;
 
 export type Page = (typeof appNavigation)[number]['page'];
@@ -38,7 +40,7 @@ export function pageKicker(page: Page): string {
  */
 export const mobileNavLabels: Partial<Record<Page, string>> = {
   inbox: 'LINE',
-  reminders: 'เตือน',
+  get reminders() { return t('เตือน'); },
 };
 export const mobilePrimaryPages: readonly Page[] = [
   'home',
@@ -53,6 +55,8 @@ export type AppSettings = {
   notificationBadge: boolean;
   showCompleted: boolean;
   reducedMotion: boolean;
+  /** 'auto' follows the phone's language: Thai on a Thai phone, else English. */
+  language: 'auto' | 'th' | 'en';
 };
 
 export const defaultSettings: AppSettings = {
@@ -61,6 +65,7 @@ export const defaultSettings: AppSettings = {
   notificationBadge: true,
   showCompleted: true,
   reducedMotion: false,
+  language: 'auto',
 };
 
 // Older device-local saves contain only cutoff and placeholder LINE preferences.
@@ -90,6 +95,9 @@ export function normalizeSettings(value: unknown): AppSettings {
       typeof input.reducedMotion === 'boolean'
         ? input.reducedMotion
         : defaultSettings.reducedMotion,
+    language: ['auto', 'th', 'en'].includes(input.language as string)
+      ? (input.language as AppSettings['language'])
+      : defaultSettings.language,
   };
 }
 

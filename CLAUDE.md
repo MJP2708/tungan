@@ -204,6 +204,32 @@ calendar sync stays out of scope. Seven `minmax(0, 1fr)` columns down to
 now judges "dark enough for white text" by WCAG contrast (≥ 3:1), so brand
 blue selected states pass and glass-on-dark still fails.
 
+## Languages (decided 2026-10-09)
+
+Thai is the source; English is the second language. Every string is written
+in Thai and shown through `t('ข้อความ')` (`lib/i18n`); `lib/i18n/en.ts` holds
+the English, keyed by that Thai. So Thai needs no dictionary, a missing
+English entry shows Thai rather than a blank, and fixed Thai the server
+sends (errors, blocked reasons, task sources) is translated **where it is
+shown** — never translate a value before it is stored or compared.
+`{0}` marks values; an English entry may be a function for one/many.
+`key@@context` separates one Thai word that needs two English ones
+(`กำหนดส่ง` = Deadlines, `กำหนดส่ง@@field` = Deadline). Write counts as one
+phrase, `t('{0} งาน', n)`, never `{n} {t('งาน')}`.
+
+- The language is a device setting (ตั้งค่า → ภาษา): `auto` (default)
+  follows the phone — Thai on a Thai phone, otherwise English — or Thai, or
+  English. The login page follows Accept-Language via `translate(locale, …)`.
+- The current language is one module-level value set by `app/page.tsx`
+  during render. The **server never changes it**, so LINE messages and
+  everything stored stay Thai. Module-level labels must be getters, or they
+  freeze in Thai at load.
+- `tests/i18n.test.ts` fails when a `t()` key has no English entry.
+  `LOCALE=en-US node tools/visual/check.mjs` runs the overflow check on the
+  English app.
+- Step 2, not done yet: the bot's LINE replies and reading English deadlines
+  ("tomorrow 10am"); history text the server writes is still Thai.
+
 ## Data rules
 
 - Identity is the **LINE user ID**. Nicknames are per-workspace display data
@@ -427,7 +453,7 @@ node tools/visual/contrast.mjs  # light text left on a light surface
 **End-to-end against a real backend** lives in `tools/e2e/` (README there):
 the production build, a throwaway local Postgres, two signed-in people, a
 webhook signed with a fake channel secret, and every step checked in the
-database — 53 checks (56 after 17:00 Bangkok) across create → review → approve, LINE drafts,
+database — 54 checks (57 after 17:00 Bangkok) across create → review → approve, LINE drafts,
 reminders, settings, workspaces, cron, logout, announcements and ทุกคน tasks. Every key in `.env.local`
 must be overridden when starting that server, because `.env.local` is
 production; `tools/e2e/lib.mjs` refuses a non-localhost database.

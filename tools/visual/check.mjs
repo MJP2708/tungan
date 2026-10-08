@@ -46,8 +46,10 @@ let bad = 0;
 for (const width of WIDTHS) {
   const { ctx, page, errors } = await fixturePage(browser, BASE, { width, height: 800 });
   for (const [name, label] of PAGES) {
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
-    if (label) {
+    // In another language the Thai labels are not on screen: go by address.
+    const english = (process.env.LOCALE ?? 'th').slice(0, 2) !== 'th';
+    await page.goto(BASE + (english && name !== 'home' ? `/?p=${name}` : '/'), { waitUntil: 'networkidle' });
+    if (label && !english) {
       if (PRIMARY.has(label)) await page.locator('nav.mobile-nav button', { hasText: label }).first().click();
       else {
         await page.getByRole('button', { name: 'เมนูทั้งหมด' }).click();

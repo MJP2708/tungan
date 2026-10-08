@@ -1,4 +1,5 @@
 import { zonedDateParts, PRODUCT_TIME_ZONE } from './deadline.ts';
+import { getLocale, type Locale } from './i18n/index.ts';
 
 /**
  * The month view on กำหนดส่ง (2026-10-09): deadlines laid out by Bangkok
@@ -104,13 +105,28 @@ export function tasksByDay<T extends Dated>(
   return map;
 }
 
-export const THAI_WEEKDAYS_SHORT = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'] as const;
-export const THAI_MONTHS = [
+const WEEKDAYS: Record<Locale, readonly string[]> = {
+  th: ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'],
+  en: ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'],
+};
+const THAI_MONTHS = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
   'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
 ] as const;
+const ENGLISH_MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+] as const;
 
-/** "ตุลาคม 2569": Thai month, Buddhist-era year, as Thai calendars print it. */
+/** Sunday first, in the current language. */
+export function weekdayLabels(): readonly string[] {
+  return WEEKDAYS[getLocale()];
+}
+
+/** "ตุลาคม 2569" — Thai month, Buddhist-era year, as Thai calendars print
+ *  it; "October 2026" in English. */
 export function monthTitle(year: number, month: number): string {
-  return `${THAI_MONTHS[month - 1]} ${year + 543}`;
+  return getLocale() === 'th'
+    ? `${THAI_MONTHS[month - 1]} ${year + 543}`
+    : `${ENGLISH_MONTHS[month - 1]} ${year}`;
 }

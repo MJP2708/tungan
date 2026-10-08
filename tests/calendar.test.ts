@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dayKey, monthGrid, shiftMonth, tasksByDay, monthTitle } from '../lib/calendar.ts';
+import { dayKey, monthGrid, shiftMonth, tasksByDay, monthTitle, weekdayLabels } from '../lib/calendar.ts';
+import { setLocale } from '../lib/i18n/index.ts';
 
 test('a day is the Bangkok calendar day, not the UTC one', () => {
   // 23:30 Bangkok on 9 Oct is 16:30 UTC on 9 Oct; 00:30 Bangkok on 10 Oct
@@ -53,6 +54,13 @@ test('tasks group by due day, sorted by time; late counts only open work', () =>
   assert.equal(withDone.get('2026-10-09')!.late, 0);
 });
 
-test('the month title uses the Buddhist-era year', () => {
+test('the month title: Buddhist-era year in Thai, Gregorian in English', () => {
   assert.equal(monthTitle(2026, 10), 'ตุลาคม 2569');
+  try {
+    setLocale('en');
+    assert.equal(monthTitle(2026, 10), 'October 2026');
+    assert.deepEqual(weekdayLabels().slice(0, 2), ['Su', 'Mo']);
+  } finally {
+    setLocale('th');
+  }
 });

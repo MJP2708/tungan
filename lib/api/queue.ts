@@ -12,6 +12,7 @@
  * later, by which time the tab has been discarded.
  */
 
+import { t } from '../i18n/index.ts';
 import { api, ApiError } from './client.ts';
 
 const STORAGE_KEY = 'tungan-pending-actions';
@@ -128,7 +129,7 @@ async function flushOnce(now: number): Promise<FlushResult> {
       const next = {
         ...item,
         attempts: item.attempts + 1,
-        lastError: error instanceof ApiError ? error.message : 'ส่งไม่สำเร็จ',
+        lastError: error instanceof ApiError ? error.message : t('ส่งไม่สำเร็จ'),
       };
       if (permanent || next.attempts >= MAX_ATTEMPTS) {
         result.failed.push(next);

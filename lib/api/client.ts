@@ -1,4 +1,5 @@
 'use client';
+import { t } from '../i18n/index.ts';
 
 // The UI's only route to data. Swapping transport later touches this file and
 // nothing else, which is why no component may call fetch directly.
@@ -115,7 +116,7 @@ async function request<T>(
   const res = await fetch(path, { ...init, headers, credentials: 'same-origin' });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new ApiError(res.status, body.error ?? `คำขอล้มเหลว (${res.status})`);
+    throw new ApiError(res.status, body.error ?? t('คำขอล้มเหลว ({0})', res.status));
   }
   return res.json() as Promise<T>;
 }

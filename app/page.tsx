@@ -101,14 +101,15 @@ import {
   shiftMonth,
   tasksByDay,
   monthTitle,
-  THAI_WEEKDAYS_SHORT,
+  weekdayLabels,
   type DayKey,
 } from '@/lib/calendar';
-import { th } from 'date-fns/locale';
+import { th, enGB } from 'date-fns/locale';
 import { api, ApiError, newIdempotencyKey, type ApiAnnouncement } from '@/lib/api/client';
 import { taskIdFromSearch, pageFromSearch, pageUrl } from '@/lib/deep-link.ts';
 import { BLOCKED_REASONS } from '@/lib/tasks/reasons';
 import { normalizeMeetingLink, meetingLinkLabel } from '@/lib/meeting-link';
+import { t, setLocale, intlLocale, localeFromBrowser, type Locale } from '@/lib/i18n';
 import { teamOverview, formatSpan, ATTENTION_ORDER, type AttentionKind } from '@/lib/tasks/overview';
 import { mayEditTaskFields } from '@/lib/tasks/permissions';
 import { useToast, ToastHost } from '@/components/toast-host';
@@ -223,33 +224,40 @@ type Reminder = {
  *  renders an empty state instead of crashing on `projects[0]`. */
 const EMPTY_PROJECT: Project = {
   id: '',
-  name: 'ยังไม่มีพื้นที่งาน',
+  get name() { return t('ยังไม่มีพื้นที่งาน'); },
   source: 'manual',
-  groupLabel: 'เชื่อมกลุ่ม LINE หรือสร้างงานของคุณเอง',
+  get groupLabel() { return t('เชื่อมกลุ่ม LINE หรือสร้างงานของคุณเอง'); },
   members: [],
   teams: [],
 };
 
 const statusMeta: Record<Status, { label: string; icon: typeof Circle }> = {
-  todo: { label: 'ต้องทำ', icon: Circle },
-  progress: { label: 'กำลังทำ', icon: Play },
-  blocked: { label: 'ติดปัญหา', icon: AlertCircle },
+  todo: { get label() { return t('ต้องทำ'); }, icon: Circle },
+  progress: { get label() { return t('กำลังทำ'); }, icon: Play },
+  blocked: { get label() { return t('ติดปัญหา'); }, icon: AlertCircle },
   // Deliberately not "เสร็จแล้ว". The worker has handed in; nobody has agreed
   // it is finished yet, and wording that says otherwise is what let the
   // approval step be skipped in practice.
-  review: { label: 'รอตรวจ', icon: Hourglass },
-  done: { label: 'ปิดงานแล้ว', icon: CheckCircle2 },
+  review: { get label() { return t('รอตรวจ'); }, icon: Hourglass },
+  done: { get label() { return t('ปิดงานแล้ว'); }, icon: CheckCircle2 },
 };
 /** The manager overview's lists, in the order they are shown. */
 const attentionMeta: Record<AttentionKind, string> = {
-  late: 'เลยกำหนด',
-  blocked: 'ติดปัญหา',
-  review: 'รอตรวจ',
-  unassigned: 'ยังไม่มีคนรับผิดชอบ',
-  unaccepted: 'ยังไม่กดรับงาน',
-  quiet: 'ไม่ขยับ 3 วันขึ้นไป',
+  get late() { return t('เลยกำหนด'); },
+  get blocked() { return t('ติดปัญหา'); },
+  get review() { return t('รอตรวจ'); },
+  get unassigned() { return t('ยังไม่มีคนรับผิดชอบ'); },
+  get unaccepted() { return t('ยังไม่กดรับงาน'); },
+  get quiet() { return t('ไม่ขยับ 3 วันขึ้นไป'); },
 };
 const ATTENTION_PREVIEW = 4;
+/** Each language named in itself, so someone who cannot read the current
+ *  one can still find their own. */
+function languageName(value: 'auto' | 'th' | 'en'): string {
+  if (value === 'th') return 'ภาษาไทย';
+  if (value === 'en') return 'English';
+  return t('ตามภาษาของโทรศัพท์');
+}
 const navigationIcons = {
   home: LayoutGrid,
   inbox: Inbox,
@@ -295,7 +303,7 @@ function Brand({ mobile = false }: { mobile?: boolean }) {
           priority
         />
       </span>
-      <span className="sr-only">ทันงาน</span>
+      <span className="sr-only">{t('ทันงาน')}</span>
     </div>
   );
 }
@@ -375,11 +383,11 @@ function rememberedWorkspace(): string | null {
  * rather than mislabelled.
  */
 function sourceLabel(source: string) {
-  if (source === 'LINE · กลุ่ม') return 'จากกลุ่ม LINE';
-  if (source === 'LINE · DM') return 'จากแชท LINE';
-  if (/^line\b/i.test(source)) return 'จาก LINE';
-  if (source === 'สร้างในทันงาน' || source === 'manual' || !source) return 'สร้างในแอป';
-  return source;
+  if (source === 'LINE · กลุ่ม') return t('จากกลุ่ม LINE');
+  if (source === 'LINE · DM') return t('จากแชท LINE');
+  if (/^line\b/i.test(source)) return t('จาก LINE');
+  if (source === 'สร้างในทันงาน' || source === 'manual' || !source) return t('สร้างในแอป');
+  return t(source);
 }
 
 function deadlineRank(task: Task) {
@@ -463,6 +471,20 @@ export default function Home() {
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  // The language, settled during render before any t() below runs, so the
+  // whole tree renders in it. Thai until mounted: the server's render is
+  // Thai, and the first render here has to match it.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const locale: Locale = !mounted
+    ? 'th'
+    : settings.language === 'auto'
+      ? localeFromBrowser(navigator.language)
+      : settings.language;
+  setLocale(locale);
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
   // Device preferences only (start page, show completed, reduced motion).
   // They were never saved, so every reload reset them while the page said
   // "บันทึกในอุปกรณ์นี้". A fresh key: prototype data is never read back.
@@ -769,7 +791,7 @@ export default function Home() {
           return;
         }
         setLoadError(
-          error instanceof ApiError ? error.message : 'โหลดข้อมูลไม่สำเร็จ',
+          error instanceof ApiError ? error.message : t('โหลดข้อมูลไม่สำเร็จ'),
         );
       } finally {
         if (!cancelled) {
@@ -821,7 +843,7 @@ export default function Home() {
         await refreshWorkspace(workspaceId);
         setSelectedTaskId(taskId);
       } catch (error) {
-        reportError(error, 'เปิดงานจากลิงก์ไม่สำเร็จ');
+        reportError(error, t('เปิดงานจากลิงก์ไม่สำเร็จ'));
       }
     })();
   }, [hydrated, tasks]);
@@ -965,11 +987,11 @@ export default function Home() {
       const res = await queue.flush();
       setQueued(queue.pending());
       if (res.sent > 0) {
-        showToast({ text: `ส่งการเปลี่ยนแปลงที่ค้างไว้แล้ว ${res.sent} รายการ` });
+        showToast({ text: t('ส่งการเปลี่ยนแปลงที่ค้างไว้แล้ว {0} รายการ', res.sent) });
         if (selectedProjectId) await refreshWorkspace(selectedProjectId);
       }
       for (const f of res.failed) {
-        showToast({ text: `${f.label} ไม่สำเร็จ · ${f.lastError ?? ''}`, tone: 'error' });
+        showToast({ text: t('{0} ไม่สำเร็จ · {1}', f.label, f.lastError ?? ''), tone: 'error' });
       }
     };
     const goOnline = () => {
@@ -1049,7 +1071,7 @@ export default function Home() {
       await refreshWorkspace(workspaceId);
       setSelectedTaskId(taskId);
     } catch (error) {
-      reportError(error, 'เปิดงานไม่สำเร็จ');
+      reportError(error, t('เปิดงานไม่สำเร็จ'));
     }
   }
 
@@ -1104,9 +1126,9 @@ export default function Home() {
     try {
       await api.bindGroup(groupId, selectedProject.id);
       await refreshGroups();
-      setNotice('เชื่อมกลุ่มแล้ว · ข้อความที่ติด @ทันงาน จะเข้ามาที่นี่');
+      setNotice(t('เชื่อมกลุ่มแล้ว · ข้อความที่ติด @ทันงาน จะเข้ามาที่นี่'));
     } catch (error) {
-      reportError(error, 'เชื่อมกลุ่มไม่สำเร็จ');
+      reportError(error, t('เชื่อมกลุ่มไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -1141,9 +1163,9 @@ export default function Home() {
     try {
       await api.setWorkspaceAi(selectedProject.id, on);
       await refreshUsage(selectedProject.id);
-      setNotice(on ? 'เปิดให้ AI ช่วยอ่านแล้ว' : 'ปิด AI แล้ว · ระบบยังอ่านด้วยกฎเหมือนเดิม');
+      setNotice(on ? t('เปิดให้ AI ช่วยอ่านแล้ว') : t('ปิด AI แล้ว · ระบบยังอ่านด้วยกฎเหมือนเดิม'));
     } catch (error) {
-      reportError(error, 'เปลี่ยนการตั้งค่า AI ไม่สำเร็จ');
+      reportError(error, t('เปลี่ยนการตั้งค่า AI ไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -1157,7 +1179,7 @@ export default function Home() {
       await refreshGroups();
       chooseProject(created.workspaceId);
       setNotice(
-        `สร้าง “${created.name}” แล้ว · ข้อความที่ติด @ทันงาน ในกลุ่มนี้จะเข้ามาที่นี่`,
+        t('สร้าง “{0}” แล้ว · ข้อความที่ติด @ทันงาน ในกลุ่มนี้จะเข้ามาที่นี่', created.name),
       );
     } catch (error) {
       // Already connected by someone else: we now have access to it.
@@ -1165,7 +1187,7 @@ export default function Home() {
         await reloadWorkspaces().catch(() => {});
         await refreshGroups();
       }
-      reportError(error, 'สร้างพื้นที่งานไม่สำเร็จ');
+      reportError(error, t('สร้างพื้นที่งานไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -1182,7 +1204,8 @@ export default function Home() {
   }
 
   function reportError(error: unknown, fallback: string) {
-    setNotice(error instanceof ApiError ? error.message : fallback);
+    // Server messages are Thai keys too, so they translate where shown.
+    setNotice(error instanceof ApiError ? t(error.message) : fallback);
   }
 
   const getProject = (id: string) =>
@@ -1329,13 +1352,13 @@ export default function Home() {
     if (task.assigneeType === 'team') {
       const team = project.teams.find((item) => item.id === task.assigneeId);
       return {
-        label: team?.name || 'ทั้งทีม',
-        initials: `${team?.memberIds.length || 0} คน`,
+        label: team?.name || t('ทั้งทีม'),
+        initials: t('{0} คน', team?.memberIds.length || 0),
       };
     }
     const member = project.members.find((item) => item.id === task.assigneeId);
     return {
-      label: member?.nickname || 'ยังไม่ระบุ',
+      label: member?.nickname || t('ยังไม่ระบุ'),
       initials: member?.initials || '?',
     };
   }
@@ -1416,32 +1439,32 @@ export default function Home() {
   }
   function taskDueLabel() {
     if (taskDueDay === 'later' && taskDate)
-      return taskDate.toLocaleDateString('th-TH', {
+      return taskDate.toLocaleDateString(intlLocale(), {
         day: 'numeric',
         month: 'short',
       });
     return taskDueDay === 'today'
-      ? 'วันนี้'
+      ? t('วันนี้')
       : taskDueDay === 'tomorrow'
-        ? 'พรุ่งนี้'
+        ? t('พรุ่งนี้')
         : taskDueDay === 'friday'
-          ? 'วันศุกร์'
+          ? t('วันศุกร์')
           : taskDueDay === 'nextweek'
-            ? 'สัปดาห์หน้า'
-            : 'เลือกวัน';
+            ? t('สัปดาห์หน้า')
+            : t('เลือกวัน');
   }
   function forwardDueLabel() {
     if (forwardDueDay === 'later' && forwardDate)
-      return forwardDate.toLocaleDateString('th-TH', {
+      return forwardDate.toLocaleDateString(intlLocale(), {
         day: 'numeric',
         month: 'short',
         year: 'numeric',
       });
     return forwardDueDay === 'today'
-      ? 'วันนี้'
+      ? t('วันนี้')
       : forwardDueDay === 'tomorrow'
-        ? 'พรุ่งนี้'
-        : 'เลือกวัน';
+        ? t('พรุ่งนี้')
+        : t('เลือกวัน');
   }
   const filteredTasks = projectTasks.filter((task) => {
     const q = search.trim().toLowerCase();
@@ -1484,7 +1507,7 @@ export default function Home() {
     value: AppSettings[K],
   ) {
     setSettings((current) => ({ ...current, [key]: value }));
-    setNotice('บันทึกแล้ว');
+    setNotice(t('บันทึกแล้ว'));
   }
   /**
    * Load one workspace's members into `projects`.
@@ -1518,10 +1541,10 @@ export default function Home() {
     // showed an empty task list.
     if (id !== 'mine') {
       void refreshWorkspace(id).catch((error) =>
-        reportError(error, 'โหลดพื้นที่งานไม่สำเร็จ'),
+        reportError(error, t('โหลดพื้นที่งานไม่สำเร็จ')),
       );
     }
-    setNotice(`เปลี่ยนเป็น ${nextProject?.name || 'พื้นที่งานใหม่'} แล้ว`);
+    setNotice(t('เปลี่ยนเป็น {0} แล้ว', nextProject?.name || t('พื้นที่งานใหม่')));
   }
   function loginWithLine() {
     window.location.href = '/api/auth/line/start';
@@ -1548,15 +1571,15 @@ export default function Home() {
     ).trim();
     if (!displayName) return;
     if (!meUserId || !projects.some((project) => project.id === selectedProject.id)) {
-      return setNotice('เลือกพื้นที่งานก่อน');
+      return setNotice(t('เลือกพื้นที่งานก่อน'));
     }
     setBusy(true);
     try {
       await api.renameMember(selectedProject.id, meUserId, displayName);
       await loadMembers(selectedProject.id);
-      setNotice(`บันทึกชื่อเล่นในพื้นที่ ${selectedProject.name} แล้ว`);
+      setNotice(t('บันทึกชื่อเล่นในพื้นที่ {0} แล้ว', selectedProject.name));
     } catch (error) {
-      reportError(error, 'บันทึกชื่อไม่สำเร็จ');
+      reportError(error, t('บันทึกชื่อไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -1589,7 +1612,7 @@ export default function Home() {
         onValueChange={(value) => chooseProject(value as string)}
       >
         <SelectTrigger
-          aria-label="เลือกพื้นที่งาน"
+          aria-label={t('เลือกพื้นที่งาน')}
           className={
             mobile
               ? 'mobile-project themed-workspace-trigger'
@@ -1604,16 +1627,16 @@ export default function Home() {
             )}
           </span>
           <div>
-            {mobile && <span className="workspace-kicker">พื้นที่งาน</span>}
+            {mobile && <span className="workspace-kicker">{t('พื้นที่งาน')}</span>}
             <strong>{selectedProject.name}</strong>
             <small>
               {/* The member count belongs here: it is how someone confirms
                   they are switched into the right team before assigning work
                   to it. */}
               {mobile
-                ? `${selectedProject.source === 'line' ? 'กลุ่ม LINE' : 'พื้นที่ของฉัน'}${
+                ? `${selectedProject.source === 'line' ? t('กลุ่ม LINE') : t('พื้นที่ของฉัน')}${
                     selectedProject.members.length
-                      ? ` · ${selectedProject.members.length} คน`
+                      ? t(' · {0} คน', selectedProject.members.length)
                       : ''
                   }`
                 : selectedProject.groupLabel}
@@ -1625,11 +1648,11 @@ export default function Home() {
           className="themed-select-content workspace-menu"
         >
           <SelectGroup>
-            <SelectLabel>ของฉัน</SelectLabel>
+            <SelectLabel>{t('ของฉัน')}</SelectLabel>
             {personalProjects.map(projectOption)}
           </SelectGroup>
           <SelectGroup>
-            <SelectLabel>กลุ่ม LINE</SelectLabel>
+            <SelectLabel>{t('กลุ่ม LINE')}</SelectLabel>
             {lineProjects.map(projectOption)}
           </SelectGroup>
         </SelectContent>
@@ -1640,7 +1663,7 @@ export default function Home() {
     project,
     value,
     onChange,
-    label = 'ผู้รับผิดชอบหลัก',
+    label = t('ผู้รับผิดชอบหลัก'),
     allowAll = false,
   }: {
     project: Project;
@@ -1654,14 +1677,14 @@ export default function Home() {
     const [type, id] = value.split(':');
     const current =
       value === 'all'
-        ? { label: 'ทุกคนในพื้นที่งาน', initials: 'ทุก' }
+        ? { label: t('ทุกคนในพื้นที่งาน'), initials: t('ทุก') }
         : type && id
         ? getAssignee({
             projectId: project.id,
             assigneeType: type as 'member' | 'team',
             assigneeId: id,
           })
-        : { label: 'เลือกคนหรือทีม', initials: '?' };
+        : { label: t('เลือกคนหรือทีม'), initials: '?' };
     return (
       <Select value={value} onValueChange={(next) => onChange(next as string)}>
         <SelectTrigger className="themed-field-trigger" aria-label={label}>
@@ -1682,14 +1705,14 @@ export default function Home() {
                   <Users />
                 </span>
                 <span className="option-copy">
-                  <strong>ทุกคนในพื้นที่งาน</strong>
-                  <small>ทุกคนได้งานนี้คนละชิ้น · คุณเห็นว่าใครเสร็จแล้ว</small>
+                  <strong>{t('ทุกคนในพื้นที่งาน')}</strong>
+                  <small>{t('ทุกคนได้งานนี้คนละชิ้น · คุณเห็นว่าใครเสร็จแล้ว')}</small>
                 </span>
               </SelectItem>
             </SelectGroup>
           )}
           <SelectGroup>
-            <SelectLabel>สมาชิกในกลุ่ม</SelectLabel>
+            <SelectLabel>{t('สมาชิกในกลุ่ม')}</SelectLabel>
             {project.members.map((member) => (
               <SelectItem key={member.id} value={`member:${member.id}`}>
                 <PersonAvatar initials={member.initials} size="sm" />
@@ -1702,7 +1725,7 @@ export default function Home() {
           </SelectGroup>
           {project.teams.length > 0 && (
             <SelectGroup>
-              <SelectLabel>มอบหมายทั้งทีม</SelectLabel>
+              <SelectLabel>{t('มอบหมายทั้งทีม')}</SelectLabel>
               {project.teams.map((team) => (
                 <SelectItem key={team.id} value={`team:${team.id}`}>
                   <span className="team-option-icon">
@@ -1710,7 +1733,7 @@ export default function Home() {
                   </span>
                   <span className="option-copy">
                     <strong>{team.name}</strong>
-                    <small>{team.memberIds.length} คน</small>
+                    <small>{t('{0} คน', team.memberIds.length)}</small>
                   </span>
                 </SelectItem>
               ))}
@@ -1744,7 +1767,7 @@ export default function Home() {
       reason?: string; dueAt?: string;
       visibility?: 'private' | 'workspace' | 'client';
     } = {},
-    successText = 'อัปเดตแล้ว',
+    successText = t('อัปเดตแล้ว'),
   ) {
     // Reviewing is a different right from doing the work: the person who
     // approves or asks for changes is normally NOT the assignee. This guard
@@ -1757,8 +1780,8 @@ export default function Home() {
     if (!allowed) {
       return setNotice(
         isReview
-          ? 'ตรวจงานได้เฉพาะผู้สั่งงานหรือผู้ดูแลพื้นที่งาน'
-          : 'งานนี้ดูได้อย่างเดียว เพราะคุณไม่ใช่ผู้รับผิดชอบ',
+          ? t('ตรวจงานได้เฉพาะผู้สั่งงานหรือผู้ดูแลพื้นที่งาน')
+          : t('งานนี้ดูได้อย่างเดียว เพราะคุณไม่ใช่ผู้รับผิดชอบ'),
       );
     }
 
@@ -1791,7 +1814,7 @@ export default function Home() {
       });
       setQueued(queue.pending());
       setSelectedTask(null);
-      showToast({ text: `บันทึกไว้ก่อน · จะส่งเมื่อกลับมาออนไลน์: ${task.title}` });
+      showToast({ text: t('บันทึกไว้ก่อน · จะส่งเมื่อกลับมาออนไลน์: {0}', task.title) });
       return;
     }
 
@@ -1807,15 +1830,15 @@ export default function Home() {
         tone: warning ? 'error' : 'ok',
         action: eventId
           ? {
-              label: 'ยกเลิก',
+              label: t('ยกเลิก'),
               run: async () => {
                 try {
                   await api.undo(task.id, eventId);
                   await refreshWorkspace(task.projectId);
-                  showToast({ text: `ยกเลิกแล้ว: ${task.title}` });
+                  showToast({ text: t('ยกเลิกแล้ว: {0}', task.title) });
                 } catch (error) {
                   showToast({
-                    text: error instanceof ApiError ? error.message : 'ยกเลิกไม่สำเร็จ',
+                    text: error instanceof ApiError ? error.message : t('ยกเลิกไม่สำเร็จ'),
                     tone: 'error',
                   });
                 }
@@ -1827,10 +1850,10 @@ export default function Home() {
       // Put the row back exactly as it was, and say why.
       setTasks(before);
       showToast({
-        text: error instanceof ApiError ? error.message : 'อัปเดตสถานะไม่สำเร็จ',
+        text: error instanceof ApiError ? error.message : t('อัปเดตสถานะไม่สำเร็จ'),
         tone: 'error',
         action: {
-          label: 'ลองใหม่',
+          label: t('ลองใหม่'),
           run: () => moveTask(task, action, extra, successText),
         },
       });
@@ -1845,7 +1868,7 @@ export default function Home() {
       openActionSheet({ kind: 'blocked', task });
       return;
     }
-    return moveTask(task, 'accept', {}, 'อัปเดตสถานะเรียบร้อย');
+    return moveTask(task, 'accept', {}, t('อัปเดตสถานะเรียบร้อย'));
   }
 
   /** Widen a note you wrote. The task's own status never changes with it. */
@@ -1855,17 +1878,17 @@ export default function Home() {
       await api.setEventVisibility(eventId, 'workspace');
       const res = await api.task(taskId);
       setHistory(res.history);
-      showToast({ text: 'ทุกคนในพื้นที่งานเห็นบันทึกนี้แล้ว' });
+      showToast({ text: t('ทุกคนในพื้นที่งานเห็นบันทึกนี้แล้ว') });
     } catch (error) {
-      reportError(error, 'เปลี่ยนการมองเห็นไม่สำเร็จ');
+      reportError(error, t('เปลี่ยนการมองเห็นไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
   }
 
   function acceptTask(task: Task) {
-    if (task.acceptedAt) return setNotice('รับงานนี้แล้ว');
-    return moveTask(task, 'accept', {}, 'รับงานแล้ว · ทีมเห็นเจ้าของงานชัดเจนแล้ว');
+    if (task.acceptedAt) return setNotice(t('รับงานนี้แล้ว'));
+    return moveTask(task, 'accept', {}, t('รับงานแล้ว · ทีมเห็นเจ้าของงานชัดเจนแล้ว'));
   }
   /**
    * ขอข้อมูล is a request to a named person, not a status.
@@ -1876,21 +1899,21 @@ export default function Home() {
   function requestMoreInfo(task: Task) {
     const others = selectedProject.members.filter((m) => m.id !== meUserId);
     if (!others.length) {
-      return setNotice('ยังไม่รู้จักใครในพื้นที่งานนี้ ให้เขาพิมพ์ในกลุ่มหรือเข้าแอปก่อน');
+      return setNotice(t('ยังไม่รู้จักใครในพื้นที่งานนี้ ให้เขาพิมพ์ในกลุ่มหรือเข้าแอปก่อน'));
     }
     openActionSheet({ kind: 'ask', task });
     setSheetPerson(`member:${others[0].id}`);
   }
   function submitForReview(task: Task) {
     const evidenceUrl = task.evidence[0]?.url;
-    if (!evidenceUrl) return setNotice('เพิ่มลิงก์หลักฐานก่อนส่งตรวจ');
-    return moveTask(task, 'submit', { evidenceUrl }, 'ส่งตรวจแล้ว');
+    if (!evidenceUrl) return setNotice(t('เพิ่มลิงก์หลักฐานก่อนส่งตรวจ'));
+    return moveTask(task, 'submit', { evidenceUrl }, t('ส่งตรวจแล้ว'));
   }
   // Approval closes a task, so it follows the same permission rule as every
   // other edit. (A "client review" screen labelled DEMO used to call this
   // straight through; it was not a real link and is gone until one exists.)
   function approveTask(task: Task) {
-    return moveTask(task, 'approve', {}, 'อนุมัติและปิดงานแล้ว');
+    return moveTask(task, 'approve', {}, t('อนุมัติและปิดงานแล้ว'));
   }
   function requestRevision(task: Task) {
     openActionSheet({ kind: 'revision', task });
@@ -1913,9 +1936,9 @@ export default function Home() {
     try {
       await api.unbindGroup(groupId);
       await refreshGroups();
-      setNotice('ยกเลิกการเชื่อมแล้ว · ข้อความจากกลุ่มนี้จะไม่เข้ามาอีก');
+      setNotice(t('ยกเลิกการเชื่อมแล้ว · ข้อความจากกลุ่มนี้จะไม่เข้ามาอีก'));
     } catch (error) {
-      reportError(error, 'ยกเลิกการเชื่อมไม่สำเร็จ');
+      reportError(error, t('ยกเลิกการเชื่อมไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -1946,25 +1969,25 @@ export default function Home() {
     const fail = (message: string) => setSheetError(message);
 
     if (sheet.kind === 'blocked') {
-      if (!sheetReason) return fail('เลือกว่าติดเพราะอะไร');
+      if (!sheetReason) return fail(t('เลือกว่าติดเพราะอะไร'));
       setActionSheet(null);
       return moveTask(
         sheet.task,
         'blocked',
         { reason: sheetReason, note: text, visibility: sheetShare ? 'workspace' : 'private' },
         sheetShare
-          ? 'แจ้งว่าติดปัญหาแล้ว · ทุกคนในพื้นที่งานเห็นเหตุผล'
-          : 'แจ้งว่าติดปัญหาแล้ว · เห็นเฉพาะคุณกับหัวหน้า',
+          ? t('แจ้งว่าติดปัญหาแล้ว · ทุกคนในพื้นที่งานเห็นเหตุผล')
+          : t('แจ้งว่าติดปัญหาแล้ว · เห็นเฉพาะคุณกับหัวหน้า'),
       );
     }
     if (sheet.kind === 'revision') {
-      if (!text) return fail('บอกด้วยว่าต้องแก้อะไร');
+      if (!text) return fail(t('บอกด้วยว่าต้องแก้อะไร'));
       setActionSheet(null);
       return moveTask(
         sheet.task,
         'revision',
         { note: text, dueAt: revisionDueAt(sheetDays).toISOString() } as never,
-        'ส่งกลับพร้อมกำหนดใหม่แล้ว',
+        t('ส่งกลับพร้อมกำหนดใหม่แล้ว'),
       );
     }
 
@@ -1973,15 +1996,15 @@ export default function Home() {
       if (sheet.kind === 'ask') {
         const targetId = sheetPerson.split(':')[1];
         const target = selectedProject.members.find((m) => m.id === targetId);
-        if (!target) return fail('เลือกว่าจะถามใคร');
-        if (!text) return fail('พิมพ์คำถามก่อน');
+        if (!target) return fail(t('เลือกว่าจะถามใคร'));
+        if (!text) return fail(t('พิมพ์คำถามก่อน'));
         await api.askQuestion(sheet.task.id, target.id, text);
         await refreshWorkspace(sheet.task.projectId);
         setActionSheet(null);
         setSelectedTask(null);
-        setNotice(`ส่งคำถามถึง ${target.nickname} แล้ว · งานนี้รอเขาอยู่`);
+        setNotice(t('ส่งคำถามถึง {0} แล้ว · งานนี้รอเขาอยู่', target.nickname));
       } else if (sheet.kind === 'answer') {
-        if (!text) return fail('พิมพ์คำตอบก่อน');
+        if (!text) return fail(t('พิมพ์คำตอบก่อน'));
         await api.answerQuestion(sheet.questionId, text);
         if (selectedTask) {
           const res = await api.questions(selectedTask.id);
@@ -1989,9 +2012,9 @@ export default function Home() {
           await refreshWorkspace(selectedTask.projectId);
         }
         setActionSheet(null);
-        setNotice('ตอบแล้ว · งานกลับไปที่ผู้รับผิดชอบ');
+        setNotice(t('ตอบแล้ว · งานกลับไปที่ผู้รับผิดชอบ'));
       } else if (sheet.kind === 'rename') {
-        if (!text) return fail('ใส่ชื่อพื้นที่งานก่อน');
+        if (!text) return fail(t('ใส่ชื่อพื้นที่งานก่อน'));
         const renamed = await api.renameWorkspace(selectedProject.id, text);
         // Prefer what the server stored (it trims and caps the length), but
         // never blank the name if an older server answers without it.
@@ -2006,16 +2029,16 @@ export default function Home() {
         // The group list carries the workspace name too.
         await refreshGroups();
         setActionSheet(null);
-        setNotice('เปลี่ยนชื่อแล้ว');
+        setNotice(t('เปลี่ยนชื่อแล้ว'));
       } else if (sheet.kind === 'schedule') {
-        if (sheetStart >= sheetEnd) return fail('เวลาเลิกงานต้องหลังเวลาเริ่มงาน');
+        if (sheetStart >= sheetEnd) return fail(t('เวลาเลิกงานต้องหลังเวลาเริ่มงาน'));
         await api.setSchedule(selectedProject.id, sheetStart, sheetEnd);
         await refreshSchedule();
         setActionSheet(null);
-        setNotice('บันทึกเวลาทำงานแล้ว · การเตือนจะใช้เวลานี้');
+        setNotice(t('บันทึกเวลาทำงานแล้ว · การเตือนจะใช้เวลานี้'));
       }
     } catch (error) {
-      fail(error instanceof ApiError ? error.message : 'บันทึกไม่สำเร็จ');
+      fail(error instanceof ApiError ? error.message : t('บันทึกไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2026,13 +2049,13 @@ export default function Home() {
     setBusy(true);
     try {
       const s = await api.summary(selectedProject.id, 30);
-      if (navigator.share) await navigator.share({ title: 'สรุปงานที่เสร็จแล้ว', text: s.text });
+      if (navigator.share) await navigator.share({ title: t('สรุปงานที่เสร็จแล้ว'), text: s.text });
       else {
         await navigator.clipboard.writeText(s.text);
-        setNotice(`คัดลอกสรุป ${s.count} งานแล้ว`);
+        setNotice(t('คัดลอกสรุป {0} งานแล้ว', s.count));
       }
     } catch (error) {
-      reportError(error, 'สร้างสรุปไม่สำเร็จ');
+      reportError(error, t('สร้างสรุปไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2060,7 +2083,7 @@ export default function Home() {
 
     const forwardDueAt = pickerDueAt(forwardDueDay, forwardDate, forwardTime);
     if (new Date(forwardDueAt).getTime() <= now.getTime()) {
-      const late = { field: 'date', message: 'เวลานี้ผ่านไปแล้ว · เลือกพรุ่งนี้หรือเวลาอื่น' };
+      const late = { field: 'date', message: t('เวลานี้ผ่านไปแล้ว · เลือกพรุ่งนี้หรือเวลาอื่น') };
       setForwardError(late);
       return showEntryError(event.currentTarget, late);
     }
@@ -2086,9 +2109,9 @@ export default function Home() {
       await refreshWorkspace(forwardProject.id);
       setForwardDialog(false);
       navigate('tasks');
-      setNotice('สร้างงานจากข้อความ LINE แล้ว');
+      setNotice(t('สร้างงานจากข้อความ LINE แล้ว'));
     } catch (err) {
-      reportError(err, 'สร้างงานไม่สำเร็จ');
+      reportError(err, t('สร้างงานไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2113,9 +2136,9 @@ export default function Home() {
         `inbox-confirm:${capture.id}`,
       );
       await refreshWorkspace(capture.projectId);
-      setNotice('สร้างงานและมอบหมายแล้ว');
+      setNotice(t('สร้างงานและมอบหมายแล้ว'));
     } catch (error) {
-      reportError(error, 'ยืนยันไม่สำเร็จ');
+      reportError(error, t('ยืนยันไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2131,11 +2154,11 @@ export default function Home() {
       await refreshWorkspace(selectedProject.id);
       setNotice(
         res.skipped
-          ? `สร้าง ${res.created} งาน · ${res.skipped} รายการถูกจัดการไปแล้ว`
-          : `สร้าง ${res.created} งานแล้ว`,
+          ? t('สร้าง {0} งาน · {1} รายการถูกจัดการไปแล้ว', res.created, res.skipped)
+          : t('สร้าง {0} งานแล้ว', res.created),
       );
     } catch (error) {
-      reportError(error, 'ยืนยันไม่สำเร็จ');
+      reportError(error, t('ยืนยันไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2145,9 +2168,9 @@ export default function Home() {
     try {
       await api.dismissInbox(capture.id);
       await refreshWorkspace(capture.projectId);
-      setNotice('ปิดข้อความนี้แล้ว');
+      setNotice(t('ปิดข้อความนี้แล้ว'));
     } catch (error) {
-      reportError(error, 'ปิดข้อความไม่สำเร็จ');
+      reportError(error, t('ปิดข้อความไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2177,7 +2200,7 @@ export default function Home() {
       Boolean(editTarget.task.dueAt) &&
       new Date(editTarget.task.dueAt as string).getTime() <= now.getTime();
     if (new Date(dueAt).getTime() <= now.getTime() && !keptOldDeadline) {
-      const late = { field: 'date', message: 'เวลานี้ผ่านไปแล้ว · เลือกพรุ่งนี้หรือเวลาอื่น' };
+      const late = { field: 'date', message: t('เวลานี้ผ่านไปแล้ว · เลือกพรุ่งนี้หรือเวลาอื่น') };
       setTaskError(late);
       return showEntryError(event.currentTarget, late);
     }
@@ -2207,10 +2230,10 @@ export default function Home() {
       setNaturalDeadline('');
       navigate('tasks');
       setNotice(
-        made.batchId ? `สร้างงานให้ทุกคนแล้ว · ${made.created ?? 0} คน` : 'สร้างงานเรียบร้อย',
+        made.batchId ? t('สร้างงานให้ทุกคนแล้ว · {0} คน', made.created ?? 0) : t('สร้างงานเรียบร้อย'),
       );
     } catch (err) {
-      reportError(err, 'สร้างงานไม่สำเร็จ');
+      reportError(err, t('สร้างงานไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2223,19 +2246,19 @@ export default function Home() {
     setBusy(true);
     try {
       if (target.kind === 'task') {
-        const t = target.task;
+        const edited = target.task;
         const patch: Parameters<typeof api.updateTask>[1] = {};
-        if (values.title !== t.title) patch.title = values.title;
-        if (values.note !== t.note) patch.note = values.note;
-        if ((values.assignee ?? '') !== (t.assigneeId ?? '')) patch.assigneeUserId = values.assignee;
-        if (taskPriority !== t.priority) patch.priority = taskPriority;
+        if (values.title !== edited.title) patch.title = values.title;
+        if (values.note !== edited.note) patch.note = values.note;
+        if ((values.assignee ?? '') !== (edited.assigneeId ?? '')) patch.assigneeUserId = values.assignee;
+        if (taskPriority !== edited.priority) patch.priority = taskPriority;
         if (dueTouched) patch.dueAt = values.dueAt;
         if (Object.keys(patch).length) {
-          await api.updateTask(t.id, patch);
-          await refreshWorkspace(t.projectId);
+          await api.updateTask(edited.id, patch);
+          await refreshWorkspace(edited.projectId);
         }
         setTaskDialog(false);
-        setNotice(Object.keys(patch).length ? 'บันทึกการแก้ไขแล้ว' : 'ไม่มีอะไรเปลี่ยน');
+        setNotice(Object.keys(patch).length ? t('บันทึกการแก้ไขแล้ว') : t('ไม่มีอะไรเปลี่ยน'));
         return;
       }
       const c = target.capture;
@@ -2251,9 +2274,9 @@ export default function Home() {
       );
       await refreshWorkspace(c.projectId);
       setTaskDialog(false);
-      setNotice(values.assignAll ? 'สร้างงานให้ทุกคนแล้ว' : 'สร้างงานและมอบหมายแล้ว');
+      setNotice(values.assignAll ? t('สร้างงานให้ทุกคนแล้ว') : t('สร้างงานและมอบหมายแล้ว'));
     } catch (err) {
-      reportError(err, target.kind === 'task' ? 'บันทึกไม่สำเร็จ' : 'ยืนยันไม่สำเร็จ');
+      reportError(err, target.kind === 'task' ? t('บันทึกไม่สำเร็จ') : t('ยืนยันไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2274,7 +2297,7 @@ export default function Home() {
     event.preventDefault();
     if (!selectedTask) return;
     if (!canEditTask(selectedTask))
-      return setNotice('งานนี้ดูได้อย่างเดียว เพราะคุณไม่ใช่ผู้รับผิดชอบ');
+      return setNotice(t('งานนี้ดูได้อย่างเดียว เพราะคุณไม่ใช่ผู้รับผิดชอบ'));
     const url = String(new FormData(event.currentTarget).get('url') || '').trim();
     setBusy(true);
     try {
@@ -2282,9 +2305,9 @@ export default function Home() {
       await refreshWorkspace(selectedTask.projectId);
       setEvidenceOpen(false);
       setSelectedTask(null);
-      setNotice('เพิ่มลิงก์แล้ว — ไม่มีการเก็บไฟล์');
+      setNotice(t('เพิ่มลิงก์แล้ว — ไม่มีการเก็บไฟล์'));
     } catch (error) {
-      reportError(error, 'เพิ่มลิงก์ไม่สำเร็จ');
+      reportError(error, t('เพิ่มลิงก์ไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2297,9 +2320,9 @@ export default function Home() {
       await api.deleteTask(target.id);
       await refreshWorkspace(target.projectId);
       setSelectedTask(null);
-      setNotice('ลบงานแล้ว');
+      setNotice(t('ลบงานแล้ว'));
     } catch (error) {
-      reportError(error, 'ลบงานไม่สำเร็จ');
+      reportError(error, t('ลบงานไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2318,7 +2341,7 @@ export default function Home() {
       // back too meant about three seconds of a dialog that looked frozen,
       // which reads as a broken button rather than a slow one.
       setNicknameMember(null);
-      setNotice('บันทึกชื่อเล่นแล้ว');
+      setNotice(t('บันทึกชื่อเล่นแล้ว'));
       const members = await api.members(selectedProject.id);
       setProjects((all) =>
         all.map((project) =>
@@ -2328,7 +2351,7 @@ export default function Home() {
         ),
       );
     } catch (error) {
-      reportError(error, 'บันทึกชื่อเล่นไม่สำเร็จ');
+      reportError(error, t('บันทึกชื่อเล่นไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2353,7 +2376,7 @@ export default function Home() {
       ),
     );
     setTeamDialog(false);
-    setNotice(`สร้าง ${name} แล้ว`);
+    setNotice(t('สร้าง {0} แล้ว', name));
   }
   async function createProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2369,9 +2392,9 @@ export default function Home() {
       await reloadWorkspaces();
       chooseProject(created.id);
       setProjectDialog(false);
-      setNotice('สร้างพื้นที่งานใหม่แล้ว');
+      setNotice(t('สร้างพื้นที่งานใหม่แล้ว'));
     } catch (error) {
-      reportError(error, 'สร้างพื้นที่งานไม่สำเร็จ');
+      reportError(error, t('สร้างพื้นที่งานไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2395,11 +2418,11 @@ export default function Home() {
       setReminderDialog(false);
       setNotice(
         created.shifted === 'none'
-          ? 'สร้างเตือนแล้ว'
-          : `${created.reason} · จะเตือน ${formatDeadline(created.sendAt, { now })}`,
+          ? t('สร้างเตือนแล้ว')
+          : t('{0} · จะเตือน {1}', created.reason, formatDeadline(created.sendAt, { now })),
       );
     } catch (error) {
-      reportError(error, 'สร้างเตือนไม่สำเร็จ');
+      reportError(error, t('สร้างเตือนไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2407,14 +2430,14 @@ export default function Home() {
   async function createQuickReminder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const title = quickReminderTitle.trim();
-    if (!title) return setNotice('พิมพ์เรื่องที่อยากให้เตือนก่อน');
+    if (!title) return setNotice(t('พิมพ์เรื่องที่อยากให้เตือนก่อน'));
     const dueAt = pickerDueAt(
       quickReminderDay === 'today' ? 'today' : 'tomorrow',
       undefined,
       quickReminderTime,
     );
     if (new Date(dueAt).getTime() <= now.getTime()) {
-      return setNotice('เวลานี้ผ่านไปแล้ว · เลือกพรุ่งนี้หรือเวลาอื่น');
+      return setNotice(t('เวลานี้ผ่านไปแล้ว · เลือกพรุ่งนี้หรือเวลาอื่น'));
     }
     setBusy(true);
     try {
@@ -2428,11 +2451,11 @@ export default function Home() {
       // rather than the one that was asked for.
       setNotice(
         created.shifted === 'none'
-          ? `ตั้งเตือน ${formatDeadline(created.sendAt, { now })} แล้ว`
-          : `${created.reason} · จะเตือน ${formatDeadline(created.sendAt, { now })}`,
+          ? t('ตั้งเตือน {0} แล้ว', formatDeadline(created.sendAt, { now }))
+          : t('{0} · จะเตือน {1}', created.reason, formatDeadline(created.sendAt, { now })),
       );
     } catch (error) {
-      reportError(error, 'ตั้งเตือนไม่สำเร็จ');
+      reportError(error, t('ตั้งเตือนไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2445,9 +2468,9 @@ export default function Home() {
       setReminders(
         res.reminders.map((r) => ({
           id: r.id,
-          title: r.title ?? 'การเตือน',
+          title: r.title ?? t('การเตือน'),
           date: formatDeadline(r.sendAt, { now }),
-          time: new Intl.DateTimeFormat('th-TH', {
+          time: new Intl.DateTimeFormat(intlLocale(), {
             timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', hour12: false,
           }).format(new Date(r.sendAt)),
           repeat: 'once' as const,
@@ -2467,7 +2490,7 @@ export default function Home() {
       await api.updateReminder(id, { done: !current.done });
       await refreshReminders();
     } catch (error) {
-      reportError(error, 'อัปเดตการเตือนไม่สำเร็จ');
+      reportError(error, t('อัปเดตการเตือนไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2488,9 +2511,9 @@ export default function Home() {
     try {
       await api.deleteReminder(id);
       await refreshReminders();
-      setNotice('ลบการเตือนแล้ว');
+      setNotice(t('ลบการเตือนแล้ว'));
     } catch (error) {
-      reportError(error, 'ลบการเตือนไม่สำเร็จ');
+      reportError(error, t('ลบการเตือนไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2506,9 +2529,9 @@ export default function Home() {
         sendAt: new Date(now.getTime() + 10 * 60000).toISOString(),
       });
       await refreshReminders();
-      setNotice('เลื่อนเตือนออกไป 10 นาทีแล้ว');
+      setNotice(t('เลื่อนเตือนออกไป 10 นาทีแล้ว'));
     } catch (error) {
-      reportError(error, 'เลื่อนเตือนไม่สำเร็จ');
+      reportError(error, t('เลื่อนเตือนไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2518,17 +2541,17 @@ export default function Home() {
     const [, assigneeId] = delegateTarget.split(':');
     if (!assigneeId) return;
     if (assigneeId === task.assigneeId)
-      return setNotice('งานนี้อยู่กับผู้รับคนนี้แล้ว');
-    return moveTask(task, 'handoff', { assigneeUserId: assigneeId }, 'ส่งงานต่อแล้ว');
+      return setNotice(t('งานนี้อยู่กับผู้รับคนนี้แล้ว'));
+    return moveTask(task, 'handoff', { assigneeUserId: assigneeId }, t('ส่งงานต่อแล้ว'));
   }
   async function shareReport() {
-    const text = `พื้นที่ ${selectedProject.name} มี ${totalTaskCount} งาน · ปิดแล้ว ${counts.done} งาน (${completionRate}%) — ทันงาน.`;
+    const text = t('พื้นที่ {0} มี {1} งาน · ปิดแล้ว {2} งาน ({3}%) — ทันงาน.', selectedProject.name, totalTaskCount, counts.done, completionRate);
     try {
       if (navigator.share)
-        await navigator.share({ title: 'My work week · ทันงาน', text });
+        await navigator.share({ title: t('My work week · ทันงาน'), text });
       else {
         await navigator.clipboard.writeText(text);
-        setNotice('คัดลอกข้อความสำหรับแชร์แล้ว');
+        setNotice(t('คัดลอกข้อความสำหรับแชร์แล้ว'));
       }
     } catch {
       return;
@@ -2551,18 +2574,18 @@ export default function Home() {
     const state = why !== undefined
       ? why && ` · ${why}`
       : task.pendingAssigneeId
-        ? ' · รอรับงานที่ส่งต่อ'
+        ? t(' · รอรับงานที่ส่งต่อ')
         : task.status === 'blocked'
-          ? ` · ${task.blockedReason || 'ติดปัญหา'}`
+          ? ` · ${t(task.blockedReason || 'ติดปัญหา')}`
           : task.status === 'review'
-            ? ' · รอตรวจ'
+            ? t(' · รอตรวจ')
             : task.status === 'done'
-              ? ' · ปิดแล้ว'
+              ? t(' · ปิดแล้ว')
               : '';
     return (
       <button
         type="button"
-        title={editable ? 'เปิดและจัดการงาน' : 'เปิดดูรายละเอียด — แก้ไขไม่ได้'}
+        title={editable ? t('เปิดและจัดการงาน') : t('เปิดดูรายละเอียด — แก้ไขไม่ได้')}
         className={`task-row task-line ${!editable ? 'read-only' : ''} ${waiting ? 'row-pending' : ''}`}
         onClick={() => setSelectedTask(task)}
       >
@@ -2574,17 +2597,17 @@ export default function Home() {
                 where an absolute date makes them do the subtraction. */}
             {relativeDeadline(task.dueAt, now)} ·{' '}
             {task.batchId && !belongsToMe(task)
-              ? `ทุกคน · เสร็จ ${batchProgress(task.batchId).done}/${batchProgress(task.batchId).total}`
+              ? t('ทุกคน · เสร็จ {0}/{1}', batchProgress(task.batchId).done, batchProgress(task.batchId).total)
               : assignee.label}
             {task.batchId && belongsToMe(task)
-              ? ` · ทุกคน ${batchProgress(task.batchId).done}/${batchProgress(task.batchId).total}`
+              ? t(' · ทุกคน {0}/{1}', batchProgress(task.batchId).done, batchProgress(task.batchId).total)
               : ''}
             {state}
           </small>
         </span>
         <span className="sr-only">{statusMeta[task.status].label}</span>
         <span className="task-line-end">
-          {!editable && <LockKeyhole className="row-lock" aria-label="ดูอย่างเดียว" />}
+          {!editable && <LockKeyhole className="row-lock" aria-label={t('ดูอย่างเดียว')} />}
           <PersonAvatar initials={assignee.initials} size="sm" />
         </span>
       </button>
@@ -2631,8 +2654,8 @@ export default function Home() {
     sweepItems.length > 0 ? (
       <section className="panel elsewhere-card sweep-card">
         <div className="elsewhere-heading">
-          <strong>ปิดวัน · งานที่ยังไม่ขยับวันนี้</strong>
-          <small>{sweepItems.length} งาน</small>
+          <strong>{t('ปิดวัน · งานที่ยังไม่ขยับวันนี้')}</strong>
+          <small>{t('{0} งาน', sweepItems.length)}</small>
         </div>
         {sweepItems.slice(0, 6).map((item) => (
           <button
@@ -2644,12 +2667,12 @@ export default function Home() {
             <span>
               <strong>{item.title}</strong>
               <small>
-                {item.assigneeName ?? 'ยังไม่มีคนรับ'}
+                {item.assigneeName ?? t('ยังไม่มีคนรับ')}
                 {' · '}
                 {item.awaitingHandoff
-                  ? 'รอรับงานที่ส่งต่อ'
-                  : `${statusMeta[item.status as Status]?.label ?? item.status} ${item.daysInState ? `${item.daysInState} วัน` : 'ตั้งแต่เมื่อวาน'}`}
-                {item.blockedReason ? ` · ${item.blockedReason}` : ''}
+                  ? t('รอรับงานที่ส่งต่อ')
+                  : `${statusMeta[item.status as Status]?.label ?? item.status} ${item.daysInState ? t('{0} วัน', item.daysInState) : t('ตั้งแต่เมื่อวาน')}`}
+                {item.blockedReason ? ` · ${t(item.blockedReason)}` : ''}
               </small>
             </span>
             <ChevronRight />
@@ -2695,7 +2718,7 @@ export default function Home() {
     api
       .announcements(announceWorkspaceId)
       .then((res) => setAnnouncementHistory(res.announcements ?? []))
-      .catch((error) => reportError(error, 'โหลดประกาศไม่สำเร็จ'));
+      .catch((error) => reportError(error, t('โหลดประกาศไม่สำเร็จ')));
     // reportError and projects are read, not watched.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, manageTab, announceWorkspaceId, account.loggedIn]);
@@ -2717,7 +2740,7 @@ export default function Home() {
     const data = new FormData(form);
     const title = String(data.get('announceTitle') ?? '').trim();
     const body = String(data.get('announceBody') ?? '').trim();
-    if (!title) return setNotice('ใส่หัวข้อประกาศก่อน');
+    if (!title) return setNotice(t('ใส่หัวข้อประกาศก่อน'));
     let link: string | null;
     try {
       link = normalizeMeetingLink(data.get('announceLink'));
@@ -2733,9 +2756,9 @@ export default function Home() {
       // The author gets the same notice as everyone else, right away.
       const unread = await api.unreadAnnouncements();
       setUnreadAnnouncements(unread.announcements ?? []);
-      setNotice('ประกาศแล้ว · ทุกคนในพื้นที่งานจะเห็นเมื่อเปิดแอป');
+      setNotice(t('ประกาศแล้ว · ทุกคนในพื้นที่งานจะเห็นเมื่อเปิดแอป'));
     } catch (error) {
-      reportError(error, 'ประกาศไม่สำเร็จ');
+      reportError(error, t('ประกาศไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2748,9 +2771,9 @@ export default function Home() {
     try {
       await api.deleteAnnouncement(id);
       setAnnouncementHistory((list) => list.filter((a) => a.id !== id));
-      setNotice('ลบประกาศแล้ว');
+      setNotice(t('ลบประกาศแล้ว'));
     } catch (error) {
-      reportError(error, 'ลบประกาศไม่สำเร็จ');
+      reportError(error, t('ลบประกาศไม่สำเร็จ'));
     } finally {
       setBusy(false);
     }
@@ -2760,16 +2783,15 @@ export default function Home() {
     account.loggedIn && !account.lineConnected ? (
       <section className="panel group-setup-card">
         <div>
-          <strong>ยังไม่ได้แอดบอท ทันงาน ใน LINE</strong>
+          <strong>{t('ยังไม่ได้แอดบอท ทันงาน ใน LINE')}</strong>
           <small>
-            การเตือนส่งเป็นข้อความส่วนตัวใน LINE เท่านั้น
-            ถ้ายังไม่ได้แอด จะไม่มีการเตือนส่งถึงคุณเลย
+            {t('การเตือนส่งเป็นข้อความส่วนตัวใน LINE เท่านั้น ถ้ายังไม่ได้แอด จะไม่มีการเตือนส่งถึงคุณเลย')}
           </small>
         </div>
         <div className="connection-row">
           <span>
             <MessageCircle />
-            เพิ่ม ทันงาน เป็นเพื่อน
+            {t('เพิ่ม ทันงาน เป็นเพื่อน')}
           </span>
           {account.addFriendUrl ? (
             <Button
@@ -2777,10 +2799,10 @@ export default function Home() {
                 window.location.href = account.addFriendUrl;
               }}
             >
-              แอดบอท
+              {t('แอดบอท')}
             </Button>
           ) : (
-            <small>ค้นหา ทันงาน ใน LINE แล้วกดเพิ่มเพื่อน</small>
+            <small>{t('ค้นหา ทันงาน ใน LINE แล้วกดเพิ่มเพื่อน')}</small>
           )}
         </div>
       </section>
@@ -2819,12 +2841,12 @@ export default function Home() {
     const nextStep = (task: Task) => {
       if (task.status === 'review') return null;
       if (task.status === 'blocked')
-        return { label: 'อัปเดต', run: () => setSelectedTaskId(task.id), ink: false };
+        return { label: t('อัปเดต'), run: () => setSelectedTaskId(task.id), ink: false };
       if (!task.acceptedAt)
-        return { label: 'รับงาน', run: () => void acceptTask(task), ink: true };
+        return { label: t('รับงาน'), run: () => void acceptTask(task), ink: true };
       // Submitting needs evidence; without it the sheet is where to add it.
       return {
-        label: 'ส่งตรวจ',
+        label: t('ส่งตรวจ'),
         run: () =>
           task.evidence.length
             ? void submitForReview(task)
@@ -2834,15 +2856,15 @@ export default function Home() {
     };
     const metaFor = (task: Task) => {
       const late = task.status !== 'review' && isOverdue(task.dueAt ?? '', now);
-      const when = task.dueAt ? formatDeadline(task.dueAt, { now }) : 'ไม่มีกำหนด';
+      const when = task.dueAt ? formatDeadline(task.dueAt, { now }) : t('ไม่มีกำหนด');
       const state =
         task.status === 'blocked'
-          ? task.blockedReason || 'ติดปัญหา'
+          ? t(task.blockedReason || 'ติดปัญหา')
           : task.status === 'review'
-            ? 'รอตรวจ'
+            ? t('รอตรวจ')
             : task.acceptedAt
-              ? 'กำลังทำ'
-              : 'ยังไม่รับ';
+              ? t('กำลังทำ')
+              : t('ยังไม่รับ');
       return { late, text: `${when} · ${state}` };
     };
 
@@ -2853,7 +2875,7 @@ export default function Home() {
             <h2
               data-kicker={`${pageKicker('home')} · ${kickerDate.format(now)}`}
             >
-              วันนี้
+              {t('วันนี้')}
             </h2>
           </div>
           <Button
@@ -2861,14 +2883,14 @@ export default function Home() {
             onClick={() => openCreateTask()}
           >
             <Plus />
-            สร้างงาน
+            {t('สร้างงาน')}
           </Button>
         </section>
 
-        <div className="today-tiles" role="group" aria-label="สรุปวันนี้">
+        <div className="today-tiles" role="group" aria-label={t('สรุปวันนี้')}>
           <button type="button" className="today-tile" onClick={() => navigate('tasks')}>
             <b>{mineToday}</b>
-            <span>ของฉันวันนี้</span>
+            <span>{t('ของฉันวันนี้')}</span>
           </button>
           <button
             type="button"
@@ -2876,11 +2898,11 @@ export default function Home() {
             onClick={() => navigate('tasks')}
           >
             <b>{mineLate}</b>
-            <span>เลยกำหนด</span>
+            <span>{t('เลยกำหนด')}</span>
           </button>
           <div className="today-tile">
             <b>{waitingCount}</b>
-            <span>รอคุณ</span>
+            <span>{t('รอคุณ')}</span>
           </div>
         </div>
 
@@ -2889,7 +2911,7 @@ export default function Home() {
         {waitingCount > 0 && (
           <section className="today-section" aria-labelledby="today-waiting">
             <h3 className="today-label" id="today-waiting">
-              รอคุณ · {waitingCount}
+              {t('รอคุณ ·')} {waitingCount}
             </h3>
             <div className="today-list">
               {projectCaptures.length > 0 && (
@@ -2903,14 +2925,14 @@ export default function Home() {
                       <MessageCircle />
                     </span>
                     <span className="today-row-text">
-                      <strong>{projectCaptures.length} ข้อความจาก LINE</strong>
+                      <strong>{projectCaptures.length} {t('ข้อความจาก LINE')}</strong>
                       <small>
                         {projectCaptures[0].sender} · {projectCaptures[0].title}
                       </small>
                     </span>
                   </button>
                   <Button className="today-action" onClick={() => navigate('inbox')}>
-                    ตรวจ
+                    {t('ตรวจ')}
                   </Button>
                 </div>
               )}
@@ -2927,13 +2949,13 @@ export default function Home() {
                     <span className="today-row-text">
                       <strong>{task.title}</strong>
                       <small>
-                        {getAssignee(task).label} ส่งตรวจ
-                        {task.evidence.length ? ` · หลักฐาน ${task.evidence.length} ลิงก์` : ''}
+                        {getAssignee(task).label} {t('ส่งตรวจ')}
+                        {task.evidence.length ? t(' · หลักฐาน {0} ลิงก์', task.evidence.length) : ''}
                       </small>
                     </span>
                   </button>
                   <Button className="today-action" onClick={() => setSelectedTaskId(task.id)}>
-                    ตรวจงาน
+                    {t('ตรวจงาน')}
                   </Button>
                 </div>
               ))}
@@ -2949,7 +2971,7 @@ export default function Home() {
                     </span>
                     <span className="today-row-text">
                       <strong>{task.title}</strong>
-                      <small>มีคนส่งงานนี้ต่อให้คุณ</small>
+                      <small>{t('มีคนส่งงานนี้ต่อให้คุณ')}</small>
                     </span>
                   </button>
                   <Button
@@ -2957,7 +2979,7 @@ export default function Home() {
                     className="today-action"
                     onClick={() => setSelectedTaskId(task.id)}
                   >
-                    ดู
+                    {t('ดู')}
                   </Button>
                 </div>
               ))}
@@ -2968,11 +2990,11 @@ export default function Home() {
         <section className="today-section" aria-labelledby="today-mine">
           <div className="today-label-row">
             <h3 className="today-label" id="today-mine">
-              งานของฉัน · {mine.length}
+              {t('งานของฉัน ·')} {mine.length}
             </h3>
             {mine.length > 0 && (
               <button type="button" className="today-more" onClick={() => navigate('tasks')}>
-                ดูทั้งหมด
+                {t('ดูทั้งหมด')}
               </button>
             )}
           </div>
@@ -3014,8 +3036,8 @@ export default function Home() {
           ) : (
             <div className="today-list today-empty">
               <EmptyState
-                title="ไม่มีงานของคุณค้างอยู่"
-                body="งานที่มีคนสั่งให้คุณ หรือที่คุณสร้างเอง จะมาอยู่ตรงนี้"
+                title={t('ไม่มีงานของคุณค้างอยู่')}
+                body={t('งานที่มีคนสั่งให้คุณ หรือที่คุณสร้างเอง จะมาอยู่ตรงนี้')}
               />
             </div>
           )}
@@ -3027,8 +3049,8 @@ export default function Home() {
         // it up used to mean finding it in Settings; it is one tap here.
         <section className="panel group-setup-card">
           <div>
-            <strong>เชื่อมกลุ่ม LINE ของทีม</strong>
-            <small>ข้อความที่ติด @ทันงาน ในกลุ่มจะกลายเป็นงานในพื้นที่งานของกลุ่มนั้น</small>
+            <strong>{t('เชื่อมกลุ่ม LINE ของทีม')}</strong>
+            <small>{t('ข้อความที่ติด @ทันงาน ในกลุ่มจะกลายเป็นงานในพื้นที่งานของกลุ่มนั้น')}</small>
           </div>
           {lineGroups
             .filter((group) => !group.bound)
@@ -3040,40 +3062,40 @@ export default function Home() {
                   {group.name}
                 </span>
                 <Button disabled={busy} onClick={() => createGroupWorkspace(group.id)}>
-                  สร้างพื้นที่งานของกลุ่มนี้
+                  {t('สร้างพื้นที่งานของกลุ่มนี้')}
                 </Button>
               </div>
             ))}
         </section>
       )}
-      {myTasksEverywhere.some((t) => t.workspaceId !== selectedProject.id) && (
+      {myTasksEverywhere.some((row) => row.workspaceId !== selectedProject.id) && (
         <section className="panel elsewhere-card">
           <div className="elsewhere-heading">
-            <strong>งานของคุณในพื้นที่งานอื่น</strong>
+            <strong>{t('งานของคุณในพื้นที่งานอื่น')}</strong>
             <small>
-              {myTasksEverywhere.filter((t) => t.workspaceId !== selectedProject.id).length} งาน
+              {t('{0} งาน', myTasksEverywhere.filter((row) => row.workspaceId !== selectedProject.id).length)}
             </small>
           </div>
           {myTasksEverywhere
-            .filter((t) => t.workspaceId !== selectedProject.id)
+            .filter((row) => row.workspaceId !== selectedProject.id)
             .slice(0, 5)
-            .map((t) => (
+            .map((row) => (
               <button
                 type="button"
-                key={t.id}
+                key={row.id}
                 className="elsewhere-row"
-                onClick={() => openTaskElsewhere(t.workspaceId, t.id)}
+                onClick={() => openTaskElsewhere(row.workspaceId, row.id)}
               >
                 <span>
-                  <strong>{t.title}</strong>
+                  <strong>{row.title}</strong>
                   <small>
-                    {t.workspaceName}
+                    {row.workspaceName}
                     {' · '}
-                    {t.pendingAssigneeUserId === meUserId
-                      ? 'รอคุณกดรับ'
-                      : t.dueAt
-                        ? formatDeadline(t.dueAt, { now })
-                        : 'ไม่มีกำหนด'}
+                    {row.pendingAssigneeUserId === meUserId
+                      ? t('รอคุณกดรับ')
+                      : row.dueAt
+                        ? formatDeadline(row.dueAt, { now })
+                        : t('ไม่มีกำหนด')}
                   </small>
                 </span>
                 <ChevronRight />
@@ -3084,7 +3106,7 @@ export default function Home() {
 
         <section className="today-section" aria-labelledby="today-team">
           <h3 className="today-label" id="today-team">
-            ทีม
+            {t('ทีม')}
           </h3>
           <button
             type="button"
@@ -3093,15 +3115,15 @@ export default function Home() {
           >
             <span>
               <b>{completionRate}%</b>
-              <small>ปิดแล้ว</small>
+              <small>{t('ปิดแล้ว')}</small>
             </span>
             <span>
               <b>{progressCount}</b>
-              <small>กำลังทำ</small>
+              <small>{t('กำลังทำ')}</small>
             </span>
             <span>
               <b>{counts.blocked}</b>
-              <small>ติดปัญหา</small>
+              <small>{t('ติดปัญหา')}</small>
             </span>
             <ChevronRight />
           </button>
@@ -3110,30 +3132,29 @@ export default function Home() {
         <div className="today-quick">
           <Button variant="outline" onClick={() => openCreateTask()}>
             <Plus />
-            สร้างงาน
+            {t('สร้างงาน')}
           </Button>
           <Button variant="outline" onClick={() => setForwardDialog(true)}>
             <Send />
-            นำข้อความจาก LINE
+            {t('นำข้อความจาก LINE')}
           </Button>
         </div>
       <section className="beta-strip">
         <div className="beta-copy">
           <Badge>FREE BETA</Badge>
           <div>
-            <strong>ใช้ฟรีช่วงทดสอบ · ไม่ต้องใส่บัตร</strong>
-            <small>ช่วงทดสอบยังไม่คิดเงิน</small>
+            <strong>{t('ใช้ฟรีช่วงทดสอบ · ไม่ต้องใส่บัตร')}</strong>
+            <small>{t('ช่วงทดสอบยังไม่คิดเงิน')}</small>
           </div>
         </div>
         <div className="beta-unlock">
-          <span>ปลดล็อก 3 กลุ่ม</span>
+          <span>{t('ปลดล็อก 3 กลุ่ม')}</span>
           <div>
             <i>
               <b style={{ width: `${betaProgress.completed * 10}%` }} />
             </i>
             <small>
-              {betaProgress.completed}/10 งานจบ · {betaProgress.participants}/2
-              คนใช้งาน
+              {t('{0}/10 งานจบ · {1}/2 คนใช้งาน', betaProgress.completed, betaProgress.participants)}
             </small>
           </div>
         </div>
@@ -3149,7 +3170,7 @@ export default function Home() {
           <h2
             data-kicker={`${pageKicker('inbox')}${projectCaptures.length ? ` · ${projectCaptures.length} TO CHECK` : ''}`}
           >
-            จาก LINE
+            {t('จาก LINE')}
           </h2>
         </div>
         <Button
@@ -3157,15 +3178,15 @@ export default function Home() {
           onClick={() => setForwardDialog(true)}
         >
           <Send />
-          นำข้อความเข้า
+          {t('นำข้อความเข้า')}
         </Button>
       </div>
       {projectCaptures.length >= 2 && (
         <div className="confirm-all-row line-confirm-all">
-          <span>ตรวจแล้วถูกทุกรายการ?</span>
+          <span>{t('ตรวจแล้วถูกทุกรายการ?')}</span>
           <Button variant="outline" disabled={busy} onClick={confirmAllCaptures}>
             <Check />
-            ยืนยันทั้งหมด {projectCaptures.length} รายการ
+            {t('ยืนยันทั้งหมด')} {projectCaptures.length} {t('รายการ')}
           </Button>
         </div>
       )}
@@ -3188,41 +3209,41 @@ export default function Home() {
                 </p>
               </div>
               <div className="line-read">
-                <h4>ทันงานอ่านได้ว่า</h4>
+                <h4>{t('ทันงานอ่านได้ว่า')}</h4>
                 <div className="line-fields">
                   <button
                     type="button"
                     className="line-field"
-                    aria-label={`แก้ชื่องาน: ${capture.title}`}
+                    aria-label={t('แก้ชื่องาน: {0}', capture.title)}
                     onClick={() => openEditCapture(capture)}
                   >
-                    <small>งาน</small>
+                    <small>{t('งาน@@field')}</small>
                     <strong>{capture.title}</strong>
                     <PencilLine />
                   </button>
                   <button
                     type="button"
                     className={`line-field ${capture.assigneeId || capture.assignAll ? '' : 'is-missing'}`}
-                    aria-label={`แก้ผู้รับผิดชอบ: ${capture.assignAll ? 'ทุกคนในพื้นที่งาน' : capture.assigneeId ? assignee.label : 'ยังไม่รู้ว่าให้ใคร'}`}
+                    aria-label={t('แก้ผู้รับผิดชอบ: {0}', capture.assignAll ? t('ทุกคนในพื้นที่งาน') : capture.assigneeId ? assignee.label : t('ยังไม่รู้ว่าให้ใคร'))}
                     onClick={() => openEditCapture(capture)}
                   >
-                    <small>ใคร</small>
+                    <small>{t('ใคร')}</small>
                     <strong>
                       {capture.assignAll
-                        ? 'ทุกคนในพื้นที่งาน · คนละชิ้น'
+                        ? t('ทุกคนในพื้นที่งาน · คนละชิ้น')
                         : capture.assigneeId
                           ? assignee.label
-                          : 'ยังไม่รู้ว่าให้ใคร'}
+                          : t('ยังไม่รู้ว่าให้ใคร')}
                     </strong>
                     <PencilLine />
                   </button>
                   <button
                     type="button"
                     className="line-field"
-                    aria-label={`แก้กำหนดส่ง: ${capture.dueText}`}
+                    aria-label={t('แก้กำหนดส่ง: {0}', capture.dueText)}
                     onClick={() => openEditCapture(capture)}
                   >
-                    <small>เมื่อไร</small>
+                    <small>{t('เมื่อไร')}</small>
                     <strong>{capture.dueText}</strong>
                     <PencilLine />
                   </button>
@@ -3233,11 +3254,11 @@ export default function Home() {
                     disabled={busy}
                     onClick={() => dismissCapture(capture)}
                   >
-                    ไม่ใช่งาน
+                    {t('ไม่ใช่งาน')}
                   </Button>
                   <Button disabled={busy} onClick={() => confirmCapture(capture)}>
                     <Check />
-                    ยืนยันสร้างงาน
+                    {t('ยืนยันสร้างงาน')}
                   </Button>
                 </div>
               </div>
@@ -3246,7 +3267,7 @@ export default function Home() {
         })}
         {projectCaptures.length === 0 && (
           <div className="panel">
-            <EmptyState title="ตรวจครบแล้ว" body="ข้อความใหม่จะมารอให้คุณยืนยันตรงนี้" />
+            <EmptyState title={t('ตรวจครบแล้ว')} body={t('ข้อความใหม่จะมารอให้คุณยืนยันตรงนี้')} />
           </div>
         )}
       </div>
@@ -3273,16 +3294,16 @@ export default function Home() {
     );
     const notLate = open.filter((task) => !late.includes(task));
     const groups = [
-      { key: 'late', label: 'เลยกำหนด', items: late },
-      { key: 'today', label: 'วันนี้', items: notLate.filter((t) => dayBucket(t.dueAt, now) === 'today') },
-      { key: 'tomorrow', label: 'พรุ่งนี้', items: notLate.filter((t) => dayBucket(t.dueAt, now) === 'tomorrow') },
+      { key: 'late', label: t('เลยกำหนด'), items: late },
+      { key: 'today', label: t('วันนี้'), items: notLate.filter((t) => dayBucket(t.dueAt, now) === 'today') },
+      { key: 'tomorrow', label: t('พรุ่งนี้'), items: notLate.filter((t) => dayBucket(t.dueAt, now) === 'tomorrow') },
       {
         key: 'later',
-        label: 'หลังจากนั้น',
+        label: t('หลังจากนั้น'),
         items: notLate.filter((t) => ['friday', 'later'].includes(dayBucket(t.dueAt, now))),
       },
-      { key: 'none', label: 'ไม่มีกำหนด', items: notLate.filter((t) => dayBucket(t.dueAt, now) === 'none') },
-      { key: 'done', label: 'ปิดแล้ว', items: sorted.filter((task) => task.status === 'done') },
+      { key: 'none', label: t('ไม่มีกำหนด'), items: notLate.filter((t) => dayBucket(t.dueAt, now) === 'none') },
+      { key: 'done', label: t('ปิดแล้ว'), items: sorted.filter((task) => task.status === 'done') },
     ].filter((group) => group.items.length > 0);
     const mineCount = projectTasks.filter(
       (task) => belongsToMe(task) && visibleInTaskList(task.status, 'all', settings.showCompleted),
@@ -3310,14 +3331,14 @@ export default function Home() {
       <section className="page-section tasks-screen">
         <div className="section-intro">
           <div>
-            <h2 data-kicker={`${pageKicker('tasks')} · ${counts.open} OPEN`}>งาน</h2>
+            <h2 data-kicker={`${pageKicker('tasks')} · ${counts.open} OPEN`}>{t('งาน')}</h2>
           </div>
           <Button
             className="primary-action desktop-create"
             onClick={() => openCreateTask()}
           >
             <Plus />
-            สร้างงาน
+            {t('สร้างงาน')}
           </Button>
         </div>
         <label className="search-box task-search">
@@ -3325,14 +3346,14 @@ export default function Home() {
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="ค้นหางานหรือคน"
-            aria-label="ค้นหางานหรือคน"
+            placeholder={t('ค้นหางานหรือคน')}
+            aria-label={t('ค้นหางานหรือคน')}
           />
         </label>
-        <div className="task-chips" role="group" aria-label="กรองงาน">
+        <div className="task-chips" role="group" aria-label={t('กรองงาน')}>
           {chip(
             'all',
-            'ทั้งหมด',
+            t('ทั้งหมด'),
             settings.showCompleted ? projectTasks.length : counts.open,
             filter === 'all' && !mineOnly,
             () => {
@@ -3340,7 +3361,7 @@ export default function Home() {
               setMineOnly(false);
             },
           )}
-          {chip('mine', 'ของฉัน', mineCount, mineOnly, () => setMineOnly((on) => !on))}
+          {chip('mine', t('ของฉัน'), mineCount, mineOnly, () => setMineOnly((on) => !on))}
           {(['todo', 'progress', 'blocked', 'review', 'done'] as const).map((item) =>
             chip(
               item,
@@ -3370,7 +3391,7 @@ export default function Home() {
           ))
         ) : (
           <div className="task-list task-lines">
-            <EmptyState title="ไม่พบงาน" body="ลองเปลี่ยนคำค้นหาหรือตัวกรอง" />
+            <EmptyState title={t('ไม่พบงาน')} body={t('ลองเปลี่ยนคำค้นหาหรือตัวกรอง')} />
           </div>
         )}
       </section>
@@ -3383,7 +3404,7 @@ export default function Home() {
     const pickedTasks = picked?.tasks ?? [];
     const [py, pm, pd] = selectedDayKey.split('-').map(Number);
     // Noon UTC on that date: formatted in UTC, it is that calendar day.
-    const pickedLabel = new Intl.DateTimeFormat('th-TH', {
+    const pickedLabel = new Intl.DateTimeFormat(intlLocale(), {
       timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long',
     }).format(new Date(Date.UTC(py, pm - 1, pd, 12)));
     // Who has work that day: the per-person load the month view promised.
@@ -3401,16 +3422,16 @@ export default function Home() {
       <section className="page-section calendar-page">
         <div className="section-intro">
           <div>
-            <h2 data-kicker={pageKicker('calendar')}>กำหนดส่ง</h2>
+            <h2 data-kicker={pageKicker('calendar')}>{t('กำหนดส่ง')}</h2>
           </div>
         </div>
         <div className="panel month-calendar">
           <div className="month-head">
-            <button type="button" className="month-step" aria-label="เดือนก่อน" onClick={() => goMonth(-1)}>
+            <button type="button" className="month-step" aria-label={t('เดือนก่อน')} onClick={() => goMonth(-1)}>
               <ChevronLeft />
             </button>
             <h3>{monthTitle(shownMonth.year, shownMonth.month)}</h3>
-            <button type="button" className="month-step" aria-label="เดือนถัดไป" onClick={() => goMonth(1)}>
+            <button type="button" className="month-step" aria-label={t('เดือนถัดไป')} onClick={() => goMonth(1)}>
               <ChevronRight />
             </button>
             {(!onThisMonth || selectedDayKey !== todayKey) && (
@@ -3422,12 +3443,12 @@ export default function Home() {
                   setCalendarPick(null);
                 }}
               >
-                วันนี้
+                {t('วันนี้')}
               </button>
             )}
           </div>
           <div className="month-grid">
-            {THAI_WEEKDAYS_SHORT.map((label) => (
+            {weekdayLabels().map((label) => (
               <span className="month-weekday" key={label} aria-hidden="true">
                 {label}
               </span>
@@ -3447,7 +3468,7 @@ export default function Home() {
                     load?.late ? 'has-late' : '',
                   ].join(' ')}
                   aria-pressed={cell.key === selectedDayKey}
-                  aria-label={`${cell.day}${count ? ` · ${count} งาน` : ''}${load?.late ? ` · เลยกำหนด ${load.late}` : ''}`}
+                  aria-label={`${cell.day}${count ? t(' · {0} งาน', count) : ''}${load?.late ? t(' · เลยกำหนด {0}', load.late) : ''}`}
                   onClick={() => {
                     setCalendarPick(cell.key);
                     if (!cell.inMonth) {
@@ -3466,10 +3487,10 @@ export default function Home() {
         <div className="panel calendar-agenda">
           <div className="panel-heading">
             <div>
-              <h3>{selectedDayKey === todayKey ? `วันนี้ · ${pickedLabel}` : pickedLabel}</h3>
+              <h3>{selectedDayKey === todayKey ? t('วันนี้ · {0}', pickedLabel) : pickedLabel}</h3>
               {pickedTasks.length > 0 && (
                 <p className="calendar-people">
-                  {pickedTasks.length} งาน ·{' '}
+                  {t('{0} งาน ·', pickedTasks.length)}{' '}
                   {[...perPerson.entries()].map(([name, n]) => `${name} ${n}`).join(' · ')}
                 </p>
               )}
@@ -3481,15 +3502,15 @@ export default function Home() {
             ))}
             {pickedTasks.length === 0 && (
               <EmptyState
-                title={selectedDayKey === todayKey ? 'วันนี้ไม่มีงานถึงกำหนด' : 'วันนั้นไม่มีงานถึงกำหนด'}
-                body="เลือกวันอื่นในปฏิทิน หรือสร้างงานพร้อมกำหนดเวลา"
+                title={selectedDayKey === todayKey ? t('วันนี้ไม่มีงานถึงกำหนด') : t('วันนั้นไม่มีงานถึงกำหนด')}
+                body={t('เลือกวันอื่นในปฏิทิน หรือสร้างงานพร้อมกำหนดเวลา')}
               />
             )}
           </div>
         </div>
         {undated > 0 && (
           <button type="button" className="calendar-undated" onClick={() => navigate('tasks')}>
-            ไม่มีกำหนดส่ง {undated} งาน · ดูในหน้างาน
+            {t('ไม่มีกำหนดส่ง {0} งาน · ดูในหน้างาน', undated)}
             <ChevronRight />
           </button>
         )}
@@ -3501,38 +3522,38 @@ export default function Home() {
     <section className="page-section report-page">
       <div className="section-intro">
         <div>
-          <h2 data-kicker={pageKicker('reports')}>ภาพรวม</h2>
+          <h2 data-kicker={pageKicker('reports')}>{t('ภาพรวม')}</h2>
         </div>
       </div>
       <div className="report-layout">
         <div className="report-data">
           <section className="report-metrics">
             <article>
-              <span>ต้องตามตอนนี้</span>
+              <span>{t('ต้องตามตอนนี้')}</span>
               <strong>{overview.attentionTotal}</strong>
-              <small>จาก {overview.open} งานที่ยังเปิดอยู่</small>
+              <small>{t('จาก {0} งานที่ยังเปิดอยู่', overview.open)}</small>
             </article>
             <article>
-              <span>ปิดใน 7 วัน</span>
+              <span>{t('ปิดใน 7 วัน')}</span>
               <strong>{overview.closedLast7Days}</strong>
-              <small>สัปดาห์ก่อน {overview.closedPrevious7Days} งาน</small>
+              <small>{t('สัปดาห์ก่อน {0} งาน', overview.closedPrevious7Days)}</small>
             </article>
             <article>
-              <span>รอตรวจ</span>
+              <span>{t('รอตรวจ')}</span>
               <strong>{overview.attention.review.length}</strong>
-              <small>ส่งแล้ว รอคนสั่งงานตรวจ</small>
+              <small>{t('ส่งแล้ว รอคนสั่งงานตรวจ')}</small>
             </article>
           </section>
           <section className="panel overview-attention">
             <div className="panel-heading">
               <div>
-                <h3>ต้องดูตอนนี้</h3>
+                <h3>{t('ต้องดูตอนนี้')}</h3>
               </div>
             </div>
             {overview.attentionTotal === 0 ? (
               <EmptyState
-                title="ไม่มีงานค้าง"
-                body="ไม่มีงานเลยกำหนด ติดปัญหา หรือรอตรวจ"
+                title={t('ไม่มีงานค้าง')}
+                body={t('ไม่มีงานเลยกำหนด ติดปัญหา หรือรอตรวจ')}
               />
             ) : (
               ATTENTION_ORDER.filter((kind) => overview.attention[kind].length > 0).map(
@@ -3553,14 +3574,14 @@ export default function Home() {
                             kind === 'late'
                               ? ''
                               : kind === 'blocked'
-                                ? `${full.blockedReason || 'ติดปัญหา'} ${span}`
+                                ? `${t(full.blockedReason || 'ติดปัญหา')} ${span}`
                                 : kind === 'review'
-                                  ? `รอตรวจ ${span}`
+                                  ? t('รอตรวจ {0}', span)
                                   : kind === 'unassigned'
-                                    ? 'ไม่มีคนรับผิดชอบ'
+                                    ? t('ไม่มีคนรับผิดชอบ')
                                     : kind === 'unaccepted'
-                                      ? `${full.pendingAssigneeId ? 'รอรับงานที่ส่งต่อ' : 'ยังไม่รับ'} ${span}`
-                                      : `สถานะเดิม ${span}`;
+                                      ? `${full.pendingAssigneeId ? t('รอรับงานที่ส่งต่อ') : t('ยังไม่รับ')} ${span}`
+                                      : t('สถานะเดิม {0}', span);
                           return <TaskRow key={task.id} task={full} why={why} />;
                         })}
                       </div>
@@ -3570,7 +3591,7 @@ export default function Home() {
                           className="overview-more"
                           onClick={() => setExpandedAttention(expanded ? null : kind)}
                         >
-                          {expanded ? 'ย่อ' : `ดูทั้งหมด ${items.length} งาน`}
+                          {expanded ? t('ย่อ') : t('ดูทั้งหมด {0} งาน', items.length)}
                         </button>
                       )}
                     </div>
@@ -3582,11 +3603,11 @@ export default function Home() {
           <section className="panel workload-panel">
             <div className="panel-heading">
               <div>
-                <h3>แต่ละคน</h3>
+                <h3>{t('แต่ละคน')}</h3>
               </div>
             </div>
             {overview.people.length === 0 ? (
-              <p className="overview-note">เลือกทีมด้านบน เพื่อดูงานของแต่ละคน</p>
+              <p className="overview-note">{t('เลือกทีมด้านบน เพื่อดูงานของแต่ละคน')}</p>
             ) : (
               overview.people.map((person) => {
                 const member = selectedProject.members.find((m) => m.id === person.memberId);
@@ -3598,17 +3619,17 @@ export default function Home() {
                     <span>
                       {member.nickname}
                       <small>
-                        {person.late > 0 && <b className="is-late">เลย {person.late}</b>}
+                        {person.late > 0 && <b className="is-late">{t('เลย {0}', person.late)}</b>}
                         {person.late > 0 && ' · '}
-                        สัปดาห์นี้ {person.dueThisWeek}
-                        {person.inReview > 0 && ` · รอตรวจ ${person.inReview}`}
-                        {person.heavy && ' · งานเยอะกว่าคนอื่น'}
+                        {t('สัปดาห์นี้ {0}', person.dueThisWeek)}
+                        {person.inReview > 0 && t(' · รอตรวจ {0}', person.inReview)}
+                        {person.heavy && t(' · งานเยอะกว่าคนอื่น')}
                       </small>
                     </span>
                     <i>
                       <b style={{ width: `${(person.open / most) * 100}%` }} />
                     </i>
-                    <strong>{person.open} งาน</strong>
+                    <strong>{t('{0} งาน', person.open)}</strong>
                   </div>
                 );
               })
@@ -3622,33 +3643,33 @@ export default function Home() {
               <span>LIVE WORK STORY</span>
             </div>
             <p>
-              POV: งานจาก LINE
+              {t('POV: งานจาก LINE')}
               <br />
-              ไม่หล่นแล้ว
+              {t('ไม่หล่นแล้ว')}
             </p>
             <strong>{totalTaskCount}</strong>
-            <h3>งานทั้งหมด</h3>
+            <h3>{t('งานทั้งหมด')}</h3>
             <div className="story-stats">
               <div>
                 <b>{completionRate}%</b>
-                <span>ปิดแล้ว</span>
+                <span>{t('ปิดแล้ว')}</span>
               </div>
               <div>
                 <b>{dailyBrief.waiting}</b>
-                <span>รอตรวจ</span>
+                <span>{t('รอตรวจ')}</span>
               </div>
             </div>
             <div className="story-footer">
               <span>{selectedProject.name}</span>
-              <small>#ชีวิตคนทำงาน #งานกอง</small>
+              <small>{t('#ชีวิตคนทำงาน #งานกอง')}</small>
             </div>
           </div>
           <Button className="share-button" disabled={busy} onClick={shareSummary}>
             <Share2 />
-            คัดลอกสรุปงานที่เสร็จ
+            {t('คัดลอกสรุปงานที่เสร็จ')}
           </Button>
           <p className="privacy-note">
-            รวมชื่องานและลิงก์หลักฐานที่เสร็จใน 30 วัน ไม่มีชื่อคนทำ · ตรวจก่อนส่งให้ลูกค้า
+            {t('รวมชื่องานและลิงก์หลักฐานที่เสร็จใน 30 วัน ไม่มีชื่อคนทำ · ตรวจก่อนส่งให้ลูกค้า')}
           </p>
         </aside>
       </div>
@@ -3665,9 +3686,9 @@ export default function Home() {
       <section className="page-section reminder-page">
         <div className="section-intro reminder-intro">
           <div>
-            <h2 data-kicker={pageKicker('reminders')}>เตือนฉัน</h2>
+            <h2 data-kicker={pageKicker('reminders')}>{t('เตือนฉัน')}</h2>
           </div>
-          <Badge variant="outline">ไม่เสียเงินเพิ่ม</Badge>
+          <Badge variant="outline">{t('ไม่เสียเงินเพิ่ม')}</Badge>
         </div>
         {addFriendCard}
 
@@ -3677,30 +3698,30 @@ export default function Home() {
               <Bell />
             </span>
             <div>
-              <strong>อยากให้เตือนอะไร</strong>
+              <strong>{t('อยากให้เตือนอะไร')}</strong>
             </div>
           </div>
           <Input
-            aria-label="เรื่องที่อยากให้เตือน"
+            aria-label={t('เรื่องที่อยากให้เตือน')}
             value={quickReminderTitle}
             onChange={(event) => setQuickReminderTitle(event.target.value)}
-            placeholder="เช่น โทรยืนยันคิวกับลูกค้า"
+            placeholder={t('เช่น โทรยืนยันคิวกับลูกค้า')}
           />
           <div className="reminder-composer-controls">
-            <div className="quick-day-switch" aria-label="เลือกวันที่เตือน">
+            <div className="quick-day-switch" aria-label={t('เลือกวันที่เตือน')}>
               <button
                 type="button"
                 className={quickReminderDay === 'today' ? 'active' : ''}
                 onClick={() => setQuickReminderDay('today')}
               >
-                วันนี้
+                {t('วันนี้')}
               </button>
               <button
                 type="button"
                 className={quickReminderDay === 'tomorrow' ? 'active' : ''}
                 onClick={() => setQuickReminderDay('tomorrow')}
               >
-                พรุ่งนี้
+                {t('พรุ่งนี้')}
               </button>
             </div>
             <Select
@@ -3708,7 +3729,7 @@ export default function Home() {
               onValueChange={(value) => setQuickReminderTime(value as string)}
             >
               <SelectTrigger
-                aria-label="เลือกเวลาเตือน"
+                aria-label={t('เลือกเวลาเตือน')}
                 className="quick-reminder-time themed-field-trigger"
               >
                 <Clock3 />
@@ -3719,7 +3740,7 @@ export default function Home() {
                 className="themed-select-content time-menu"
               >
                 <SelectGroup>
-                  <SelectLabel>เลือกเวลา</SelectLabel>
+                  <SelectLabel>{t('เลือกเวลา')}</SelectLabel>
                   {timeOptions.map((time) => (
                     <SelectItem value={time} key={time}>
                       <Clock3 />
@@ -3730,7 +3751,7 @@ export default function Home() {
               </SelectContent>
             </Select>
             <Button className="quick-reminder-submit" type="submit">
-              ตั้งเตือน
+              {t('ตั้งเตือน')}
               <ArrowRight />
             </Button>
           </div>
@@ -3739,15 +3760,15 @@ export default function Home() {
             className="advanced-reminder-link"
             onClick={() => setReminderDialog(true)}
           >
-            ตัวเลือกเพิ่มเติม <ChevronRight />
+            {t('ตัวเลือกเพิ่มเติม')} <ChevronRight />
           </button>
         </form>
 
         <div className="reminder-dashboard">
           <section className="next-reminder-card">
             <div className="next-reminder-label">
-              <span>รายการถัดไป</span>
-              {nextReminder && <Badge variant="outline">กำลังรอเตือน</Badge>}
+              <span>{t('รายการถัดไป')}</span>
+              {nextReminder && <Badge variant="outline">{t('กำลังรอเตือน')}</Badge>}
             </div>
             {nextReminder ? (
               <>
@@ -3762,12 +3783,12 @@ export default function Home() {
                         the same as one that was. */}
                     <p>
                       {nextReminder.failureReason
-                        ? `ส่งไม่สำเร็จ · ${nextReminder.failureReason}`
+                        ? t('ส่งไม่สำเร็จ · {0}', nextReminder.failureReason)
                         : nextReminder.repeat === 'daily'
-                          ? 'เตือนซ้ำทุกวัน'
+                          ? t('เตือนซ้ำทุกวัน')
                           : nextReminder.repeat === 'weekly'
-                            ? 'เตือนซ้ำทุกสัปดาห์'
-                            : 'เตือนครั้งเดียว'}
+                            ? t('เตือนซ้ำทุกสัปดาห์')
+                            : t('เตือนครั้งเดียว')}
                     </p>
                   </div>
                 </div>
@@ -3778,14 +3799,14 @@ export default function Home() {
                     onClick={() => snoozeReminder(nextReminder.id)}
                   >
                     <Clock3 />
-                    เลื่อน 10 นาที
+                    {t('เลื่อน 10 นาที')}
                   </Button>
                   <Button
                     type="button"
                     onClick={() => toggleReminder(nextReminder.id)}
                   >
                     <Check />
-                    เสร็จแล้ว
+                    {t('เสร็จแล้ว')}
                   </Button>
                 </div>
                 <button
@@ -3795,13 +3816,13 @@ export default function Home() {
                   onClick={() => void deleteReminder(nextReminder.id)}
                 >
                   <Trash2 />
-                  {armedDelete === nextReminder.id ? 'แตะอีกครั้งเพื่อลบ' : 'ลบการเตือนนี้'}
+                  {armedDelete === nextReminder.id ? t('แตะอีกครั้งเพื่อลบ') : t('ลบการเตือนนี้')}
                 </button>
               </>
             ) : (
               <EmptyState
-                title="ไม่มีรายการที่รอเตือน"
-                body="ตั้งเตือนใหม่ด้านบน แล้วกลับไปทำงานต่อได้เลย"
+                title={t('ไม่มีรายการที่รอเตือน')}
+                body={t('ตั้งเตือนใหม่ด้านบน แล้วกลับไปทำงานต่อได้เลย')}
               />
             )}
           </section>
@@ -3809,10 +3830,10 @@ export default function Home() {
           <section className="panel reminder-list redesigned">
             <div className="panel-heading">
               <div>
-                <h3>{laterReminders.length} รายการ</h3>
+                <h3>{laterReminders.length} {t('รายการ')}</h3>
               </div>
               <button onClick={() => setReminderDialog(true)}>
-                เพิ่ม <Plus />
+                {t('เพิ่ม')} <Plus />
               </button>
             </div>
             {laterReminders.length ? (
@@ -3820,7 +3841,7 @@ export default function Home() {
                 <div className="reminder-row-line" key={reminder.id}>
                   <button
                     className="reminder-row"
-                    aria-label={`ทำเครื่องหมายว่าเสร็จ: ${reminder.title}`}
+                    aria-label={t('ทำเครื่องหมายว่าเสร็จ: {0}', reminder.title)}
                     onClick={() => toggleReminder(reminder.id)}
                   >
                     <span className="check-circle" />
@@ -3829,10 +3850,10 @@ export default function Home() {
                       <small>
                         {reminder.date} · {reminder.time} ·{' '}
                         {reminder.repeat === 'daily'
-                          ? 'ทุกวัน'
+                          ? t('ทุกวัน')
                           : reminder.repeat === 'weekly'
-                            ? 'ทุกสัปดาห์'
-                            : 'ครั้งเดียว'}
+                            ? t('ทุกสัปดาห์')
+                            : t('ครั้งเดียว')}
                       </small>
                     </div>
                   </button>
@@ -3841,22 +3862,22 @@ export default function Home() {
                     className={`reminder-delete ${armedDelete === reminder.id ? 'armed' : ''}`}
                     aria-label={
                       armedDelete === reminder.id
-                        ? `แตะอีกครั้งเพื่อลบ ${reminder.title}`
-                        : `ลบการเตือน ${reminder.title}`
+                        ? t('แตะอีกครั้งเพื่อลบ {0}', reminder.title)
+                        : t('ลบการเตือน {0}', reminder.title)
                     }
                     disabled={busy}
                     onClick={() => void deleteReminder(reminder.id)}
                   >
-                    {armedDelete === reminder.id ? 'ลบ?' : <Trash2 />}
+                    {armedDelete === reminder.id ? t('ลบ?') : <Trash2 />}
                   </button>
                 </div>
               ))
             ) : (
-              <p className="reminder-list-empty">ยังไม่มีรายการต่อจากนี้</p>
+              <p className="reminder-list-empty">{t('ยังไม่มีรายการต่อจากนี้')}</p>
             )}
             {completedCount > 0 && (
               <p className="completed-reminder-count">
-                วันนี้ทำเสร็จแล้ว {completedCount} รายการ
+                {t('วันนี้ทำเสร็จแล้ว')} {completedCount} {t('รายการ')}
               </p>
             )}
           </section>
@@ -3867,14 +3888,14 @@ export default function Home() {
             <MessageCircle />
           </span>
           <div>
-            <strong>เตือนผ่าน LINE</strong>
+            <strong>{t('เตือนผ่าน LINE')}</strong>
             <p>
               {account.lineConnected
-                ? 'ส่งเป็นข้อความส่วนตัวถึงคุณใน LINE'
-                : 'ยังไม่ได้แอดบอท ทันงาน · แอดก่อนจึงจะได้รับการเตือน'}
+                ? t('ส่งเป็นข้อความส่วนตัวถึงคุณใน LINE')
+                : t('ยังไม่ได้แอดบอท ทันงาน · แอดก่อนจึงจะได้รับการเตือน')}
             </p>
           </div>
-          <Badge variant="outline">รวมในแพ็กเกจ</Badge>
+          <Badge variant="outline">{t('รวมในแพ็กเกจ')}</Badge>
         </section>
       </section>
     );
@@ -3888,10 +3909,10 @@ export default function Home() {
         </div>
         <Badge variant="outline">
           {usage?.ai?.enabled
-            ? `เหลือ ${usage.ai.remaining} ครั้ง`
+            ? t('เหลือ {0} ครั้ง', usage.ai.remaining)
             : usage?.ai?.configured
-              ? 'ปิดอยู่'
-              : 'ยังไม่เชื่อม AI'}
+              ? t('ปิดอยู่')
+              : t('ยังไม่เชื่อม AI')}
         </Badge>
       </div>
       <section className="ai-chat-shell">
@@ -3900,8 +3921,8 @@ export default function Home() {
             <Bot />
           </span>
           <div>
-            <strong>ทันงาน AI</strong>
-            <small>ยังไม่ส่งข้อมูลออกจากระบบ</small>
+            <strong>{t('ทันงาน AI')}</strong>
+            <small>{t('ยังไม่ส่งข้อมูลออกจากระบบ')}</small>
           </div>
           <i />
         </div>
@@ -3911,22 +3932,22 @@ export default function Home() {
           </span>
           <h3>
             {usage?.ai?.enabled
-              ? 'AI ช่วยอ่านข้อความ'
+              ? t('AI ช่วยอ่านข้อความ')
               : usage?.ai?.configured
-                ? 'เปิดให้ AI ช่วยอ่านได้'
-                : 'AI ยังไม่เชื่อมต่อ'}
+                ? t('เปิดให้ AI ช่วยอ่านได้')
+                : t('AI ยังไม่เชื่อมต่อ')}
           </h3>
           <p>
             {usage?.ai?.enabled
-              ? 'ใช้เมื่อระบบอ่านข้อความไม่ออกเท่านั้น และให้คุณยืนยันก่อนสร้างงานทุกครั้ง'
-              : 'AI จะช่วยอ่านเฉพาะข้อความที่ระบบอ่านไม่ออก แล้วให้คุณยืนยันก่อนสร้างงานทุกครั้ง'}
+              ? t('ใช้เมื่อระบบอ่านข้อความไม่ออกเท่านั้น และให้คุณยืนยันก่อนสร้างงานทุกครั้ง')
+              : t('AI จะช่วยอ่านเฉพาะข้อความที่ระบบอ่านไม่ออก แล้วให้คุณยืนยันก่อนสร้างงานทุกครั้ง')}
           </p>
           {usage?.ai?.configured && isWorkspaceManager() && (
             <label className="share-toggle-row ai-toggle-row">
               <span>
-                <strong>ให้ AI ช่วยอ่านข้อความที่กฎอ่านไม่ออก</strong>
+                <strong>{t('ให้ AI ช่วยอ่านข้อความที่กฎอ่านไม่ออก')}</strong>
                 <small>
-                  ส่งเฉพาะข้อความที่แท็ก @ทันงาน · คุณยืนยันก่อนสร้างงานเสมอ
+                  {t('ส่งเฉพาะข้อความที่แท็ก @ทันงาน · คุณยืนยันก่อนสร้างงานเสมอ')}
                 </small>
               </span>
               <Switch
@@ -3940,10 +3961,10 @@ export default function Home() {
             <div className="connection-row">
               <span>
                 <Sparkles />
-                AI ช่วยอ่านเหลือ
+                {t('AI ช่วยอ่านเหลือ')}
               </span>
               <Badge variant="outline">
-                {usage.ai.remaining} ครั้ง · วันนี้ใช้ไป {usage.ai.usedToday}/{usage.ai.dailyCap}
+                {usage.ai.remaining} {t('ครั้ง · วันนี้ใช้ไป')} {usage.ai.usedToday}/{usage.ai.dailyCap}
               </Badge>
             </div>
           )}
@@ -3951,10 +3972,10 @@ export default function Home() {
             <div className="connection-row">
               <span>
                 <Clock3 />
-                เวลาทำงานของคุณ
+                {t('เวลาทำงานของคุณ')}
               </span>
               <Button variant="outline" disabled={busy} onClick={editSchedule}>
-                {schedule.startsAt}–{schedule.endsAt} · แก้
+                {schedule.startsAt}–{schedule.endsAt} {t('· แก้')}
               </Button>
             </div>
           )}
@@ -3962,17 +3983,17 @@ export default function Home() {
             <div className="connection-row">
               <span>
                 <Bell />
-                โควตาข้อความเดือนนี้
+                {t('โควตาข้อความเดือนนี้')}
               </span>
               <Badge variant="outline">
-                {usage.used}/{usage.cap} · เหลือ {usage.remaining}
+                {usage.used}/{usage.cap} {t('· เหลือ')} {usage.remaining}
               </Badge>
             </div>
           )}
           <p className="connection-notice">
             {usage?.ai?.enabled
-              ? 'ส่งเฉพาะข้อความที่แท็ก @ทันงาน และอ่านไม่ออกด้วยกฎ'
-              : 'ยังไม่ส่งข้อความใดไปให้ AI'}
+              ? t('ส่งเฉพาะข้อความที่แท็ก @ทันงาน และอ่านไม่ออกด้วยกฎ')
+              : t('ยังไม่ส่งข้อความใดไปให้ AI')}
           </p>
         </div>
       </section>
@@ -3982,14 +4003,14 @@ export default function Home() {
   const renderSettings = () => (
     <section className="page-section preferences-page">
       <div className="section-intro">
-        <h2 data-kicker={pageKicker('settings')}>ตั้งค่า</h2>
-        <Badge variant="outline">บันทึกในอุปกรณ์นี้</Badge>
+        <h2 data-kicker={pageKicker('settings')}>{t('ตั้งค่า')}</h2>
+        <Badge variant="outline">{t('บันทึกในอุปกรณ์นี้')}</Badge>
       </div>
       <div className="preferences-layout">
         <section className="panel account-panel">
           <div className="panel-heading">
-            <h3>บัญชี</h3>
-            <Badge variant="outline">บัญชี LINE</Badge>
+            <h3>{t('บัญชี')}</h3>
+            <Badge variant="outline">{t('บัญชี LINE')}</Badge>
           </div>
           <form
             key={`${selectedProject.id}-${myNickname}`}
@@ -3997,11 +4018,11 @@ export default function Home() {
             onSubmit={saveAccountName}
           >
             <label>
-              <span>ชื่อจาก LINE</span>
+              <span>{t('ชื่อจาก LINE')}</span>
               <Input value={account.lineName} readOnly />
             </label>
             <label>
-              <span>ชื่อเล่น</span>
+              <span>{t('ชื่อเล่น')}</span>
               <Input
                 name="displayName"
                 defaultValue={myNickname}
@@ -4011,21 +4032,21 @@ export default function Home() {
             </label>
             <div className="account-actions">
               <Button type="submit" disabled={busy}>
-                {busy ? 'กำลังบันทึก…' : 'บันทึกชื่อ'}
+                {busy ? t('กำลังบันทึก…') : t('บันทึกชื่อ')}
               </Button>
               <Button type="button" variant="outline" onClick={logout}>
                 <LogOut />
-                ออกจากระบบ
+                {t('ออกจากระบบ')}
               </Button>
             </div>
           </form>
         </section>
         <section className="panel preferences-panel">
           <div className="panel-heading">
-            <h3>การใช้งาน</h3>
+            <h3>{t('การใช้งาน')}</h3>
           </div>
           <div className="preference-row">
-            <label id="cutoff-label">เวลาเลิกงาน</label>
+            <label id="cutoff-label">{t('เวลาเลิกงาน')}</label>
             <Select
               value={settings.cutoff}
               onValueChange={(value) =>
@@ -4051,7 +4072,31 @@ export default function Home() {
             </Select>
           </div>
           <div className="preference-row">
-            <label id="start-page-label">หน้าเริ่มต้น</label>
+            <label id="language-label">
+              {/* Named in English too, for anyone who cannot read the Thai. */}
+              {t('ภาษา')}
+              {locale === 'th' ? ' · Language' : ''}
+            </label>
+            <Select
+              value={settings.language}
+              onValueChange={(value) =>
+                updatePreference('language', value as AppSettings['language'])
+              }
+            >
+              <SelectTrigger aria-labelledby="language-label" className="themed-field-trigger">
+                <span>{languageName(settings.language)}</span>
+              </SelectTrigger>
+              <SelectContent className="themed-select-content">
+                {(['auto', 'th', 'en'] as const).map((value) => (
+                  <SelectItem value={value} key={value}>
+                    {languageName(value)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="preference-row">
+            <label id="start-page-label">{t('หน้าเริ่มต้น')}</label>
             <Select
               value={settings.startPage}
               onValueChange={(value) =>
@@ -4080,7 +4125,7 @@ export default function Home() {
             </Select>
           </div>
           <label className="preference-row">
-            <span>แสดงงานที่เสร็จ</span>
+            <span>{t('แสดงงานที่เสร็จ')}</span>
             <Switch
               checked={settings.showCompleted}
               onCheckedChange={(value) =>
@@ -4089,7 +4134,7 @@ export default function Home() {
             />
           </label>
           <label className="preference-row">
-            <span>จุดแจ้งเตือน</span>
+            <span>{t('จุดแจ้งเตือน')}</span>
             <Switch
               checked={settings.notificationBadge}
               onCheckedChange={(value) =>
@@ -4098,7 +4143,7 @@ export default function Home() {
             />
           </label>
           <label className="preference-row">
-            <span>ลดภาพเคลื่อนไหว</span>
+            <span>{t('ลดภาพเคลื่อนไหว')}</span>
             <Switch
               checked={settings.reducedMotion}
               onCheckedChange={(value) =>
@@ -4109,7 +4154,7 @@ export default function Home() {
         </section>
         <section className="panel connection-panel">
           <div className="panel-heading">
-            <h3>การเชื่อมต่อ</h3>
+            <h3>{t('การเชื่อมต่อ')}</h3>
           </div>
           <div className="connection-row">
             <span>
@@ -4117,7 +4162,7 @@ export default function Home() {
               LINE
             </span>
             <Badge variant="outline">
-              {account.lineConnected ? 'เชื่อมแล้ว' : 'ยังไม่ได้แอดบอท'}
+              {account.lineConnected ? t('เชื่อมแล้ว') : t('ยังไม่ได้แอดบอท')}
             </Badge>
           </div>
           <div className="connection-row">
@@ -4128,10 +4173,10 @@ export default function Home() {
             {isWorkspaceManager() ? (
               <Button variant="outline" disabled={busy} onClick={renameWorkspace}>
                 <PencilLine />
-                เปลี่ยนชื่อ
+                {t('เปลี่ยนชื่อ')}
               </Button>
             ) : (
-              <Badge variant="outline">พื้นที่งานที่เปิดอยู่</Badge>
+              <Badge variant="outline">{t('พื้นที่งานที่เปิดอยู่')}</Badge>
             )}
           </div>
           {lineGroups.map((group) => (
@@ -4142,7 +4187,7 @@ export default function Home() {
               </span>
               {group.bound ? (
                 <span className="group-connect-actions">
-                  <Badge variant="outline">เชื่อมกับ {group.workspaceName}</Badge>
+                  <Badge variant="outline">{t('เชื่อมกับ')} {group.workspaceName}</Badge>
                   {isWorkspaceManager() && group.workspaceId === selectedProject.id && (
                     <button
                       type="button"
@@ -4150,14 +4195,14 @@ export default function Home() {
                       disabled={busy}
                       onClick={() => disconnectGroup(group.id)}
                     >
-                      ยกเลิกการเชื่อม
+                      {t('ยกเลิกการเชื่อม')}
                     </button>
                   )}
                 </span>
               ) : (
                 <span className="group-connect-actions">
                   <Button disabled={busy} onClick={() => createGroupWorkspace(group.id)}>
-                    สร้างพื้นที่งานของกลุ่มนี้
+                    {t('สร้างพื้นที่งานของกลุ่มนี้')}
                   </Button>
                   <button
                     type="button"
@@ -4165,7 +4210,7 @@ export default function Home() {
                     disabled={busy}
                     onClick={() => connectGroup(group.id)}
                   >
-                    หรือเชื่อมกับ “{selectedProject.name}”
+                    {t('หรือเชื่อมกับ “')}{selectedProject.name}”
                   </button>
                 </span>
               )}
@@ -4174,20 +4219,20 @@ export default function Home() {
           <div className="connection-row">
             <span>
               <Bot />
-              AI ช่วยอ่านข้อความ
+              {t('AI ช่วยอ่านข้อความ')}
             </span>
             <Badge variant="outline">
-              {usage?.ai?.enabled ? 'เปิดอยู่' : usage?.ai?.configured ? 'ปิดอยู่' : 'ยังไม่เปิดใช้'}
+              {usage?.ai?.enabled ? t('เปิดอยู่') : usage?.ai?.configured ? t('ปิดอยู่') : t('ยังไม่เปิดใช้')}
             </Badge>
           </div>
           {schedule && (
             <div className="connection-row">
               <span>
                 <Clock3 />
-                เวลาทำงานของคุณ
+                {t('เวลาทำงานของคุณ')}
               </span>
               <Button variant="outline" disabled={busy} onClick={editSchedule}>
-                {schedule.startsAt}–{schedule.endsAt} · แก้
+                {schedule.startsAt}–{schedule.endsAt} {t('· แก้')}
               </Button>
             </div>
           )}
@@ -4195,17 +4240,17 @@ export default function Home() {
             <div className="connection-row">
               <span>
                 <Bell />
-                โควตาข้อความเดือนนี้
+                {t('โควตาข้อความเดือนนี้')}
               </span>
               <Badge variant="outline">
-                {usage.used}/{usage.cap} · เหลือ {usage.remaining}
+                {usage.used}/{usage.cap} {t('· เหลือ')} {usage.remaining}
               </Badge>
             </div>
           )}
           <p className="connection-notice">
             {lineGroups.length === 0
-              ? 'เชิญบอท @108ahzwq เข้ากลุ่ม LINE แล้วพิมพ์ในกลุ่มหนึ่งครั้ง กลุ่มจะขึ้นมาให้เชื่อมที่นี่ · กลุ่มหนึ่งมีบัญชีทางการได้บัญชีเดียว ถ้าเชิญไม่ได้ให้ทักหาบอทโดยตรงแทน ข้อความจะเข้ากล่องเดียวกัน'
-              : 'กลุ่มหนึ่งมีบัญชีทางการได้บัญชีเดียว ถ้าเชิญบอทเข้ากลุ่มไม่ได้ ให้ทักหาบอทโดยตรง ข้อความจะเข้ากล่องเดียวกัน'}
+              ? t('เชิญบอท @108ahzwq เข้ากลุ่ม LINE แล้วพิมพ์ในกลุ่มหนึ่งครั้ง กลุ่มจะขึ้นมาให้เชื่อมที่นี่ · กลุ่มหนึ่งมีบัญชีทางการได้บัญชีเดียว ถ้าเชิญไม่ได้ให้ทักหาบอทโดยตรงแทน ข้อความจะเข้ากล่องเดียวกัน')
+              : t('กลุ่มหนึ่งมีบัญชีทางการได้บัญชีเดียว ถ้าเชิญบอทเข้ากลุ่มไม่ได้ ให้ทักหาบอทโดยตรง ข้อความจะเข้ากล่องเดียวกัน')}
           </p>
         </section>
       </div>
@@ -4216,19 +4261,19 @@ export default function Home() {
     <section className="page-section">
       <div className="section-intro">
         <div>
-          <h2 data-kicker={pageKicker('manage')}>ทีม</h2>
+          <h2 data-kicker={pageKicker('manage')}>{t('ทีม')}</h2>
         </div>
       </div>
       <div className="manage-tabs">
         {(
           [
-            { tab: 'members', label: 'สมาชิก', Icon: Users },
+            { tab: 'members', label: t('สมาชิก'), Icon: Users },
             // ทีมย่อย is hidden: teams lived only on this screen (nothing
             // stored them, a reload lost them) and the server assigns work to
             // people, not teams, so picking one could never be saved.
-            { tab: 'projects', label: 'พื้นที่งาน', Icon: LayoutGrid },
-            { tab: 'announce', label: 'ประกาศ', Icon: Megaphone },
-            { tab: 'ai', label: 'โควตา AI', Icon: BrainCircuit },
+            { tab: 'projects', label: t('พื้นที่งาน'), Icon: LayoutGrid },
+            { tab: 'announce', label: t('ประกาศ'), Icon: Megaphone },
+            { tab: 'ai', label: t('โควตา AI'), Icon: BrainCircuit },
           ] as const
         ).map(({ tab, label, Icon }) => (
           <button
@@ -4245,7 +4290,7 @@ export default function Home() {
         <section className="panel">
           <div className="panel-heading">
             <div>
-              <h3>สมาชิก · {selectedProject.members.length}</h3>
+              <h3>{t('สมาชิก ·')} {selectedProject.members.length}</h3>
             </div>
           </div>
           <div className="member-list">
@@ -4260,12 +4305,12 @@ export default function Home() {
                 </div>
                 <Badge variant="outline">
                   {member.linkStatus === 'not_friend'
-                    ? 'ยังไม่ได้แอดบอท · เตือนไม่ถึง'
+                    ? t('ยังไม่ได้แอดบอท · เตือนไม่ถึง')
                     : member.linkStatus === 'not_signed_in'
-                      ? 'ยังไม่เคยเข้าแอป'
+                      ? t('ยังไม่เคยเข้าแอป')
                       : member.lineName === account.lineName
-                        ? 'คุณ · แก้ชื่อเล่น'
-                        : 'แก้ชื่อเล่น'}
+                        ? t('คุณ · แก้ชื่อเล่น')
+                        : t('แก้ชื่อเล่น')}
                 </Badge>
                 <Pencil />
               </button>
@@ -4275,7 +4320,7 @@ export default function Home() {
             <section className="panel">
               <div className="panel-heading">
                 <div>
-                  <h3>ต้องช่วยตรงไหน</h3>
+                  <h3>{t('ต้องช่วยตรงไหน')}</h3>
                 </div>
               </div>
               <div className="member-list">
@@ -4284,7 +4329,7 @@ export default function Home() {
                     <div>
                       <strong>{item.title}</strong>
                       <span>
-                        {item.needs}
+                        {t(item.needs)}
                         {item.assigneeName ? ` · ${item.assigneeName}` : ''}
                       </span>
                     </div>
@@ -4297,8 +4342,7 @@ export default function Home() {
           <div className="info-strip">
             <Users />
             <p>
-              แสดงเฉพาะสมาชิกที่เคยพูดในกลุ่มหรือเข้าใช้แอปแล้ว ยังดึงรายชื่อทั้งกลุ่มไม่ได้
-              เพราะต้องใช้บัญชีที่ผ่านการยืนยันจาก LINE · คนที่ยังไม่ได้แอดบอทจะไม่ได้รับการเตือนทางแชท
+              {t('แสดงเฉพาะสมาชิกที่เคยพูดในกลุ่มหรือเข้าใช้แอปแล้ว ยังดึงรายชื่อทั้งกลุ่มไม่ได้ เพราะต้องใช้บัญชีที่ผ่านการยืนยันจาก LINE · คนที่ยังไม่ได้แอดบอทจะไม่ได้รับการเตือนทางแชท')}
             </p>
           </div>
         </section>
@@ -4307,21 +4351,21 @@ export default function Home() {
         <>
           <div className="manage-action">
             <div>
-              <h3>ทีมย่อย</h3>
+              <h3>{t('ทีมย่อย')}</h3>
             </div>
             <Button
               className="primary-action"
               onClick={() => setTeamDialog(true)}
             >
               <Plus />
-              สร้างทีมย่อย
+              {t('สร้างทีมย่อย')}
             </Button>
           </div>
           <div className="team-grid">
             {selectedProject.teams.map((team) => (
               <article className="panel team-card" key={team.id}>
                 <div>
-                  <span>{team.memberIds.length} คน</span>
+                  <span>{t('{0} คน', team.memberIds.length)}</span>
                   <h3>{team.name}</h3>
                 </div>
                 <div className="avatar-stack">
@@ -4342,14 +4386,14 @@ export default function Home() {
                           ?.nickname,
                     )
                     .filter(Boolean)
-                    .join(' · ') || 'ยังไม่มีสมาชิก'}
+                    .join(' · ') || t('ยังไม่มีสมาชิก')}
                 </p>
-                <Badge variant="outline">เลือกมอบหมายทั้งทีมได้</Badge>
+                <Badge variant="outline">{t('เลือกมอบหมายทั้งทีมได้')}</Badge>
               </article>
             ))}
             {selectedProject.teams.length === 0 && (
               <div className="panel">
-                <EmptyState title="ยังไม่มีทีมย่อย" body="สร้างทีมจากสมาชิกในพื้นที่นี้" />
+                <EmptyState title={t('ยังไม่มีทีมย่อย')} body={t('สร้างทีมจากสมาชิกในพื้นที่นี้')} />
               </div>
             )}
           </div>
@@ -4360,20 +4404,20 @@ export default function Home() {
           {isWorkspaceManager() ? (
             <form className="panel announce-composer" onSubmit={postAnnouncement}>
               <div>
-                <h3>ประกาศถึงทุกคนใน {selectedProject.name}</h3>
-                <p>ทุกคน รวมถึงคุณ จะเห็นเป็นหน้าต่างแจ้งเตือนครั้งเดียวเมื่อเปิดแอป และกด X เพื่อปิด · ไม่เสียโควตาข้อความ LINE</p>
-                <p>ประกาศจาก LINE ก็ได้: พิมพ์ในกลุ่ม <strong>@ทันงาน ประกาศ: หัวข้อ</strong> แล้วขึ้นบรรทัดใหม่ใส่รายละเอียด</p>
+                <h3>{t('ประกาศถึงทุกคนใน')} {selectedProject.name}</h3>
+                <p>{t('ทุกคน รวมถึงคุณ จะเห็นเป็นหน้าต่างแจ้งเตือนครั้งเดียวเมื่อเปิดแอป และกด X เพื่อปิด · ไม่เสียโควตาข้อความ LINE')}</p>
+                <p>{t('ประกาศจาก LINE ก็ได้: พิมพ์ในกลุ่ม')} <strong>{t('@ทันงาน ประกาศ: หัวข้อ')}</strong> {t('แล้วขึ้นบรรทัดใหม่ใส่รายละเอียด')}</p>
               </div>
               <label>
-                <span>หัวข้อ</span>
-                <Input name="announceTitle" maxLength={120} required placeholder="เช่น ประชุมทีมย้ายเป็นวันศุกร์ 10:00" />
+                <span>{t('หัวข้อ')}</span>
+                <Input name="announceTitle" maxLength={120} required placeholder={t('เช่น ประชุมทีมย้ายเป็นวันศุกร์ 10:00')} />
               </label>
               <label>
-                <span>รายละเอียด <small>ไม่บังคับ</small></span>
-                <Textarea name="announceBody" maxLength={2000} rows={4} placeholder="สิ่งที่ทุกคนต้องรู้หรือต้องทำ" />
+                <span>{t('รายละเอียด')} <small>{t('ไม่บังคับ')}</small></span>
+                <Textarea name="announceBody" maxLength={2000} rows={4} placeholder={t('สิ่งที่ทุกคนต้องรู้หรือต้องทำ')} />
               </label>
               <label>
-                <span>ลิงก์ประชุม <small>ไม่บังคับ · Google Meet, Zoom หรือ LINE</small></span>
+                <span>{t('ลิงก์ประชุม')} <small>{t('ไม่บังคับ · Google Meet, Zoom หรือ LINE')}</small></span>
                 <Input
                   name="announceLink"
                   inputMode="url"
@@ -4384,14 +4428,14 @@ export default function Home() {
               </label>
               <Button type="submit" disabled={busy}>
                 <Megaphone />
-                ประกาศ
+                {t('ประกาศ')}
               </Button>
             </form>
           ) : (
-            <p className="announce-note">เจ้าของและผู้ดูแลพื้นที่งานเป็นคนประกาศ ประกาศใหม่จะขึ้นเมื่อคุณเปิดแอป</p>
+            <p className="announce-note">{t('เจ้าของและผู้ดูแลพื้นที่งานเป็นคนประกาศ ประกาศใหม่จะขึ้นเมื่อคุณเปิดแอป')}</p>
           )}
-          <section className="announce-history" aria-label="ประกาศล่าสุด">
-            <h3 className="today-label">ประกาศล่าสุด</h3>
+          <section className="announce-history" aria-label={t('ประกาศล่าสุด')}>
+            <h3 className="today-label">{t('ประกาศล่าสุด')}</h3>
             {announcementHistory.length ? (
               <div className="today-list">
                 {announcementHistory.map((item) => (
@@ -4411,14 +4455,14 @@ export default function Home() {
                         </a>
                       )}
                       <small>
-                        {item.authorName ?? 'ผู้ดูแล'} · {formatDeadline(item.createdAt, { now })}
-                        {item.audience ? ` · รับทราบแล้ว ${item.readCount ?? 0}/${item.audience}` : ''}
+                        {item.authorName ?? t('ผู้ดูแล')} · {formatDeadline(item.createdAt, { now })}
+                        {item.audience ? t(' · รับทราบแล้ว {0}/{1}', item.readCount ?? 0, item.audience) : ''}
                       </small>
                       {/* Names only reach the author, owners and admins: the
                           server sends null to everyone else. */}
                       {item.unreadNames && item.unreadNames.length > 0 && (
                         <details className="announce-unread">
-                          <summary>ยังไม่เห็น {item.unreadNames.length} คน</summary>
+                          <summary>{t('ยังไม่เห็น {0} คน', item.unreadNames.length)}</summary>
                           <p>{item.unreadNames.join(' · ')}</p>
                         </details>
                       )}
@@ -4429,13 +4473,13 @@ export default function Home() {
                         className={`reminder-delete ${armedDelete === `announce:${item.id}` ? 'armed' : ''}`}
                         aria-label={
                           armedDelete === `announce:${item.id}`
-                            ? `แตะอีกครั้งเพื่อลบประกาศ ${item.title}`
-                            : `ลบประกาศ ${item.title}`
+                            ? t('แตะอีกครั้งเพื่อลบประกาศ {0}', item.title)
+                            : t('ลบประกาศ {0}', item.title)
                         }
                         disabled={busy}
                         onClick={() => void removeAnnouncement(item.id)}
                       >
-                        {armedDelete === `announce:${item.id}` ? 'ลบ?' : <Trash2 />}
+                        {armedDelete === `announce:${item.id}` ? t('ลบ?') : <Trash2 />}
                       </button>
                     )}
                   </article>
@@ -4443,7 +4487,7 @@ export default function Home() {
               </div>
             ) : (
               <div className="today-list today-empty">
-                <EmptyState title="ยังไม่มีประกาศ" body="ประกาศที่ทุกคนต้องรู้จะอยู่ตรงนี้" />
+                <EmptyState title={t('ยังไม่มีประกาศ')} body={t('ประกาศที่ทุกคนต้องรู้จะอยู่ตรงนี้')} />
               </div>
             )}
           </section>
@@ -4453,14 +4497,14 @@ export default function Home() {
         <>
           <div className="manage-action">
             <div>
-              <h3>พื้นที่งาน</h3>
+              <h3>{t('พื้นที่งาน')}</h3>
             </div>
             <Button
               className="primary-action"
               onClick={() => setProjectDialog(true)}
             >
               <Plus />
-              เพิ่มพื้นที่
+              {t('เพิ่มพื้นที่')}
             </Button>
           </div>
           <div className="project-grid">
@@ -4480,7 +4524,7 @@ export default function Home() {
                 <div>
                   <strong>{project.name}</strong>
                   <small>
-                    {project.groupLabel} · {project.members.length} คน
+                    {project.groupLabel} · {t('{0} คน', project.members.length)}
                   </small>
                 </div>
                 {project.id === selectedProjectId ? (
@@ -4498,30 +4542,30 @@ export default function Home() {
           <section className="panel ai-flow">
             <div className="panel-heading">
               <div>
-                <h3>การใช้ AI</h3>
+                <h3>{t('การใช้ AI')}</h3>
               </div>
-              <Badge variant="outline">Free Beta · 50 ครั้ง</Badge>
+              <Badge variant="outline">{t('Free Beta · 50 ครั้ง')}</Badge>
             </div>
             <div className="ai-steps">
               <article>
                 <span>01</span>
                 <div>
-                  <strong>อ่านในเครื่องก่อน</strong>
-                  <p>@tag วันเวลา และคำสั่งชัดเจน ใช้กฎในระบบ ไม่เสียค่า AI</p>
+                  <strong>{t('อ่านในเครื่องก่อน')}</strong>
+                  <p>{t('@tag วันเวลา และคำสั่งชัดเจน ใช้กฎในระบบ ไม่เสียค่า AI')}</p>
                 </div>
               </article>
               <article>
                 <span>02</span>
                 <div>
-                  <strong>จำจากสิ่งที่ทีมแก้</strong>
-                  <p>ดึงตัวอย่างเดิมของพื้นที่นี้มาช่วย โดยไม่เอาข้อมูลไปปนกับทีมอื่น</p>
+                  <strong>{t('จำจากสิ่งที่ทีมแก้')}</strong>
+                  <p>{t('ดึงตัวอย่างเดิมของพื้นที่นี้มาช่วย โดยไม่เอาข้อมูลไปปนกับทีมอื่น')}</p>
                 </div>
               </article>
               <article>
                 <span>03</span>
                 <div>
-                  <strong>ถามโมเดลเมื่อไม่แน่ใจ</strong>
-                  <p>เรียกโมเดลขนาดเล็กเฉพาะข้อความที่ซับซ้อน แล้วให้คนยืนยันก่อนสร้างงาน</p>
+                  <strong>{t('ถามโมเดลเมื่อไม่แน่ใจ')}</strong>
+                  <p>{t('เรียกโมเดลขนาดเล็กเฉพาะข้อความที่ซับซ้อน แล้วให้คนยืนยันก่อนสร้างงาน')}</p>
                 </div>
               </article>
             </div>
@@ -4529,22 +4573,22 @@ export default function Home() {
           <section className="panel ai-usage">
             <div className="panel-heading">
               <div>
-                <h3>โควตา AI</h3>
+                <h3>{t('โควตา AI')}</h3>
               </div>
             </div>
             <div className="ai-number">
               <strong>50</strong>
-              <span>ครั้งคงเหลือ</span>
+              <span>{t('ครั้งคงเหลือ')}</span>
             </div>
             <div className="ai-meter">
               <i>
                 <b style={{ width: '0%' }} />
               </i>
-              <small>ใช้แล้ว 0/50 · ยังไม่มีค่า AI เกิดขึ้น</small>
+              <small>{t('ใช้แล้ว 0/50 · ยังไม่มีค่า AI เกิดขึ้น')}</small>
             </div>
             <div className="ai-privacy">
               <ShieldCheck />
-              <p>การเรียนรู้จากคำแก้ไขจะเปิดใช้ต่อเมื่อทีมยินยอม และลบข้อมูลได้</p>
+              <p>{t('การเรียนรู้จากคำแก้ไขจะเปิดใช้ต่อเมื่อทีมยินยอม และลบข้อมูลได้')}</p>
             </div>
           </section>
         </div>
@@ -4560,7 +4604,7 @@ export default function Home() {
       <div className="app-shell">
         <main className="app-main">
           <div className="content-area" aria-busy="true">
-            <span className="sr-only">กำลังโหลดงานของคุณ</span>
+            <span className="sr-only">{t('กำลังโหลดงานของคุณ')}</span>
             <SkeletonList rows={4} />
           </div>
         </main>
@@ -4577,12 +4621,12 @@ export default function Home() {
             <UserRound />
           </div>
           <div>
-            <h1>เข้าสู่ระบบ</h1>
+            <h1>{t('เข้าสู่ระบบ')}</h1>
           </div>
           {loadError && <p className="entry-error">{loadError}</p>}
           <Button className="auth-line-button" onClick={loginWithLine}>
             <LogIn />
-            เข้าสู่ระบบด้วย LINE
+            {t('เข้าสู่ระบบด้วย LINE')}
           </Button>
         </section>
       </main>
@@ -4596,7 +4640,7 @@ export default function Home() {
           <Brand />
         </div>
         <WorkspacePicker />
-        <nav aria-label="เมนูหลัก">
+        <nav aria-label={t('เมนูหลัก')}>
           {appNavigation.map(({ page: item, label, icon }) => {
             const Icon = navigationIcons[icon];
             return (
@@ -4638,8 +4682,8 @@ export default function Home() {
               <PopoverTrigger
                 aria-label={
                   notificationsSeen
-                    ? 'การแจ้งเตือน'
-                    : `การแจ้งเตือนใหม่ ${notificationCount} รายการ`
+                    ? t('การแจ้งเตือน')
+                    : t('การแจ้งเตือนใหม่ {0} รายการ', notificationCount)
                 }
                 className="bell-button"
               >
@@ -4655,14 +4699,14 @@ export default function Home() {
               >
                 <PopoverHeader className="notification-header">
                   <div>
-                    <PopoverTitle>มีอะไรใหม่</PopoverTitle>
-                    <span>{notificationCount} หมวดที่ต้องดู</span>
+                    <PopoverTitle>{t('มีอะไรใหม่')}</PopoverTitle>
+                    <span>{notificationCount} {t('หมวดที่ต้องดู')}</span>
                   </div>
                   <button
                     type="button"
                     onClick={() => setNotificationsSeen(true)}
                   >
-                    อ่านแล้วทั้งหมด
+                    {t('อ่านแล้วทั้งหมด')}
                   </button>
                 </PopoverHeader>
                 <div className="notification-list">
@@ -4679,11 +4723,11 @@ export default function Home() {
                         <MessageCircle />
                       </span>
                       <span className="notification-copy">
-                        <strong>มีข้อความใหม่จาก LINE</strong>
+                        <strong>{t('มีข้อความใหม่จาก LINE')}</strong>
                         <small>
-                          {projectCaptures.length} ข้อความรอให้ตรวจและสร้างเป็นงาน
+                          {projectCaptures.length} {t('ข้อความรอให้ตรวจและสร้างเป็นงาน')}
                         </small>
-                        <em>เมื่อสักครู่</em>
+                        <em>{t('เมื่อสักครู่')}</em>
                       </span>
                       {!notificationsSeen && <i />}
                     </button>
@@ -4701,12 +4745,12 @@ export default function Home() {
                         <Clock3 />
                       </span>
                       <span className="notification-copy">
-                        <strong>มีงานใกล้ถึงกำหนดส่ง</strong>
+                        <strong>{t('มีงานใกล้ถึงกำหนดส่ง')}</strong>
                         <small>{priorityTasks[0].title}</small>
                         <em>
                           {priorityTasks[0].dueAt
                             ? formatDeadline(priorityTasks[0].dueAt, { now })
-                            : 'ไม่มีกำหนด'}
+                            : t('ไม่มีกำหนด')}
                         </em>
                       </span>
                       {!notificationsSeen && <i />}
@@ -4725,11 +4769,11 @@ export default function Home() {
                         <Bell />
                       </span>
                       <span className="notification-copy">
-                        <strong>เตือนส่วนตัวกำลังรออยู่</strong>
+                        <strong>{t('เตือนส่วนตัวกำลังรออยู่')}</strong>
                         <small>
-                          {activeReminderCount} รายการจะเตือนกลับมาตามเวลาที่ตั้งไว้
+                          {activeReminderCount} {t('รายการจะเตือนกลับมาตามเวลาที่ตั้งไว้')}
                         </small>
-                        <em>ดูรายการเตือน</em>
+                        <em>{t('ดูรายการเตือน')}</em>
                       </span>
                       {!notificationsSeen && <i />}
                     </button>
@@ -4744,13 +4788,13 @@ export default function Home() {
                     navigate('inbox');
                   }}
                 >
-                  ดูการอัปเดตทั้งหมด <ArrowRight />
+                  {t('ดูการอัปเดตทั้งหมด')} <ArrowRight />
                 </button>
               </PopoverContent>
             </Popover>
             <button
               className="settings-button"
-              aria-label="ตั้งค่า"
+              aria-label={t('ตั้งค่า')}
               aria-current={page === 'settings' ? 'page' : undefined}
               onClick={() => navigate('settings')}
             >
@@ -4770,7 +4814,7 @@ export default function Home() {
           {page === 'settings' && renderSettings()}
         </div>
       </main>
-      <nav className="mobile-nav" aria-label="เมนูหลัก">
+      <nav className="mobile-nav" aria-label={t('เมนูหลัก')}>
         {appNavigation
           .filter((item) => mobilePrimaryPages.includes(item.page))
           .map(({ page: item, label, icon }) => {
@@ -4785,7 +4829,7 @@ export default function Home() {
                 <Icon />
                 <span>{mobileNavLabels[item] ?? label}</span>
                 {item === 'inbox' && projectCaptures.length > 0 && (
-                  <i aria-label={`${projectCaptures.length} ข้อความรอตรวจ`}>
+                  <i aria-label={t('{0} ข้อความรอตรวจ', projectCaptures.length)}>
                     {projectCaptures.length > 99 ? '99+' : projectCaptures.length}
                   </i>
                 )}
@@ -4798,21 +4842,21 @@ export default function Home() {
           }
           onClick={() => setMenuOpen(true)}
           aria-expanded={menuOpen}
-          aria-label="เมนูทั้งหมด"
+          aria-label={t('เมนูทั้งหมด')}
         >
           <Menu />
-          <span>เพิ่มเติม</span>
+          <span>{t('เพิ่มเติม')}</span>
         </button>
       </nav>
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
         <SheetContent side="bottom" className="navigation-sheet">
           <SheetHeader>
-            <SheetTitle>เมนู</SheetTitle>
+            <SheetTitle>{t('เมนู')}</SheetTitle>
             <SheetDescription className="sr-only">
-              ทุกฟีเจอร์ในทันงาน
+              {t('ทุกฟีเจอร์ในทันงาน')}
             </SheetDescription>
           </SheetHeader>
-          <nav className="navigation-grid" aria-label="ทุกฟีเจอร์">
+          <nav className="navigation-grid" aria-label={t('ทุกฟีเจอร์')}>
             {appNavigation.map(({ page: item, label, icon }) => {
               const Icon = navigationIcons[icon];
               return (
@@ -4833,8 +4877,8 @@ export default function Home() {
       {!online && (
         <div className="offline-banner" role="status">
           <AlertCircle />
-          ออฟไลน์อยู่ · สิ่งที่ทำไว้จะถูกส่งเมื่อกลับมาออนไลน์
-          {queued.length > 0 ? ` (ค้างอยู่ ${queued.length} รายการ)` : ''}
+          {t('ออฟไลน์อยู่ · สิ่งที่ทำไว้จะถูกส่งเมื่อกลับมาออนไลน์')}
+          {queued.length > 0 ? t(' (ค้างอยู่ {0} รายการ)', queued.length) : ''}
         </div>
       )}
       <ToastHost toast={toast} onDismiss={dismissToast} />
@@ -4848,13 +4892,13 @@ export default function Home() {
           <DialogHeader>
             <DialogTitle>
               {editTarget?.kind === 'task'
-                ? 'แก้ไขงาน'
+                ? t('แก้ไขงาน')
                 : editTarget?.kind === 'capture'
-                  ? 'ตรวจแล้วสร้างงาน'
-                  : 'สร้างงาน'}
+                  ? t('ตรวจแล้วสร้างงาน')
+                  : t('สร้างงาน')}
             </DialogTitle>
             <DialogDescription className="sr-only">
-              ใส่ข้อมูลสำคัญก่อน
+              {t('ใส่ข้อมูลสำคัญก่อน')}
             </DialogDescription>
           </DialogHeader>
           <form
@@ -4865,7 +4909,7 @@ export default function Home() {
           >
             <div className="stack-form task-entry-fields compact-task-form">
               <label>
-                <span>ชื่องาน</span>
+                <span>{t('ชื่องาน')}</span>
                 <Input
                   name="title"
                   required
@@ -4882,11 +4926,11 @@ export default function Home() {
                       ? 'task-entry-error'
                       : undefined
                   }
-                  placeholder="เช่น ส่งใบเสนอราคาให้ลูกค้า"
+                  placeholder={t('เช่น ส่งใบเสนอราคาให้ลูกค้า')}
                 />
               </label>
               <label>
-                <span>ผู้รับผิดชอบหลัก</span>
+                <span>{t('ผู้รับผิดชอบหลัก')}</span>
                 <AssignmentPicker
                   project={taskProject}
                   value={taskAssignee}
@@ -4905,10 +4949,10 @@ export default function Home() {
               >
                 <div className="deadline-composer-heading">
                   <div>
-                    <span>กำหนดส่ง</span>
+                    <span>{t('กำหนดส่ง@@field')}</span>
                     <strong>
                       {editTarget && !dueTouched && !(editTarget.kind === 'task' ? editTarget.task.dueAt : editTarget.capture.dueAt)
-                        ? 'ไม่มีกำหนด · แตะเพื่อตั้ง'
+                        ? t('ไม่มีกำหนด · แตะเพื่อตั้ง')
                         : deadlineMode === 'natural'
                         ? formatDeadline(
                             resolveDeadline(naturalDeadline, {
@@ -4931,23 +4975,23 @@ export default function Home() {
                   >
                     <MessageCircle />
                     {deadlineMode === 'natural'
-                      ? 'เลือกแบบเร็ว'
-                      : 'พิมพ์เหมือนใน LINE'}
+                      ? t('เลือกแบบเร็ว')
+                      : t('พิมพ์เหมือนใน LINE')}
                   </button>
                 </div>
                 {deadlineMode === 'natural' ? (
                   <label className="natural-deadline-field">
-                    <span>พิมพ์วันและเวลาได้เลย</span>
+                    <span>{t('พิมพ์วันและเวลาได้เลย')}</span>
                     <Input
                       value={naturalDeadline}
                       onChange={(event) =>
                         setNaturalDeadline(event.target.value)
                       }
-                      placeholder="พรุ่งนี้ 9 โมง / ภายในวันนี้"
+                      placeholder={t('พรุ่งนี้ 9 โมง / ภายในวันนี้')}
                     />
                     <small className="parse-preview">
                       <Sparkles />
-                      ระบบจะแสดงสิ่งที่เข้าใจก่อนสร้างงาน
+                      {t('ระบบจะแสดงสิ่งที่เข้าใจก่อนสร้างงาน')}
                     </small>
                   </label>
                 ) : (
@@ -4955,10 +4999,10 @@ export default function Home() {
                     <div className="day-presets">
                       {(
                         [
-                          { key: 'today', label: 'วันนี้' },
-                          { key: 'tomorrow', label: 'พรุ่งนี้' },
-                          { key: 'friday', label: 'ศุกร์' },
-                          { key: 'nextweek', label: 'สัปดาห์หน้า' },
+                          { key: 'today', label: t('วันนี้') },
+                          { key: 'tomorrow', label: t('พรุ่งนี้') },
+                          { key: 'friday', label: t('ศุกร์') },
+                          { key: 'nextweek', label: t('สัปดาห์หน้า') },
                         ] as const
                       ).map((item) => {
                         // Showing the date each button resolves to removes the
@@ -4976,7 +5020,7 @@ export default function Home() {
                           >
                             {item.label}
                             <small>
-                              {new Intl.DateTimeFormat('th-TH', {
+                              {new Intl.DateTimeFormat(intlLocale(), {
                                 timeZone: 'Asia/Bangkok',
                                 day: 'numeric',
                                 month: 'short',
@@ -5000,7 +5044,7 @@ export default function Home() {
                         }}
                       >
                         <CalendarDays />
-                        วันอื่น
+                        {t('วันอื่น')}
                       </button>
                     </div>
                     {taskDueDay === 'later' && (
@@ -5011,13 +5055,13 @@ export default function Home() {
                           defaultMonth={taskDate}
                           selected={taskDate}
                           onSelect={setTaskDate}
-                          locale={th}
+                          locale={locale === 'th' ? th : enGB}
                           showOutsideDays={false}
                         />
                       </div>
                     )}
                     <label className="time-select-row">
-                      <span>เวลา</span>
+                      <span>{t('เวลา')}</span>
                       <Select
                         value={taskTime}
                         onValueChange={(value) => setTaskTime(value as string)}
@@ -5032,7 +5076,7 @@ export default function Home() {
                           className="themed-select-content time-menu"
                         >
                           <SelectGroup>
-                            <SelectLabel>เวลาที่ใช้บ่อย</SelectLabel>
+                            <SelectLabel>{t('เวลาที่ใช้บ่อย')}</SelectLabel>
                             {timeOptions.map((time) => (
                               <SelectItem key={time} value={time}>
                                 <Clock3 />
@@ -5049,7 +5093,7 @@ export default function Home() {
               {editTarget?.kind !== 'capture' && (
               <div className="optional-fields">
                 <label>
-                  <span>ความสำคัญ</span>
+                  <span>{t('ความสำคัญ')}</span>
                   <Select
                     value={taskPriority}
                     onValueChange={(value) =>
@@ -5059,32 +5103,32 @@ export default function Home() {
                     <SelectTrigger className="themed-field-trigger">
                       <span>
                         {taskPriority === 'normal'
-                          ? 'ปกติ'
+                          ? t('ปกติ')
                           : taskPriority === 'high'
-                            ? 'สำคัญ'
-                            : 'เร่งด่วน'}
+                            ? t('สำคัญ')
+                            : t('เร่งด่วน')}
                       </span>
                     </SelectTrigger>
                     <SelectContent
                       align="start"
                       className="themed-select-content"
                     >
-                      <SelectItem value="normal">ปกติ</SelectItem>
-                      <SelectItem value="high">สำคัญ</SelectItem>
+                      <SelectItem value="normal">{t('ปกติ')}</SelectItem>
+                      <SelectItem value="high">{t('สำคัญ')}</SelectItem>
                       <SelectItem value="urgent">
                         <span className="urgent-option-dot" />
-                        เร่งด่วน
+                        {t('เร่งด่วน')}
                       </SelectItem>
                     </SelectContent>
                   </Select>
                 </label>
                 <label>
                   <span>
-                    รายละเอียด <small>ไม่บังคับ</small>
+                    {t('รายละเอียด')} <small>{t('ไม่บังคับ')}</small>
                   </span>
                   <Textarea
                     name="note"
-                    placeholder="เพิ่มบริบทสั้น ๆ"
+                    placeholder={t('เพิ่มบริบทสั้น ๆ')}
                     defaultValue={editTarget?.kind === 'task' ? editTarget.task.note : undefined}
                   />
                 </label>
@@ -5102,10 +5146,10 @@ export default function Home() {
                 variant="outline"
                 onClick={() => setTaskDialog(false)}
               >
-                ยกเลิก
+                {t('ยกเลิก')}
               </Button>
               <Button type="submit" disabled={busy}>
-                {editTarget?.kind === 'task' ? 'บันทึก' : 'สร้างงาน'}
+                {editTarget?.kind === 'task' ? t('บันทึก') : t('สร้างงาน')}
               </Button>
             </DialogFooter>
           </form>
@@ -5116,35 +5160,35 @@ export default function Home() {
           <DialogHeader>
             <DialogTitle>
               {actionSheet?.kind === 'blocked'
-                ? 'ติดปัญหาเพราะอะไร'
+                ? t('ติดปัญหาเพราะอะไร')
                 : actionSheet?.kind === 'ask'
-                  ? 'ขอข้อมูลจากใคร'
+                  ? t('ขอข้อมูลจากใคร')
                   : actionSheet?.kind === 'revision'
-                    ? 'ขอแก้ไขงาน'
+                    ? t('ขอแก้ไขงาน')
                     : actionSheet?.kind === 'answer'
-                      ? 'ตอบคำถาม'
+                      ? t('ตอบคำถาม')
                       : actionSheet?.kind === 'rename'
-                        ? 'เปลี่ยนชื่อพื้นที่งาน'
-                        : 'เวลาทำงานของคุณ'}
+                        ? t('เปลี่ยนชื่อพื้นที่งาน')
+                        : t('เวลาทำงานของคุณ')}
             </DialogTitle>
             <DialogDescription>
               {actionSheet?.kind === 'blocked'
-                ? 'ทีมจะเห็นว่างานนี้ติดอยู่ ส่วนเหตุผลเห็นเฉพาะคุณกับหัวหน้า เว้นแต่คุณเลือกแชร์'
+                ? t('ทีมจะเห็นว่างานนี้ติดอยู่ ส่วนเหตุผลเห็นเฉพาะคุณกับหัวหน้า เว้นแต่คุณเลือกแชร์')
                 : actionSheet?.kind === 'ask'
-                  ? 'คำถามจะส่งเป็นแชทส่วนตัวถึงคนนั้น และงานจะรอเขาตอบ'
+                  ? t('คำถามจะส่งเป็นแชทส่วนตัวถึงคนนั้น และงานจะรอเขาตอบ')
                   : actionSheet?.kind === 'revision'
-                    ? 'งานจะกลับไปที่ผู้รับผิดชอบพร้อมกำหนดส่งใหม่'
+                    ? t('งานจะกลับไปที่ผู้รับผิดชอบพร้อมกำหนดส่งใหม่')
                     : actionSheet?.kind === 'answer'
                       ? actionSheet.question
                       : actionSheet?.kind === 'rename'
-                        ? 'ทุกคนในพื้นที่งานนี้จะเห็นชื่อใหม่'
-                        : 'การเตือนจะส่งในช่วงเวลานี้เท่านั้น'}
+                        ? t('ทุกคนในพื้นที่งานนี้จะเห็นชื่อใหม่')
+                        : t('การเตือนจะส่งในช่วงเวลานี้เท่านั้น')}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={submitActionSheet} noValidate className="task-entry-form">
             <div className="stack-form task-entry-fields">
               {actionSheet?.kind === 'blocked' && (
-                <div className="day-presets" role="radiogroup" aria-label="เหตุผล">
+                <div className="day-presets" role="radiogroup" aria-label={t('เหตุผล')}>
                   {BLOCKED_REASONS.map((reason) => (
                     <button
                       type="button"
@@ -5157,14 +5201,14 @@ export default function Home() {
                         setSheetError('');
                       }}
                     >
-                      {reason}
+                      {t(reason)}
                     </button>
                   ))}
                 </div>
               )}
               {actionSheet?.kind === 'ask' && (
                 <label>
-                  <span>ถามใคร</span>
+                  <span>{t('ถามใคร')}</span>
                   <AssignmentPicker
                     project={{
                       ...selectedProject,
@@ -5173,12 +5217,12 @@ export default function Home() {
                     }}
                     value={sheetPerson}
                     onChange={setSheetPerson}
-                    label="ถามใคร"
+                    label={t('ถามใคร')}
                   />
                 </label>
               )}
               {actionSheet?.kind === 'revision' && (
-                <div className="day-presets" role="radiogroup" aria-label="ให้เวลาแก้">
+                <div className="day-presets" role="radiogroup" aria-label={t('ให้เวลาแก้')}>
                   {[1, 2, 3, 7].map((days) => (
                     <button
                       type="button"
@@ -5188,7 +5232,7 @@ export default function Home() {
                       className={sheetDays === days ? 'active' : ''}
                       onClick={() => setSheetDays(days)}
                     >
-                      {days === 7 ? '1 สัปดาห์' : `${days} วัน`}
+                      {days === 7 ? t('1 สัปดาห์') : t('{0} วัน', days)}
                       <small>{formatDeadline(revisionDueAt(days), { now })}</small>
                     </button>
                   ))}
@@ -5196,14 +5240,14 @@ export default function Home() {
               )}
               {actionSheet?.kind === 'rename' ? (
                 <label>
-                  <span>ชื่อพื้นที่งาน</span>
+                  <span>{t('ชื่อพื้นที่งาน')}</span>
                   <Input
                     value={sheetText}
                     onChange={(event) => {
                       setSheetText(event.target.value);
                       setSheetError('');
                     }}
-                    placeholder="เช่น ทีม Operations"
+                    placeholder={t('เช่น ทีม Operations')}
                     maxLength={60}
                   />
                 </label>
@@ -5211,8 +5255,8 @@ export default function Home() {
                 <div className="schedule-fields">
                   {(
                     [
-                      ['เริ่มงาน', sheetStart, setSheetStart],
-                      ['เลิกงาน', sheetEnd, setSheetEnd],
+                      [t('เริ่มงาน'), sheetStart, setSheetStart],
+                      [t('เลิกงาน'), sheetEnd, setSheetEnd],
                     ] as const
                   ).map(([label, value, set]) => (
                     <label className="time-select-row" key={label}>
@@ -5246,14 +5290,14 @@ export default function Home() {
                     <span>
                       {actionSheet.kind === 'blocked' ? (
                         <>
-                          รายละเอียด <small>ไม่บังคับ</small>
+                          {t('รายละเอียด')} <small>{t('ไม่บังคับ')}</small>
                         </>
                       ) : actionSheet.kind === 'ask' ? (
-                        'ถามว่าอะไร'
+                        t('ถามว่าอะไร')
                       ) : actionSheet.kind === 'revision' ? (
-                        'ต้องแก้อะไร'
+                        t('ต้องแก้อะไร')
                       ) : (
-                        'คำตอบ'
+                        t('คำตอบ')
                       )}
                     </span>
                     <Textarea
@@ -5264,12 +5308,12 @@ export default function Home() {
                       }}
                       placeholder={
                         actionSheet.kind === 'blocked'
-                          ? 'เช่น รอไฟล์ขนาดบูธจากลูกค้า'
+                          ? t('เช่น รอไฟล์ขนาดบูธจากลูกค้า')
                           : actionSheet.kind === 'ask'
-                            ? 'เช่น ขอไฟล์โลโก้ความละเอียดสูง'
+                            ? t('เช่น ขอไฟล์โลโก้ความละเอียดสูง')
                             : actionSheet.kind === 'revision'
-                              ? 'เช่น เปลี่ยนสีโลโก้ให้ตรงแบรนด์'
-                              : 'พิมพ์คำตอบ'
+                              ? t('เช่น เปลี่ยนสีโลโก้ให้ตรงแบรนด์')
+                              : t('พิมพ์คำตอบ')
                       }
                       maxLength={300}
                     />
@@ -5279,8 +5323,8 @@ export default function Home() {
               {actionSheet?.kind === 'blocked' && (
                 <label className="share-toggle-row">
                   <span>
-                    <strong>ให้ทุกคนในพื้นที่งานเห็นเหตุผล</strong>
-                    <small>ปิดไว้ = เห็นเฉพาะคุณกับหัวหน้า (แนะนำ)</small>
+                    <strong>{t('ให้ทุกคนในพื้นที่งานเห็นเหตุผล')}</strong>
+                    <small>{t('ปิดไว้ = เห็นเฉพาะคุณกับหัวหน้า (แนะนำ)')}</small>
                   </span>
                   <Switch checked={sheetShare} onCheckedChange={(on) => setSheetShare(Boolean(on))} />
                 </label>
@@ -5293,18 +5337,18 @@ export default function Home() {
             )}
             <DialogFooter className="task-entry-actions">
               <Button type="button" variant="outline" onClick={() => setActionSheet(null)}>
-                ยกเลิก
+                {t('ยกเลิก')}
               </Button>
               <Button type="submit" disabled={busy}>
                 {actionSheet?.kind === 'blocked'
-                  ? 'แจ้งว่าติดปัญหา'
+                  ? t('แจ้งว่าติดปัญหา')
                   : actionSheet?.kind === 'ask'
-                    ? 'ส่งคำถาม'
+                    ? t('ส่งคำถาม')
                     : actionSheet?.kind === 'revision'
-                      ? 'ส่งกลับให้แก้'
+                      ? t('ส่งกลับให้แก้')
                       : actionSheet?.kind === 'answer'
-                        ? 'ส่งคำตอบ'
-                        : 'บันทึก'}
+                        ? t('ส่งคำตอบ')
+                        : t('บันทึก')}
               </Button>
             </DialogFooter>
           </form>
@@ -5316,9 +5360,9 @@ export default function Home() {
           className="form-dialog forward-dialog"
         >
           <DialogHeader>
-            <DialogTitle>นำเข้าจาก LINE</DialogTitle>
+            <DialogTitle>{t('นำเข้าจาก LINE')}</DialogTitle>
             <DialogDescription className="sr-only">
-              สำหรับกลุ่มที่เพิ่มทันงานเข้าไปไม่ได้ หรือมีบอทอื่นอยู่แล้ว
+              {t('สำหรับกลุ่มที่เพิ่มทันงานเข้าไปไม่ได้ หรือมีบอทอื่นอยู่แล้ว')}
             </DialogDescription>
           </DialogHeader>
           <form
@@ -5330,10 +5374,10 @@ export default function Home() {
             <div className="stack-form task-entry-fields forward-form">
               <div className="demo-note">
                 <MessageCircle />
-                <span>วางข้อความที่คัดลอกจาก LINE · หรือแท็ก @ทันงาน ในกลุ่มแทนก็ได้</span>
+                <span>{t('วางข้อความที่คัดลอกจาก LINE · หรือแท็ก @ทันงาน ในกลุ่มแทนก็ได้')}</span>
               </div>
               <label>
-                <span>ข้อความจาก LINE</span>
+                <span>{t('ข้อความจาก LINE')}</span>
                 <Textarea
                   name="message"
                   required
@@ -5344,11 +5388,11 @@ export default function Home() {
                       ? 'forward-entry-error'
                       : undefined
                   }
-                  placeholder="วางข้อความที่ต้องการเก็บเป็นงาน"
+                  placeholder={t('วางข้อความที่ต้องการเก็บเป็นงาน')}
                 />
               </label>
               <label>
-                <span>ชื่องาน</span>
+                <span>{t('ชื่องาน')}</span>
                 <Input
                   name="title"
                   required
@@ -5358,11 +5402,11 @@ export default function Home() {
                       ? 'forward-entry-error'
                       : undefined
                   }
-                  placeholder="เช่น ส่งใบเสนอราคาให้ลูกค้า"
+                  placeholder={t('เช่น ส่งใบเสนอราคาให้ลูกค้า')}
                 />
               </label>
               <label>
-                <span>พื้นที่งาน</span>
+                <span>{t('พื้นที่งาน')}</span>
                 <Select
                   value={forwardProject.id}
                   onValueChange={(value) => {
@@ -5384,7 +5428,7 @@ export default function Home() {
                   </SelectTrigger>
                   <SelectContent className="themed-select-content">
                     <SelectGroup>
-                      <SelectLabel>เลือกกลุ่มหรือโปรเจกต์</SelectLabel>
+                      <SelectLabel>{t('เลือกกลุ่มหรือโปรเจกต์')}</SelectLabel>
                       {projects
                         .filter((project) => project.id !== 'mine')
                         .map((project) => (
@@ -5402,7 +5446,7 @@ export default function Home() {
                 </Select>
               </label>
               <label>
-                <span>ผู้รับผิดชอบหลัก</span>
+                <span>{t('ผู้รับผิดชอบหลัก')}</span>
                 <AssignmentPicker
                   project={forwardProject}
                   value={forwardAssignee}
@@ -5417,14 +5461,14 @@ export default function Home() {
                     className={forwardDueDay === 'today' ? 'active' : ''}
                     onClick={() => setForwardDueDay('today')}
                   >
-                    วันนี้
+                    {t('วันนี้')}
                   </button>
                   <button
                     type="button"
                     className={forwardDueDay === 'tomorrow' ? 'active' : ''}
                     onClick={() => setForwardDueDay('tomorrow')}
                   >
-                    พรุ่งนี้
+                    {t('พรุ่งนี้')}
                   </button>
                   <button
                     type="button"
@@ -5441,11 +5485,11 @@ export default function Home() {
                   >
                     <CalendarDays />
                     {forwardDueDay === 'later' && forwardDate
-                      ? forwardDate.toLocaleDateString('th-TH', {
+                      ? forwardDate.toLocaleDateString(intlLocale(), {
                           day: 'numeric',
                           month: 'short',
                         })
-                      : 'วันอื่น'}
+                      : t('วันอื่น')}
                   </button>
                 </div>
                 <Select
@@ -5454,7 +5498,7 @@ export default function Home() {
                 >
                   <SelectTrigger
                     className="themed-field-trigger time-trigger"
-                    aria-label="เวลา"
+                    aria-label={t('เวลา')}
                   >
                     <Clock3 />
                     <strong>{forwardTime}</strong>
@@ -5479,7 +5523,7 @@ export default function Home() {
                     defaultMonth={forwardDate}
                     selected={forwardDate}
                     onSelect={setForwardDate}
-                    locale={th}
+                    locale={locale === 'th' ? th : enGB}
                     showOutsideDays={false}
                     disabled={{ before: new Date() }}
                   />
@@ -5487,7 +5531,7 @@ export default function Home() {
               )}
               <label>
                 <span>
-                  ลิงก์ภาพหรือไฟล์ <small>ไม่บังคับ</small>
+                  {t('ลิงก์ภาพหรือไฟล์')} <small>{t('ไม่บังคับ')}</small>
                 </span>
                 <Input
                   name="evidenceUrl"
@@ -5516,11 +5560,11 @@ export default function Home() {
                 variant="outline"
                 onClick={() => setForwardDialog(false)}
               >
-                ยกเลิก
+                {t('ยกเลิก')}
               </Button>
               <Button type="submit">
                 <Plus />
-                สร้างงาน
+                {t('สร้างงาน')}
               </Button>
             </DialogFooter>
           </form>
@@ -5541,8 +5585,8 @@ export default function Home() {
             <div className="detail-body">
               {/* Where the task stands, as the four steps it always goes
                   through. The numbers are a real sequence. */}
-              <ol className="sheet-steps" aria-label="ความคืบหน้า">
-                {(['รับงาน', 'กำลังทำ', 'ส่งตรวจ', 'ปิดงาน'] as const).map((label, index) => {
+              <ol className="sheet-steps" aria-label={t('ความคืบหน้า')}>
+                {([t('รับงาน'), t('กำลังทำ'), t('ส่งตรวจ'), t('ปิดงาน')] as const).map((label, index) => {
                   const at =
                     selectedTask.status === 'done'
                       ? 4
@@ -5559,7 +5603,7 @@ export default function Home() {
                       aria-current={state === 'now' ? 'step' : undefined}
                     >
                       <b>{String(index + 1).padStart(2, '0')}</b>
-                      {index === 1 && selectedTask.status === 'blocked' ? 'ติดปัญหา' : label}
+                      {index === 1 && selectedTask.status === 'blocked' ? t('ติดปัญหา') : label}
                     </li>
                   );
                 })}
@@ -5568,15 +5612,15 @@ export default function Home() {
                 <div
                   className={`sheet-fact is-due ${selectedTask.status !== 'done' && selectedTask.status !== 'review' && isOverdue(selectedTask.dueAt, now) ? 'is-late' : ''}`}
                 >
-                  <small>กำหนดส่ง</small>
+                  <small>{t('กำหนดส่ง@@field')}</small>
                   <strong>
                     {selectedTask.dueAt
                       ? formatDeadline(selectedTask.dueAt, { now })
-                      : 'ไม่มีกำหนด'}
+                      : t('ไม่มีกำหนด')}
                   </strong>
                 </div>
                 <div className="sheet-fact">
-                  <small>ผู้รับผิดชอบ</small>
+                  <small>{t('ผู้รับผิดชอบ')}</small>
                   <strong>
                     <PersonAvatar
                       initials={getPrimaryAssignee(selectedTask).initials}
@@ -5589,14 +5633,14 @@ export default function Home() {
                     (selectedTask.assigneeId !== selectedTask.primaryAssigneeId ||
                       selectedTask.assigneeType !==
                         selectedTask.primaryAssigneeType) && (
-                      <span>ผู้รับงานต่อ · {getAssignee(selectedTask).label}</span>
+                      <span>{t('ผู้รับงานต่อ ·')} {getAssignee(selectedTask).label}</span>
                     )}
                 </div>
               </div>
               {selectedTask.batchId && (
-                <section className="batch-progress" aria-label="งานของทุกคน">
+                <section className="batch-progress" aria-label={t('งานของทุกคน')}>
                   <h3>
-                    งานของทุกคน · เสร็จ {batchProgress(selectedTask.batchId).done}/
+                    {t('งานของทุกคน · เสร็จ')} {batchProgress(selectedTask.batchId).done}/
                     {batchProgress(selectedTask.batchId).total}
                   </h3>
                   <div className="batch-people">
@@ -5622,17 +5666,16 @@ export default function Home() {
                   onClick={() => openEditTask(selectedTask)}
                 >
                   <PencilLine />
-                  แก้ไขงาน
+                  {t('แก้ไขงาน')}
                 </Button>
               )}
               {!canEditTask(selectedTask) && !canEditFields(selectedTask) && (
                 <section className="read-only-banner">
                   <LockKeyhole />
                   <div>
-                    <strong>งานนี้ดูได้อย่างเดียว</strong>
+                    <strong>{t('งานนี้ดูได้อย่างเดียว')}</strong>
                     <p>
-                      คุณดูรายละเอียดและหลักฐานได้ แต่แก้สถานะ ส่งต่อ
-                      หรือเพิ่มข้อมูลแทนเจ้าของงานไม่ได้
+                      {t('คุณดูรายละเอียดและหลักฐานได้ แต่แก้สถานะ ส่งต่อ หรือเพิ่มข้อมูลแทนเจ้าของงานไม่ได้')}
                     </p>
                   </div>
                 </section>
@@ -5642,44 +5685,44 @@ export default function Home() {
                 <details className="detail-section delegate-section">
                   <summary>
                     <Send />
-                    ส่งงานต่อให้คนอื่น
+                    {t('ส่งงานต่อให้คนอื่น')}
                   </summary>
                   <p className="delegate-note">
-                    ผู้รับผิดชอบหลักยังคงเห็นและติดตามงานนี้ได้
+                    {t('ผู้รับผิดชอบหลักยังคงเห็นและติดตามงานนี้ได้')}
                   </p>
                   <div className="delegate-controls">
                     <AssignmentPicker
                       project={getProject(selectedTask.projectId)}
                       value={delegateTarget}
                       onChange={setDelegateTarget}
-                      label="เลือกผู้รับงานต่อ"
+                      label={t('เลือกผู้รับงานต่อ')}
                     />
                     <Button
                       type="button"
                       onClick={() => delegateTask(selectedTask)}
                     >
-                      ส่งต่อ
+                      {t('ส่งต่อ')}
                     </Button>
                   </div>
                 </details>
               )}
               <section className="detail-section">
-                <h3>รายละเอียด</h3>
+                <h3>{t('รายละเอียด')}</h3>
                 <p>{selectedTask.note}</p>
               </section>
               <section className="detail-section">
                 <div className="detail-section-heading">
-                  <h3>หลักฐาน</h3>
+                  <h3>{t('หลักฐาน')}</h3>
                   {canEditTask(selectedTask) && (
                     <button onClick={() => setEvidenceOpen(true)}>
                       <Plus />
-                      เพิ่ม
+                      {t('เพิ่ม')}
                     </button>
                   )}
                 </div>
                 <p className="storage-note">
                   <Link2 />
-                  ทันงานไม่เก็บไฟล์ รองรับ Drive, Dropbox และลิงก์เว็บ
+                  {t('ทันงานไม่เก็บไฟล์ รองรับ Drive, Dropbox และลิงก์เว็บ')}
                 </p>
                 {selectedTask.evidence.map((evidence) => (
                   <a
@@ -5690,7 +5733,7 @@ export default function Home() {
                     key={evidence.label}
                   >
                     <ExternalLink />
-                    <span>{evidence.label}</span>
+                    <span>{t(evidence.label)}</span>
                     <ChevronRight />
                   </a>
                 ))}
@@ -5701,28 +5744,28 @@ export default function Home() {
                       onClick={() => setEvidenceOpen(true)}
                     >
                       <Link2 />
-                      วางลิงก์หลักฐานชิ้นแรก
+                      {t('วางลิงก์หลักฐานชิ้นแรก')}
                     </button>
                   ) : (
                     <div className="empty-evidence locked">
                       <LockKeyhole />
-                      ยังไม่มีหลักฐานจากเจ้าของงาน
+                      {t('ยังไม่มีหลักฐานจากเจ้าของงาน')}
                     </div>
                   ))}
               </section>
               {selectedTask.reviewState === 'review' && (
                 <section className="detail-section approval-section">
-                  <h3>ตรวจงาน</h3>
+                  <h3>{t('ตรวจงาน')}</h3>
                   <p>
                     {canReviewTask(selectedTask)
-                      ? 'ดูหลักฐานแล้วกดอนุมัติเพื่อปิดงาน หรือขอแก้พร้อมกำหนดใหม่'
-                      : 'ส่งตรวจแล้ว · รอคนสั่งงานตรวจ'}
+                      ? t('ดูหลักฐานแล้วกดอนุมัติเพื่อปิดงาน หรือขอแก้พร้อมกำหนดใหม่')
+                      : t('ส่งตรวจแล้ว · รอคนสั่งงานตรวจ')}
                   </p>
                 </section>
               )}
               {questions.filter((q) => !q.answeredAt).length > 0 && (
                 <section className="detail-section">
-                  <h3>รอคำตอบ</h3>
+                  <h3>{t('รอคำตอบ')}</h3>
                   {questions
                     .filter((q) => !q.answeredAt)
                     .map((q) => (
@@ -5732,7 +5775,7 @@ export default function Home() {
                           {q.question}
                           {/* Naming who it waits on is what stops this
                               reading as the assignee being slow. */}
-                          {q.askedOfName ? ` · รอ ${q.askedOfName}` : ''}
+                          {q.askedOfName ? t(' · รอ {0}', q.askedOfName) : ''}
                         </span>
                         {q.askedOfUserId === meUserId && (
                           <Button
@@ -5740,7 +5783,7 @@ export default function Home() {
                             disabled={busy}
                             onClick={() => answerQuestion(q.id)}
                           >
-                            ตอบ
+                            {t('ตอบ')}
                           </Button>
                         )}
                       </div>
@@ -5748,11 +5791,11 @@ export default function Home() {
                 </section>
               )}
               <section className="detail-section">
-                <h3>กิจกรรม</h3>
+                <h3>{t('กิจกรรม')}</h3>
                 {history.length === 0 && (
                   <div className="activity-row">
                     <i />
-                    <span>ยังไม่มีความเคลื่อนไหว</span>
+                    <span>{t('ยังไม่มีความเคลื่อนไหว')}</span>
                   </div>
                 )}
                 {history.map((entry) => (
@@ -5765,7 +5808,7 @@ export default function Home() {
                           have to remember what they chose, or guess. */}
                       {entry.visibility && entry.visibility !== 'workspace' && (
                         <em className="note-audience">
-                          {entry.visibility === 'private' ? 'เห็นเฉพาะคุณกับหัวหน้า' : 'ลูกค้าเห็นด้วย'}
+                          {entry.visibility === 'private' ? t('เห็นเฉพาะคุณกับหัวหน้า') : t('ลูกค้าเห็นด้วย')}
                         </em>
                       )}
                       {/* Only the author may widen it. Kept inside the span so
@@ -5777,7 +5820,7 @@ export default function Home() {
                           disabled={busy}
                           onClick={() => shareNote(entry.id, selectedTask.id)}
                         >
-                          ให้ทีมเห็น
+                          {t('ให้ทีมเห็น')}
                         </button>
                       )}
                     </span>
@@ -5804,8 +5847,8 @@ export default function Home() {
                 >
                   <Trash2 />
                   {armedDelete === `task:${selectedTask.id}`
-                    ? 'แตะอีกครั้งเพื่อลบงานนี้'
-                    : 'ลบงานนี้'}
+                    ? t('แตะอีกครั้งเพื่อลบงานนี้')
+                    : t('ลบงานนี้')}
                 </button>
               )}
               {selectedTask.pendingAssigneeId === meUserId && (
@@ -5813,16 +5856,16 @@ export default function Home() {
                   <Button
                     variant="outline"
                     disabled={busy}
-                    onClick={() => moveTask(selectedTask, 'decline_handoff', {}, 'ส่งกลับให้คนเดิมแล้ว')}
+                    onClick={() => moveTask(selectedTask, 'decline_handoff', {}, t('ส่งกลับให้คนเดิมแล้ว'))}
                   >
-                    ปฏิเสธ
+                    {t('ปฏิเสธ')}
                   </Button>
                   <Button
                     disabled={busy}
-                    onClick={() => moveTask(selectedTask, 'accept_handoff', {}, 'รับงานที่ส่งต่อมาแล้ว')}
+                    onClick={() => moveTask(selectedTask, 'accept_handoff', {}, t('รับงานที่ส่งต่อมาแล้ว'))}
                   >
                     <Check />
-                    รับงานที่ส่งต่อมา
+                    {t('รับงานที่ส่งต่อมา')}
                   </Button>
                 </div>
               )}
@@ -5830,11 +5873,11 @@ export default function Home() {
                 <div className="status-actions accountable-actions sheet-dock">
                   <Button className="sheet-primary" onClick={() => approveTask(selectedTask)}>
                     <Check />
-                    อนุมัติ
+                    {t('อนุมัติ')}
                   </Button>
                   <div className="sheet-secondary">
                     <Button variant="outline" onClick={() => requestRevision(selectedTask)}>
-                      ขอแก้
+                      {t('ขอแก้')}
                     </Button>
                   </div>
                 </div>
@@ -5846,7 +5889,7 @@ export default function Home() {
                       onClick={() => acceptTask(selectedTask)}
                     >
                       <Check />
-                      รับงาน
+                      {t('รับงาน')}
                     </Button>
                   ) : selectedTask.reviewState !== 'review' &&
                     selectedTask.reviewState !== 'approved' &&
@@ -5857,30 +5900,30 @@ export default function Home() {
                         onClick={() => submitForReview(selectedTask)}
                       >
                         <Send />
-                        ส่งตรวจ
+                        {t('ส่งตรวจ')}
                       </Button>
                       <div className="sheet-secondary">
                         <Button
                           variant="outline"
                           onClick={() => updateStatus(selectedTask, 'blocked')}
                         >
-                          ติดปัญหา
+                          {t('ติดปัญหา')}
                         </Button>
                         <Button
                           variant="outline"
                           onClick={() => requestMoreInfo(selectedTask)}
                         >
-                          ขอข้อมูลเพิ่ม
+                          {t('ขอข้อมูลเพิ่ม')}
                         </Button>
                       </div>
                     </>
                   ) : selectedTask.reviewState === 'approved' || selectedTask.status === 'done' ? (
                     <div className="approved-message">
-                      <CheckCircle2 /> งานนี้อนุมัติและปิดแล้ว
+                      <CheckCircle2 /> {t('งานนี้อนุมัติและปิดแล้ว')}
                     </div>
                   ) : (
                     <div className="approved-message">
-                      <Hourglass /> ส่งตรวจแล้ว · รอคนสั่งงานตรวจ
+                      <Hourglass /> {t('ส่งตรวจแล้ว · รอคนสั่งงานตรวจ')}
                     </div>
                   )}
                 </div>
@@ -5902,12 +5945,12 @@ export default function Home() {
             <DialogHeader>
               <span className="announcement-kicker">
                 <Megaphone />
-                ประกาศ · {unreadAnnouncements[0].workspaceName}
+                {t('ประกาศ ·')} {unreadAnnouncements[0].workspaceName}
                 {unreadAnnouncements.length > 1 ? ` · 1/${unreadAnnouncements.length}` : ''}
               </span>
               <DialogTitle>{unreadAnnouncements[0].title}</DialogTitle>
               <DialogDescription className="announcement-meta">
-                {unreadAnnouncements[0].authorName ?? 'ผู้ดูแล'} ·{' '}
+                {unreadAnnouncements[0].authorName ?? t('ผู้ดูแล')} ·{' '}
                 {formatDeadline(unreadAnnouncements[0].createdAt, { now })}
               </DialogDescription>
             </DialogHeader>
@@ -5928,7 +5971,7 @@ export default function Home() {
             <DialogFooter>
               <Button className="announcement-ack" onClick={closeAnnouncement}>
                 <Check />
-                {unreadAnnouncements.length > 1 ? 'รับทราบ · ดูประกาศถัดไป' : 'รับทราบ'}
+                {unreadAnnouncements.length > 1 ? t('รับทราบ · ดูประกาศถัดไป') : t('รับทราบ')}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -5937,18 +5980,18 @@ export default function Home() {
       <Dialog open={evidenceOpen} onOpenChange={setEvidenceOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>เพิ่มหลักฐาน</DialogTitle>
+            <DialogTitle>{t('เพิ่มหลักฐาน')}</DialogTitle>
             <DialogDescription className="sr-only">
-              ทันงานจะไม่อัปโหลดหรือเก็บไฟล์
+              {t('ทันงานจะไม่อัปโหลดหรือเก็บไฟล์')}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={addEvidence} className="stack-form">
             <label>
-              <span>ชื่อหลักฐาน</span>
-              <Input name="label" placeholder="ใบเสนอราคาเวอร์ชันอนุมัติ" />
+              <span>{t('ชื่อหลักฐาน')}</span>
+              <Input name="label" placeholder={t('ใบเสนอราคาเวอร์ชันอนุมัติ')} />
             </label>
             <label>
-              <span>ลิงก์</span>
+              <span>{t('ลิงก์')}</span>
               <Input
                 name="url"
                 type="url"
@@ -5962,9 +6005,9 @@ export default function Home() {
                 variant="outline"
                 onClick={() => setEvidenceOpen(false)}
               >
-                ยกเลิก
+                {t('ยกเลิก')}
               </Button>
-              <Button type="submit">เพิ่มลิงก์</Button>
+              <Button type="submit">{t('เพิ่มลิงก์')}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -5975,15 +6018,14 @@ export default function Home() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>ชื่อเล่น</DialogTitle>
+            <DialogTitle>{t('ชื่อเล่น')}</DialogTitle>
             <DialogDescription className="sr-only">
-              LINE: {nicknameMember?.lineName} · ชื่อเล่นนี้ใช้กับทุกพื้นที่งาน
-              และไม่เปลี่ยนชื่อใน LINE
+              LINE: {nicknameMember?.lineName} {t('· ชื่อเล่นนี้ใช้กับทุกพื้นที่งาน และไม่เปลี่ยนชื่อใน LINE')}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={updateNickname} className="stack-form">
             <label>
-              <span>ชื่อเล่น</span>
+              <span>{t('ชื่อเล่น')}</span>
               {/* Keyed on the member so switching people resets the field.
                   This key used to sit on DialogContent, where it changed at
                   the same moment `open` went false and orphaned the closing
@@ -6001,10 +6043,10 @@ export default function Home() {
                 variant="outline"
                 onClick={() => setNicknameMember(null)}
               >
-                ยกเลิก
+                {t('ยกเลิก')}
               </Button>
               <Button type="submit" disabled={busy}>
-                {busy ? 'กำลังบันทึก…' : 'บันทึกชื่อ'}
+                {busy ? t('กำลังบันทึก…') : t('บันทึกชื่อ')}
               </Button>
             </DialogFooter>
           </form>
@@ -6013,18 +6055,18 @@ export default function Home() {
       <Dialog open={teamDialog} onOpenChange={setTeamDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>สร้างทีมย่อย</DialogTitle>
+            <DialogTitle>{t('สร้างทีมย่อย')}</DialogTitle>
             <DialogDescription className="sr-only">
-              เลือกสมาชิกจาก {selectedProject.name}
+              {t('เลือกสมาชิกจาก')} {selectedProject.name}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={createTeam} className="stack-form">
             <label>
-              <span>ชื่อทีม</span>
-              <Input name="teamName" required placeholder="เช่น ทีมคอนเทนต์" />
+              <span>{t('ชื่อทีม')}</span>
+              <Input name="teamName" required placeholder={t('เช่น ทีมคอนเทนต์')} />
             </label>
             <fieldset className="member-checks">
-              <legend>สมาชิกในทีม</legend>
+              <legend>{t('สมาชิกในทีม')}</legend>
               {selectedProject.members.map((member) => (
                 <label key={member.id}>
                   <input type="checkbox" name={`member-${member.id}`} />
@@ -6042,9 +6084,9 @@ export default function Home() {
                 variant="outline"
                 onClick={() => setTeamDialog(false)}
               >
-                ยกเลิก
+                {t('ยกเลิก')}
               </Button>
-              <Button type="submit">สร้างทีม</Button>
+              <Button type="submit">{t('สร้างทีม')}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -6052,22 +6094,22 @@ export default function Home() {
       <Dialog open={projectDialog} onOpenChange={setProjectDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>เพิ่มพื้นที่</DialogTitle>
+            <DialogTitle>{t('เพิ่มพื้นที่')}</DialogTitle>
             <DialogDescription className="sr-only">
-              ใช้ได้ทั้งกลุ่ม LINE และงานจากช่องทางอื่น
+              {t('ใช้ได้ทั้งกลุ่ม LINE และงานจากช่องทางอื่น')}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={createProject} className="stack-form">
             <label>
-              <span>ชื่อพื้นที่</span>
+              <span>{t('ชื่อพื้นที่')}</span>
               <Input
                 name="projectName"
                 required
-                placeholder="เช่น Campaign Q4"
+                placeholder={t('เช่น Campaign Q4')}
               />
             </label>
             <label>
-              <span>ประเภท</span>
+              <span>{t('ประเภท')}</span>
               <Select
                 value={projectSource}
                 onValueChange={(value) =>
@@ -6077,18 +6119,18 @@ export default function Home() {
                 <SelectTrigger className="themed-field-trigger">
                   <span>
                     {projectSource === 'line'
-                      ? 'กลุ่ม LINE'
-                      : 'โปรเจกต์อื่นที่สร้างเอง'}
+                      ? t('กลุ่ม LINE')
+                      : t('โปรเจกต์อื่นที่สร้างเอง')}
                   </span>
                 </SelectTrigger>
                 <SelectContent align="start" className="themed-select-content">
                   <SelectItem value="line">
                     <MessageCircle />
-                    กลุ่ม LINE
+                    {t('กลุ่ม LINE')}
                   </SelectItem>
                   <SelectItem value="manual">
                     <LayoutGrid />
-                    โปรเจกต์อื่นที่สร้างเอง
+                    {t('โปรเจกต์อื่นที่สร้างเอง')}
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -6099,9 +6141,9 @@ export default function Home() {
                 variant="outline"
                 onClick={() => setProjectDialog(false)}
               >
-                ยกเลิก
+                {t('ยกเลิก')}
               </Button>
-              <Button type="submit">สร้างพื้นที่</Button>
+              <Button type="submit">{t('สร้างพื้นที่')}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -6109,37 +6151,37 @@ export default function Home() {
       <Dialog open={reminderDialog} onOpenChange={setReminderDialog}>
         <DialogContent key={`reminder-${settings.cutoff}`}>
           <DialogHeader>
-            <DialogTitle>ตั้งเตือน</DialogTitle>
+            <DialogTitle>{t('ตั้งเตือน')}</DialogTitle>
             <DialogDescription className="sr-only">
-              รวมอยู่ในทุกแพ็กเกจ ไม่มีค่าใช้จ่ายเพิ่มต่อรายการ
+              {t('รวมอยู่ในทุกแพ็กเกจ ไม่มีค่าใช้จ่ายเพิ่มต่อรายการ')}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={createReminder} className="stack-form">
             <label>
-              <span>เตือนเรื่อง</span>
-              <Input name="title" required placeholder="เช่น โทรติดตามลูกค้า" />
+              <span>{t('เตือนเรื่อง')}</span>
+              <Input name="title" required placeholder={t('เช่น โทรติดตามลูกค้า')} />
             </label>
             <div className="reminder-quick-date">
-              <span>เตือนเมื่อ</span>
+              <span>{t('เตือนเมื่อ')}</span>
               <div>
                 <button
                   type="button"
                   className={reminderDay === 'today' ? 'active' : ''}
                   onClick={() => setReminderDay('today')}
                 >
-                  วันนี้
+                  {t('วันนี้')}
                 </button>
                 <button
                   type="button"
                   className={reminderDay === 'tomorrow' ? 'active' : ''}
                   onClick={() => setReminderDay('tomorrow')}
                 >
-                  พรุ่งนี้
+                  {t('พรุ่งนี้')}
                 </button>
               </div>
             </div>
             <label>
-              <span>เวลา</span>
+              <span>{t('เวลา')}</span>
               <Select
                 value={reminderTime}
                 onValueChange={(value) => setReminderTime(value as string)}
@@ -6153,7 +6195,7 @@ export default function Home() {
                   className="themed-select-content time-menu"
                 >
                   <SelectGroup>
-                    <SelectLabel>เลือกเวลา</SelectLabel>
+                    <SelectLabel>{t('เลือกเวลา')}</SelectLabel>
                     {timeOptions.map((time) => (
                       <SelectItem value={time} key={time}>
                         <Clock3 />
@@ -6165,7 +6207,7 @@ export default function Home() {
               </Select>
             </label>
             <label>
-              <span>ทำซ้ำ</span>
+              <span>{t('ทำซ้ำ')}</span>
               <Select
                 value={reminderRepeat}
                 onValueChange={(value) =>
@@ -6175,16 +6217,16 @@ export default function Home() {
                 <SelectTrigger className="themed-field-trigger">
                   <span>
                     {reminderRepeat === 'once'
-                      ? 'ครั้งเดียว'
+                      ? t('ครั้งเดียว')
                       : reminderRepeat === 'daily'
-                        ? 'ทุกวัน'
-                        : 'ทุกสัปดาห์'}
+                        ? t('ทุกวัน')
+                        : t('ทุกสัปดาห์')}
                   </span>
                 </SelectTrigger>
                 <SelectContent align="start" className="themed-select-content">
-                  <SelectItem value="once">ครั้งเดียว</SelectItem>
-                  <SelectItem value="daily">ทุกวัน</SelectItem>
-                  <SelectItem value="weekly">ทุกสัปดาห์</SelectItem>
+                  <SelectItem value="once">{t('ครั้งเดียว')}</SelectItem>
+                  <SelectItem value="daily">{t('ทุกวัน')}</SelectItem>
+                  <SelectItem value="weekly">{t('ทุกสัปดาห์')}</SelectItem>
                 </SelectContent>
               </Select>
             </label>
@@ -6194,9 +6236,9 @@ export default function Home() {
                 variant="outline"
                 onClick={() => setReminderDialog(false)}
               >
-                ยกเลิก
+                {t('ยกเลิก')}
               </Button>
-              <Button type="submit">สร้างเตือน</Button>
+              <Button type="submit">{t('สร้างเตือน')}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

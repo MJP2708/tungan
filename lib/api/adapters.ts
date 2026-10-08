@@ -6,6 +6,7 @@
 // or piece of markup has to change when the backend replaced the seed data.
 // Everything crossing this boundary is server-owned; nothing here invents data.
 
+import { t } from '../i18n/index.ts';
 import { api, type ApiTask, type ApiMember, type ApiWorkspace, type ApiInboxItem } from './client.ts';
 import { formatDeadline } from '../deadline.ts';
 import { initialsFor } from '../initials.ts';
@@ -33,7 +34,7 @@ export type UiProject = {
 export { initialsFor };
 
 export function toUiMember(m: ApiMember): UiMember {
-  const nickname = m.nickname || m.displayName || 'ไม่ทราบชื่อ';
+  const nickname = m.nickname || m.displayName || t('ไม่ทราบชื่อ');
   return {
     id: m.userId,
     lineName: m.displayName || nickname,
@@ -138,9 +139,9 @@ export function toUiCapture(item: ApiInboxItem): UiCapture {
   return {
     id: item.id,
     projectId: item.workspaceId,
-    sender: item.senderName || 'ไม่ทราบชื่อ',
+    sender: item.senderName || t('ไม่ทราบชื่อ'),
     senderInitials: initialsFor(item.senderName),
-    message: item.rawMessage ?? '(ข้อความถูกลบแล้ว)',
+    message: item.rawMessage ?? t('(ข้อความถูกลบแล้ว)'),
     title: item.suggestedTitle,
     assigneeType: 'member',
     assigneeId: item.suggestedAssigneeUserId ?? '',
@@ -150,7 +151,7 @@ export function toUiCapture(item: ApiInboxItem): UiCapture {
     // the raw ISO string, so the inbox read "2026-09-22T09:00:00.000Z".
     dueText:
       item.confidence === 'fallback' || !item.suggestedDueAt
-        ? 'ยังไม่ระบุเวลา'
+        ? t('ยังไม่ระบุเวลา')
         : formatDeadline(item.suggestedDueAt),
     dueAt: item.suggestedDueAt,
     confidence: item.confidence,

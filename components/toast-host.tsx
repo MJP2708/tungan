@@ -1,5 +1,6 @@
 'use client';
 
+import { t } from '@/lib/i18n';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { X } from 'lucide-react';
 
@@ -99,7 +100,7 @@ export function ToastHost({
       <button
         type="button"
         className="toast-close"
-        aria-label="ปิดข้อความ"
+        aria-label={t('ปิดข้อความ')}
         onClick={onDismiss}
       >
         <X />
