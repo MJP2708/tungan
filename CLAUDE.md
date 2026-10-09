@@ -89,6 +89,15 @@ LINE channels, the Neon project, and all cloud resources, then hands over IDs.
   (`data-motion='reduced'`) stops it. `.task-entry-dialog` only ever fades —
   never give it a transform animation (version 18 fix). Fill mode is
   `backwards`, so nothing holds a transform after it finishes.
+- **Loading (2026-10-09):** the first load draws the real shell (sidebar,
+  top bar with logo, stand-ins the size of the workspace picker and bell)
+  with glass placeholders shaped like วันนี้, so nothing moves when the data
+  lands; after 8s it says the signal may be slow and offers ลองอีกครั้ง. A
+  3px brand-blue `ActivityBar` (`components/activity-bar.tsx`, mounted in
+  the layout) shows while the person waits on the server, after 200ms;
+  every `request()` is counted in `lib/api/activity.ts` except the app's own
+  background checks (`/changes`, `/api/announcements` GET). Movement lives
+  in motion.css, so with reduced motion it is a still line.
 - `app/globals.css` stays untouched: override order, specificity, layers and
   `!important` all matter. It is 5,663 lines with 127 `!important` and **zero
   `@layer`**, so the cascade rests entirely on source order and the three

@@ -549,6 +549,14 @@ export default function Home() {
   });
   const [meUserId, setMeUserId] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  // On a slow signal the loading screen says so after a while, with a way
+  // to try again, rather than sitting there looking stuck.
+  const [slowLoad, setSlowLoad] = useState(false);
+  useEffect(() => {
+    if (!loading) return;
+    const id = window.setTimeout(() => setSlowLoad(true), 8000);
+    return () => window.clearTimeout(id);
+  }, [loading]);
   const [loadError, setLoadError] = useState('');
   const [busy, setBusy] = useState(false);
   const [usage, setUsage] = useState<Awaited<ReturnType<typeof api.usage>> | null>(null);
@@ -4599,13 +4607,56 @@ export default function Home() {
   if (loading) {
     // Deliberately the app shell with skeletons, not a centred spinner: the
     // page that appears is the page that stays, so nothing moves under the
-    // reader's eye when the data lands.
+    // reader's eye when the data lands. The real sidebar and top bar (with
+    // the logo) are drawn as they will be; only the content is placeholder,
+    // shaped like วันนี้.
     return (
-      <div className="app-shell">
+      <div className="app-shell app-loading">
+        <aside className="desktop-sidebar" aria-hidden="true">
+          <div className="brand">
+            <Brand />
+          </div>
+          <div className="loading-nav">
+            {Array.from({ length: 7 }, (_, i) => (
+              <i key={i} />
+            ))}
+          </div>
+        </aside>
         <main className="app-main">
+          <header className="topbar">
+            <div className="mobile-brand-shell">
+              <Brand mobile />
+            </div>
+            {/* Stand-ins for the workspace picker and the bell, the same size,
+                so the bar is as tall now as when they arrive. */}
+            <i className="loading-pill" aria-hidden="true" />
+            <div className="top-actions" aria-hidden="true">
+              <i className="loading-dot" />
+            </div>
+          </header>
           <div className="content-area" aria-busy="true">
-            <span className="sr-only">{t('กำลังโหลดงานของคุณ')}</span>
+            <div className="loading-hero" aria-hidden="true">
+              <i className="loading-kicker" />
+              <i className="loading-title" />
+            </div>
+            <div className="loading-tiles" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </div>
             <SkeletonList rows={4} />
+            <div className="loading-note" role="status">
+              {slowLoad ? (
+                <>
+                  <span>{t('ยังโหลดอยู่ · สัญญาณอาจช้า')}</span>
+                  <Button type="button" variant="outline" onClick={() => window.location.reload()}>
+                    {t('ลองอีกครั้ง')}
+                  </Button>
+                </>
+              ) : (
+                <span>{t('กำลังโหลดงานของคุณ…')}</span>
+              )}
+            </div>
           </div>
         </main>
       </div>

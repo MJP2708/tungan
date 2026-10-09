@@ -649,4 +649,9 @@ export const en: Record<string, Entry> = {
   "ยังไม่เห็น {0} คน": (n: string | number) => `${n} ${p(n, "hasn't", "haven't")} seen it`,
   "งาน@@field": "Task",
   "กำหนดส่ง@@field": "Deadline",
+  // Loading.
+  "ยังโหลดอยู่ · สัญญาณอาจช้า": "Still loading · the signal may be slow",
+  "ลองอีกครั้ง": "Try again",
+  "กำลังโหลดงานของคุณ…": "Loading your tasks…",
+  "กำลังโหลด": "Loading",
 };

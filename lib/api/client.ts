@@ -1,5 +1,6 @@
 'use client';
 import { t } from '../i18n/index.ts';
+import { track, isBackgroundRequest } from './activity.ts';
 
 // The UI's only route to data. Swapping transport later touches this file and
 // nothing else, which is why no component may call fetch directly.
@@ -113,12 +114,16 @@ async function request<T>(
   // Every mutating call carries a key so a retry cannot duplicate the work.
   if (init.idempotencyKey) headers.set('idempotency-key', init.idempotencyKey);
 
-  const res = await fetch(path, { ...init, headers, credentials: 'same-origin' });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new ApiError(res.status, body.error ?? t('คำขอล้มเหลว ({0})', res.status));
-  }
-  return res.json() as Promise<T>;
+  const work = (async () => {
+    const res = await fetch(path, { ...init, headers, credentials: 'same-origin' });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new ApiError(res.status, body.error ?? t('คำขอล้มเหลว ({0})', res.status));
+    }
+    return res.json() as Promise<T>;
+  })();
+  // Counted for the progress bar unless the app is only checking by itself.
+  return isBackgroundRequest(path, init.method) ? work : track(work);
 }
 
 /** A fresh key per user action, reused across retries of that same action. */

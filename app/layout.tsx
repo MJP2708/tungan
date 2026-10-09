@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Geist_Mono, Prompt } from 'next/font/google';
+import { ActivityBar } from '@/components/activity-bar';
 import './globals.css';
 // Glass theme layer. Must stay AFTER globals.css; removing it restores the old look.
 import './theme-glass.css';
@@ -61,6 +62,7 @@ export default function RootLayout({
   return (
     <html lang="th">
       <body className={`${prompt.variable} ${geistMono.variable} antialiased`}>
+        <ActivityBar />
         {children}
       </body>
     </html>

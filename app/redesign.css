@@ -1625,3 +1625,132 @@ details.delegate-section > summary:focus-visible {
     grid-column: 2;
   }
 }
+
+/* ══ Loading (2026-10-09) ═════════════════════════════════════════════════
+   The first-load screen is the real shell (sidebar, top bar, logo) with the
+   content as soft glass placeholders shaped like วันนี้. */
+.app-loading .loading-nav {
+  display: grid;
+  gap: 14px;
+  padding: 18px 16px;
+}
+
+.app-loading .loading-nav i,
+.loading-hero i,
+.loading-tiles i {
+  display: block;
+  border-radius: 999px;
+  background: rgba(9, 9, 9, 0.06);
+}
+
+.app-loading .loading-nav i {
+  height: 14px;
+  width: 70%;
+}
+
+.app-loading .loading-nav i:nth-child(odd) {
+  width: 55%;
+}
+
+.loading-hero {
+  display: grid;
+  gap: 14px;
+  margin: 8px 0 22px;
+}
+
+.loading-kicker {
+  height: 10px;
+  width: 110px;
+}
+
+.loading-title {
+  height: 40px;
+  width: min(220px, 60%);
+  border-radius: 14px !important;
+}
+
+.loading-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.loading-tiles i {
+  height: 92px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.9);
+}
+
+.app-loading .skeleton-row {
+  border-color: rgba(255, 255, 255, 0.9);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.loading-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 22px;
+  color: var(--ink-3);
+  font-size: 13.5px;
+  text-align: center;
+}
+
+/* The progress line: brand blue (it shows state), 3px, over everything,
+   inside the notch on a phone. Hidden when idle. */
+.activity-bar {
+  position: fixed;
+  top: env(safe-area-inset-top);
+  left: 0;
+  right: 0;
+  z-index: 100;
+  height: 3px;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.activity-bar span {
+  display: block;
+  height: 100%;
+  width: 100%;
+  border-radius: 0 3px 3px 0;
+  background: #0080ff;
+}
+
+.activity-bar[data-state='active'],
+.activity-bar[data-state='done'] {
+  opacity: 1;
+}
+
+.app-loading .loading-pill,
+.app-loading .loading-dot {
+  display: block;
+  height: 44px;
+  border-radius: 999px;
+  background: rgba(9, 9, 9, 0.05);
+}
+
+.app-loading .loading-pill {
+  flex: 1;
+  min-width: 0;
+  max-width: 240px;
+}
+
+.app-loading .loading-dot {
+  width: 44px;
+}
+
+@media (min-width: 761px) {
+  .app-loading .loading-pill {
+    display: none;
+  }
+  .app-loading .topbar .top-actions {
+    margin-left: auto;
+  }
+}

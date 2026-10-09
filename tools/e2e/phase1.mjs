@@ -96,12 +96,16 @@ await step('boss asks for a revision with a new deadline', boss.page, async () =
 await step('เมย์ resubmits, boss approves (อนุมัติ)', boss.page, async () => {
   await openTask(may.page, TITLE);
   await sheet(may.page).getByRole('button', { name: /ส่งตรวจ/ }).first().click();
-  await sleep(1000);
-  expect((await task()).status === 'review', `status after resubmit ${(await task()).status}`);
+  // Wait for the database rather than a fixed second: a slow save on a busy
+  // machine made this step fail once while the app was right.
+  const until = async (status) => {
+    for (let i = 0; i < 30 && (await task()).status !== status; i += 1) await sleep(200);
+    return task();
+  };
+  expect((await until('review')).status === 'review', `status after resubmit ${(await task()).status}`);
   await openTask(boss.page, TITLE);
   await sheet(boss.page).getByRole('button', { name: /^อนุมัติ/ }).first().click();
-  await sleep(1000);
-  const t = await task();
+  const t = await until('done');
   expect(t.status === 'done', `status ${t.status}`);
   expect(t.closed_at, 'closed_at not set');
 });
