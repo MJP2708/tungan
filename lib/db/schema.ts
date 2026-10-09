@@ -17,6 +17,7 @@ import {
   index,
   primaryKey,
   jsonb,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 
 /** A person, keyed by their verified LINE `sub`. */
@@ -349,10 +350,14 @@ export const reminder = pgTable(
     snoozeCount: integer('snooze_count').notNull().default(0),
     /** Lease for the future scheduler, so two runners cannot both claim it. */
     claimedUntil: timestamp('claimed_until', { withTimezone: true }),
+    /** Set for a calendar event's notification (kind 'event'). Deleting the
+     *  event deletes its notifications. */
+    eventId: text('event_id').references((): AnyPgColumn => calendarEvent.id, { onDelete: 'cascade' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('reminder_due_idx').on(t.state, t.sendAt),
+    uniqueIndex('reminder_event_dedup_key').on(t.eventId, t.recipientUserId, t.originalSendAt),
     // One pending reminder per task per recipient per intended time. This is
     // what stops a quiet-hours shift or a retry creating a duplicate.
     uniqueIndex('reminder_dedup_key').on(t.taskId, t.recipientUserId, t.originalSendAt),
@@ -514,4 +519,45 @@ export const announcementRead = pgTable(
     readAt: timestamp('read_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.announcementId, t.userId] })],
+);
+
+/**
+ * Something on the calendar at a time (2026-10-09): a meeting, a shoot, a
+ * site visit. Not a task: nobody hands it in. For one person (`me`), the
+ * whole workspace (`everyone`) or picked people (`people`, listed in
+ * calendar_event_attendee). Its notification is ordinary reminder rows
+ * (kind 'event'), one per person, so it goes through the same dispatcher,
+ * quota and quiet hours as every other LINE message.
+ */
+export const calendarEvent = pgTable(
+  'calendar_event',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull().references(() => workspace.id, { onDelete: 'cascade' }),
+    createdByUserId: text('created_by_user_id').references(() => lineUser.id, { onDelete: 'set null' }),
+    title: text('title').notNull(),
+    note: text('note').notNull().default(''),
+    /** Where to join, when it is a call (lib/meeting-link.ts). */
+    link: text('link'),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    endsAt: timestamp('ends_at', { withTimezone: true }),
+    /** All day: startsAt is that day's Bangkok midnight. */
+    allDay: boolean('all_day').notNull().default(false),
+    audience: text('audience').notNull().default('me'), // me | everyone | people
+    /** Minutes before the start to notify; null = no notification. Negative
+     *  for an all-day event means after its midnight (-540 = 09:00 that day). */
+    notifyMinutes: integer('notify_minutes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('calendar_event_range_idx').on(t.workspaceId, t.startsAt)],
+);
+
+export const calendarEventAttendee = pgTable(
+  'calendar_event_attendee',
+  {
+    eventId: text('event_id').notNull().references(() => calendarEvent.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => lineUser.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.eventId, t.userId] }), index('calendar_event_attendee_user_idx').on(t.userId)],
 );

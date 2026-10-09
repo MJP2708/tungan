@@ -226,6 +226,77 @@ await step('adding the bot to a new group links it by itself; the first to tag i
   await p.keyboard.press('Escape');
 });
 
+/** Open ปฏิทิน on ทีมทดสอบ and pick tomorrow. */
+async function calendarTomorrow(page) {
+  // Switching workspace goes back to วันนี้, so switch first, then open ปฏิทิน.
+  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await page.locator('.mobile-project.themed-workspace-trigger').click();
+  await page.getByRole('option', { name: /^ทีมทดสอบ/ }).first().click();
+  await sleep(800);
+  await page.goto(BASE + '/?p=calendar', { waitUntil: 'networkidle' });
+  await sleep(500);
+  await page.locator('.month-day.is-today ~ .month-day').first().click();
+  await sleep(500);
+}
+
+await step('ปฏิทิน: the owner adds a team event; everyone gets a LINE notification planned', boss.page, async () => {
+  const p = boss.page;
+  await calendarTomorrow(p);
+  await p.locator('.calendar-add').click();
+  const dialog = p.locator('.event-dialog');
+  await dialog.locator('input').first().fill('E2E ประชุมทีมพรุ่งนี้');
+  await dialog.getByRole('button', { name: 'ทุกคน', exact: true }).click();
+  // Everyone in the workspace, one LINE message each — said before saving.
+  // "Everyone" = members and people seen in the team's LINE group, as for ทุกคน tasks.
+  const members = (await q(`select user_id from workspace_member where workspace_id='ws-team'
+    union select m.user_id from line_group_member m join group_workspace g on g.line_group_id = m.line_group_id
+    where g.workspace_id='ws-team' order by user_id`)).map((r) => r.user_id);
+  const costLine = await dialog.locator('.event-cost').innerText();
+  expect(costLine.includes(`${members.length} คน`), `cost line "${costLine}" for ${members.length} members`);
+  await dialog.getByRole('button', { name: 'เพิ่มกิจกรรม' }).click();
+  await sleep(1200);
+  const [e] = await q("select * from calendar_event where title='E2E ประชุมทีมพรุ่งนี้'");
+  expect(e && e.workspace_id === 'ws-team' && e.audience === 'everyone' && e.notify_minutes === 30, `event ${JSON.stringify(e)}`);
+  const n = await q("select recipient_user_id, send_at from reminder where event_id=$1 order by recipient_user_id", [e.id]);
+  expect(JSON.stringify(n.map((r) => r.recipient_user_id)) === JSON.stringify(members), `notifications ${JSON.stringify(n)} for ${members}`);
+  expect(new Date(n[0].send_at).getTime() === new Date(e.starts_at).getTime() - 30 * 60000, 'not 30 minutes before');
+  await p.locator('.event-row', { hasText: 'E2E ประชุมทีมพรุ่งนี้' }).waitFor({ timeout: 5000 });
+});
+
+await step('ปฏิทิน: เมย์ sees it read-only; it is not in her เตือนฉัน list', may.page, async () => {
+  const p = may.page;
+  await calendarTomorrow(p);
+  await p.locator('.event-row', { hasText: 'E2E ประชุมทีมพรุ่งนี้' }).click();
+  await p.locator('.event-dialog').waitFor({ timeout: 5000 });
+  expect((await p.locator('.event-dialog input').count()) === 0, 'a member can edit the owner\'s event');
+  await p.keyboard.press('Escape');
+  const res = await p.request.get(BASE + '/api/reminders?workspaceId=ws-team');
+  const titles = (await res.json()).reminders.map((r) => r.title);
+  expect(!titles.includes(null) && !titles.some((x) => /ประชุมทีมพรุ่งนี้/.test(x ?? '')), `reminders list ${titles}`);
+});
+
+await step('ปฏิทิน: a personal reminder added from the calendar; the owner deletes the event and its notifications go', boss.page, async () => {
+  const p = boss.page;
+  await calendarTomorrow(p);
+  await p.locator('.calendar-add').click();
+  const dialog = p.locator('.event-dialog');
+  await dialog.getByRole('button', { name: 'เตือนฉัน' }).click();
+  await dialog.locator('input').first().fill('E2E โทรหาลูกค้าจากปฏิทิน');
+  await dialog.getByRole('button', { name: 'ตั้งเตือน' }).click();
+  await sleep(1000);
+  const [r] = await q("select * from reminder where note='E2E โทรหาลูกค้าจากปฏิทิน'");
+  expect(r && r.recipient_user_id === 'u-boss' && r.event_id === null, `reminder ${JSON.stringify(r)}`);
+  await p.locator('.event-row.is-reminder', { hasText: 'E2E โทรหาลูกค้าจากปฏิทิน' }).waitFor({ timeout: 5000 });
+
+  await p.locator('.event-row', { hasText: 'E2E ประชุมทีมพรุ่งนี้' }).click();
+  const del = p.locator('.event-dialog').getByRole('button', { name: /ลบกิจกรรมนี้/ });
+  await del.click();
+  await p.locator('.event-dialog').getByRole('button', { name: /แตะอีกครั้งเพื่อลบ/ }).click();
+  await sleep(1000);
+  expect((await q("select count(*)::int n from calendar_event where title='E2E ประชุมทีมพรุ่งนี้'"))[0].n === 0, 'event still there');
+  expect((await q("select count(*)::int n from reminder where kind='event'"))[0].n === 0, 'its notifications are still planned');
+});
+
 for (const [who, p] of [['boss', boss], ['เมย์', may]]) {
   if (p.errors.length) console.log(`errors seen by ${who}:`, [...new Set(p.errors)]);
 }

@@ -94,6 +94,36 @@ export type ApiAnnouncement = {
   unreadNames?: string[] | null;
 };
 
+/** A calendar event, as the person asking may see it. */
+export type ApiEvent = {
+  id: string;
+  workspaceId: string;
+  title: string;
+  note: string;
+  link: string | null;
+  startsAt: string;
+  endsAt: string | null;
+  allDay: boolean;
+  audience: 'me' | 'everyone' | 'people';
+  notifyMinutes: number | null;
+  createdByUserId: string | null;
+  createdByName: string | null;
+  attendees: Array<{ userId: string; name: string }>;
+  canEdit: boolean;
+};
+
+export type EventInputBody = {
+  title: string;
+  note?: string;
+  link?: string | null;
+  startsAt: string;
+  endsAt?: string | null;
+  allDay: boolean;
+  audience: 'me' | 'everyone' | 'people';
+  attendeeIds?: string[];
+  notifyMinutes: number | null;
+};
+
 export class ApiError extends Error {
   // Assigned in the body rather than as a parameter property: Node's
   // type-stripping (used by the tests) does not support the shorthand.
@@ -436,6 +466,28 @@ export const api = {
     }>(`/api/tasks/${encodeURIComponent(taskId)}`),
 
   /** Cheap change probe for live updates. */
+  /** Events between from and to that this person may see. */
+  events: (workspaceId: string, from: string, to: string) =>
+    request<{ events: ApiEvent[] }>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    ),
+
+  /** `recipients`: how many LINE messages one notification will use. */
+  createEvent: (workspaceId: string, input: EventInputBody, idempotencyKey: string) =>
+    request<{ id: string; recipients: number; replayed?: boolean }>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/events`,
+      { method: 'POST', body: JSON.stringify(input), idempotencyKey },
+    ),
+
+  updateEvent: (id: string, input: EventInputBody) =>
+    request<{ id: string; recipients: number }>(`/api/events/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    }),
+
+  deleteEvent: (id: string) =>
+    request<{ ok: true }>(`/api/events/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
   changes: (workspaceId: string) =>
     request<{ version: string; pendingInbox: number }>(
       `/api/workspaces/${encodeURIComponent(workspaceId)}/changes`,

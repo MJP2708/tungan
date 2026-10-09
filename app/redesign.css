@@ -1754,3 +1754,252 @@ details.delegate-section > summary:focus-visible {
     margin-left: auto;
   }
 }
+
+/* ══ Calendar events (2026-10-09) ════════════════════════════════════════ */
+.calendar-agenda .panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Beats `.panel-heading > button` in globals.css, which styles every
+   heading button as a small grey link. */
+.panel-heading > button.calendar-add {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: #090909;
+  padding: 0 16px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.panel-heading > button.calendar-add svg {
+  width: 18px;
+  height: 18px;
+}
+
+.calendar-add:focus-visible {
+  outline: 2px solid #0080ff;
+  outline-offset: 2px;
+}
+
+.calendar-sections {
+  display: grid;
+  gap: 16px;
+}
+
+.calendar-section {
+  display: grid;
+  gap: 6px;
+}
+
+.calendar-section h4 {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.event-list {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.event-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  border: 0;
+  border-top: 1px solid var(--hairline);
+  background: transparent;
+  padding: 8px 14px;
+  color: inherit;
+  text-align: left;
+}
+
+.event-row:first-child {
+  border-top: 0;
+}
+
+.event-row > svg {
+  width: 18px;
+  height: 18px;
+  color: var(--ink-3);
+}
+
+.event-row:focus-visible {
+  outline: 2px solid #0080ff;
+  outline-offset: -2px;
+}
+
+/* The time is the thing scanned first: a fixed column, brand blue for an
+   event (it is something you go to), ink for a reminder. */
+.event-time {
+  min-width: 64px;
+  border-left: 3px solid #0080ff;
+  padding-left: 8px;
+  color: #090909;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.event-row.is-reminder .event-time {
+  border-left-color: #090909;
+}
+
+.event-text {
+  display: grid;
+  min-width: 0;
+}
+
+.event-text strong {
+  overflow: hidden;
+  font-size: 14.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-text small {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A day with an event: a small blue line under the date. */
+.month-day.has-event > span {
+  box-shadow: inset 0 -2px 0 #0080ff;
+}
+
+.month-day.is-selected.has-event > span {
+  box-shadow: inset 0 -2px 0 #ffffff;
+}
+
+/* The dialog: long on a phone, so it scrolls inside itself. */
+[data-slot='dialog-content'].event-dialog {
+  max-height: min(88dvh, 760px);
+  overflow-y: auto;
+}
+
+.event-dialog .quick-day-switch {
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  grid-auto-flow: column;
+}
+
+.event-dialog .quick-day-switch button {
+  min-height: 44px;
+  font-size: 13.5px;
+}
+
+.event-day,
+.event-audience {
+  display: grid;
+  gap: 6px;
+}
+
+.event-day > span,
+.event-audience > span {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.event-day > div {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: center;
+  border-radius: 14px;
+  background: rgba(9, 9, 9, 0.04);
+}
+
+.event-day button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+}
+
+.event-day button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.event-day strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 500;
+}
+
+.event-day strong svg {
+  width: 16px;
+  height: 16px;
+  color: var(--ink-3);
+}
+
+.stack-form label.event-switch {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+}
+
+.event-times {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.event-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.event-people button {
+  min-height: 44px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  padding: 0 14px;
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+
+.event-people button.active {
+  border-color: #0080ff;
+  background: #0080ff;
+  color: #ffffff;
+}
+
+.event-cost {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.event-meta {
+  color: var(--ink-3);
+  font-size: 13px;
+}

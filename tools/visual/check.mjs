@@ -10,7 +10,7 @@ fs.mkdirSync(OUT, { recursive: true });
 const WIDTHS = [320, 360, 390, 430];
 const PAGES = [
   ['home', null], ['inbox', 'LINE'], ['tasks', 'งาน'], ['reminders', 'เตือน'],
-  ['calendar', 'กำหนดส่ง'], ['reports', 'ภาพรวม'], ['ai', 'AI'], ['manage', 'ทีม'], ['settings', 'ตั้งค่า'],
+  ['calendar', 'ปฏิทิน'], ['reports', 'ภาพรวม'], ['ai', 'AI'], ['manage', 'ทีม'], ['settings', 'ตั้งค่า'],
 ];
 const PRIMARY = new Set(['LINE', 'งาน', 'เตือน']);
 

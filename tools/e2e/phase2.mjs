@@ -299,7 +299,7 @@ await step('ตั้งค่า → ภาษา: English changes the screens,
   await p.getByRole('option', { name: 'ภาษาไทย' }).click();
   await p.getByRole('heading', { name: 'ตั้งค่า' }).waitFor({ timeout: 5000 });
 });
-await step('กำหนดส่ง and ภาพรวม load without errors', boss.page, async () => {
+await step('ปฏิทิน and ภาพรวม load without errors', boss.page, async () => {
   const p = boss.page;
   const before = boss.errors.length;
   await p.goto(BASE + '/?p=calendar', { waitUntil: 'networkidle' });
@@ -308,8 +308,10 @@ await step('กำหนดส่ง and ภาพรวม load without errors'
   const today = p.locator('.month-day.is-today');
   expect((await today.count()) === 1, 'today is not marked once');
   const shown = Number((await today.locator('small').textContent().catch(() => '0')) || 0);
+  // The cell counts everything that day: tasks, events and reminders.
+  const listed = await p.locator('.calendar-agenda :is(.task-row, .event-row)').count();
+  expect(shown === listed, `today's cell says ${shown}, the day lists ${listed}`);
   const titles = await p.locator('.calendar-agenda .task-row strong').allTextContents();
-  expect(shown === titles.length, `today's cell says ${shown}, the list has ${titles.length}`);
   for (const title of titles) {
     const rows = await q(`select 1 from task where title = $1
       and (due_at at time zone 'Asia/Bangkok')::date = (now() at time zone 'Asia/Bangkok')::date`, [title]);

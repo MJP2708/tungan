@@ -69,6 +69,14 @@ const bySuffix = {
   questions: { questions: [] },
   workspace: { workspaceId: 'w3', name: 'ลูกค้า ABC x Agency', membersGranted: 2 },
   'confirm-batch': { created: 2, skipped: 0 },
+  events: { events: [
+    { id: 'e1', workspaceId: 'w1', title: 'ประชุมลูกค้า ABC', note: 'ห้องประชุมชั้น 3', link: 'https://meet.google.com/abc-defg-hij',
+      startsAt: iso(3), endsAt: iso(4), allDay: false, audience: 'everyone', notifyMinutes: 30,
+      createdByUserId: 'u1', createdByName: 'พิมพ์ชนก', attendees: [], canEdit: true },
+    { id: 'e2', workspaceId: 'w1', title: 'ถ่ายงานหน้าร้าน', note: '', link: null,
+      startsAt: iso(26), endsAt: null, allDay: false, audience: 'people', notifyMinutes: 60,
+      createdByUserId: 'u2', createdByName: 'เมย์', attendees: [{ userId: 'u1', name: 'พิมพ์ชนก' }], canEdit: false },
+  ] },
 };
 
 /** The JSON to answer a request with. `mine=1` gets tasks from another workspace. */

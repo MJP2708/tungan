@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import {
   AlertCircle,
@@ -105,10 +105,11 @@ import {
   type DayKey,
 } from '@/lib/calendar';
 import { th, enGB } from 'date-fns/locale';
-import { api, ApiError, newIdempotencyKey, type ApiAnnouncement } from '@/lib/api/client';
+import { api, ApiError, newIdempotencyKey, type ApiAnnouncement, type ApiEvent } from '@/lib/api/client';
 import { taskIdFromSearch, pageFromSearch, pageUrl } from '@/lib/deep-link.ts';
 import { BLOCKED_REASONS } from '@/lib/tasks/reasons';
 import { normalizeMeetingLink, meetingLinkLabel } from '@/lib/meeting-link';
+import { EventDialog, eventTimeLabel, audienceLabel, type EventDialogTarget } from '@/components/event-dialog';
 import { t, setLocale, intlLocale, localeFromBrowser, type Locale } from '@/lib/i18n';
 import { teamOverview, formatSpan, ATTENTION_ORDER, type AttentionKind } from '@/lib/tasks/overview';
 import { mayEditTaskFields } from '@/lib/tasks/permissions';
@@ -218,6 +219,8 @@ type Reminder = {
   done: boolean;
   /** Set when a send failed, so a dropped reminder is visible not silent. */
   failureReason?: string | null;
+  /** The instant, for placing it on the calendar. */
+  sendAt?: string;
 };
 
 /** Stands in until the first workspace arrives from the server, so the shell
@@ -1353,6 +1356,56 @@ export default function Home() {
     () => tasksByDay(projectTasks, now, { includeDone: settings.showCompleted }),
     [projectTasks, now, settings.showCompleted],
   );
+  // Events on the calendar (2026-10-09), for the month on screen. "งานของฉัน"
+  // spans workspaces and has no calendar of its own to add to.
+  const [calendarEvents, setCalendarEvents] = useState<ApiEvent[]>([]);
+  const [eventTarget, setEventTarget] = useState<EventDialogTarget | null>(null);
+  const calendarWorkspaceId = selectedProjectId === 'mine' ? '' : selectedProject.id;
+  const gridFrom = monthGrid(shownMonth.year, shownMonth.month)[0][0].key;
+  const loadCalendarEvents = useCallback(async () => {
+    if (!calendarWorkspaceId || !account.loggedIn) return setCalendarEvents([]);
+    const [y, m, d] = gridFrom.split('-').map(Number);
+    const from = fromZonedWallClock(y, m, d, 0, 0);
+    const to = new Date(from.getTime() + 42 * 86400000);
+    try {
+      const res = await api.events(calendarWorkspaceId, from.toISOString(), to.toISOString());
+      setCalendarEvents(res.events);
+    } catch {
+      // Non-fatal: the deadlines still show.
+    }
+  }, [calendarWorkspaceId, account.loggedIn, gridFrom]);
+  useEffect(() => {
+    if (page !== 'calendar') return;
+    void loadCalendarEvents();
+    void refreshReminders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshReminders reads the workspace itself
+  }, [page, loadCalendarEvents]);
+  /** Events by Bangkok day; one spanning days shows on each (up to a month). */
+  const eventsByDay = useMemo(() => {
+    const map = new Map<DayKey, ApiEvent[]>();
+    for (const event of calendarEvents) {
+      const first = dayKey(event.startsAt);
+      if (!first) continue;
+      const last = event.endsAt ? dayKey(new Date(new Date(event.endsAt).getTime() - (event.allDay ? 1 : 0))) ?? first : first;
+      let key = first;
+      for (let i = 0; i < 31; i += 1) {
+        map.set(key, [...(map.get(key) ?? []), event]);
+        if (key >= last) break;
+        const [y, m, d] = key.split('-').map(Number);
+        const next = new Date(Date.UTC(y, m - 1, d + 1));
+        key = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`;
+      }
+    }
+    return map;
+  }, [calendarEvents]);
+  const remindersByDay = useMemo(() => {
+    const map = new Map<DayKey, Reminder[]>();
+    for (const r of reminders) {
+      const key = r.sendAt && !r.done ? dayKey(r.sendAt) : null;
+      if (key) map.set(key, [...(map.get(key) ?? []), r]);
+    }
+    return map;
+  }, [reminders]);
   function getAssignee(
     task: Pick<Task, 'projectId' | 'assigneeType' | 'assigneeId'>,
   ) {
@@ -2484,6 +2537,7 @@ export default function Home() {
           repeat: 'once' as const,
           done: r.state === 'sent',
           failureReason: r.failureReason,
+          sendAt: r.sendAt,
         })),
       );
     } catch {
@@ -3410,6 +3464,8 @@ export default function Home() {
     const weeks = monthGrid(shownMonth.year, shownMonth.month);
     const picked = calendarLoad.get(selectedDayKey);
     const pickedTasks = picked?.tasks ?? [];
+    const pickedEvents = eventsByDay.get(selectedDayKey) ?? [];
+    const pickedReminders = remindersByDay.get(selectedDayKey) ?? [];
     const [py, pm, pd] = selectedDayKey.split('-').map(Number);
     // Noon UTC on that date: formatted in UTC, it is that calendar day.
     const pickedLabel = new Intl.DateTimeFormat(intlLocale(), {
@@ -3430,7 +3486,7 @@ export default function Home() {
       <section className="page-section calendar-page">
         <div className="section-intro">
           <div>
-            <h2 data-kicker={pageKicker('calendar')}>{t('กำหนดส่ง')}</h2>
+            <h2 data-kicker={pageKicker('calendar')}>{t('ปฏิทิน')}</h2>
           </div>
         </div>
         <div className="panel month-calendar">
@@ -3463,7 +3519,9 @@ export default function Home() {
             ))}
             {weeks.flat().map((cell) => {
               const load = calendarLoad.get(cell.key);
-              const count = load?.tasks.length ?? 0;
+              const dayEvents = eventsByDay.get(cell.key)?.length ?? 0;
+              const dayReminders = remindersByDay.get(cell.key)?.length ?? 0;
+              const count = (load?.tasks.length ?? 0) + dayEvents + dayReminders;
               return (
                 <button
                   type="button"
@@ -3474,9 +3532,10 @@ export default function Home() {
                     cell.key === todayKey ? 'is-today' : '',
                     cell.key === selectedDayKey ? 'is-selected' : '',
                     load?.late ? 'has-late' : '',
+                    dayEvents ? 'has-event' : '',
                   ].join(' ')}
                   aria-pressed={cell.key === selectedDayKey}
-                  aria-label={`${cell.day}${count ? t(' · {0} งาน', count) : ''}${load?.late ? t(' · เลยกำหนด {0}', load.late) : ''}`}
+                  aria-label={`${cell.day}${count ? t(' · {0} รายการ', count) : ''}${load?.late ? t(' · เลยกำหนด {0}', load.late) : ''}`}
                   onClick={() => {
                     setCalendarPick(cell.key);
                     if (!cell.inMonth) {
@@ -3503,15 +3562,80 @@ export default function Home() {
                 </p>
               )}
             </div>
+            {calendarWorkspaceId && (
+              <button
+                type="button"
+                className="calendar-add"
+                onClick={() => setEventTarget({ mode: 'new', day: selectedDayKey })}
+              >
+                <Plus />
+                {t('เพิ่ม')}
+              </button>
+            )}
           </div>
-          <div className="task-list">
-            {pickedTasks.map((task) => (
-              <TaskRow key={task.id} task={task} />
-            ))}
-            {pickedTasks.length === 0 && (
+          <div className="calendar-sections">
+            {pickedEvents.length > 0 && (
+              <div className="calendar-section">
+                <h4>{t('กิจกรรม')}</h4>
+                <div className="event-list">
+                  {pickedEvents.map((event) => (
+                    <button
+                      type="button"
+                      key={event.id}
+                      className="event-row"
+                      onClick={() => setEventTarget({ mode: 'edit', event })}
+                    >
+                      <span className="event-time">{eventTimeLabel(event)}</span>
+                      <span className="event-text">
+                        <strong>{event.title}</strong>
+                        <small>
+                          {audienceLabel(event)}
+                          {event.link ? ` · ${t('มีลิงก์ประชุม')}` : ''}
+                          {event.notifyMinutes !== null ? ` · ${t('เตือนทาง LINE')}` : ''}
+                        </small>
+                      </span>
+                      <ChevronRight />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {pickedReminders.length > 0 && (
+              <div className="calendar-section">
+                <h4>{t('เตือนฉัน')}</h4>
+                <div className="event-list">
+                  {pickedReminders.map((reminder) => (
+                    <button
+                      type="button"
+                      key={reminder.id}
+                      className="event-row is-reminder"
+                      onClick={() => navigate('reminders')}
+                    >
+                      <span className="event-time">{reminder.time}</span>
+                      <span className="event-text">
+                        <strong>{reminder.title}</strong>
+                        <small>{reminder.failureReason ? t('ส่งไม่สำเร็จ · {0}', t(reminder.failureReason)) : t('ส่งทาง LINE ถึงคุณ')}</small>
+                      </span>
+                      <Bell />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {pickedTasks.length > 0 && (
+              <div className="calendar-section">
+                {(pickedEvents.length > 0 || pickedReminders.length > 0) && <h4>{t('งานถึงกำหนด')}</h4>}
+                <div className="task-list">
+                  {pickedTasks.map((task) => (
+                    <TaskRow key={task.id} task={task} />
+                  ))}
+                </div>
+              </div>
+            )}
+            {pickedTasks.length + pickedEvents.length + pickedReminders.length === 0 && (
               <EmptyState
-                title={selectedDayKey === todayKey ? t('วันนี้ไม่มีงานถึงกำหนด') : t('วันนั้นไม่มีงานถึงกำหนด')}
-                body={t('เลือกวันอื่นในปฏิทิน หรือสร้างงานพร้อมกำหนดเวลา')}
+                title={selectedDayKey === todayKey ? t('วันนี้ยังว่าง') : t('วันนั้นยังว่าง')}
+                body={calendarWorkspaceId ? t('แตะ “เพิ่ม” เพื่อใส่กิจกรรมหรือการเตือน') : t('เลือกพื้นที่งานด้านบนเพื่อเพิ่มกิจกรรม')}
               />
             )}
           </div>
@@ -6201,6 +6325,18 @@ export default function Home() {
           </form>
         </DialogContent>
       </Dialog>
+      <EventDialog
+        target={eventTarget}
+        onClose={() => setEventTarget(null)}
+        workspaceId={calendarWorkspaceId}
+        members={selectedProject.members.map((m) => ({ id: m.id, nickname: m.nickname }))}
+        meUserId={meUserId}
+        onSaved={(message) => {
+          setNotice(message);
+          void loadCalendarEvents();
+          void refreshReminders();
+        }}
+      />
       <Dialog open={reminderDialog} onOpenChange={setReminderDialog}>
         <DialogContent key={`reminder-${settings.cutoff}`}>
           <DialogHeader>

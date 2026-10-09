@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { and, eq, asc } from 'drizzle-orm';
+import { and, eq, asc, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
 import { reminder, task } from '@/lib/db/schema.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
@@ -28,7 +28,15 @@ export async function GET(req: Request) {
       .leftJoin(task, eq(task.id, reminder.taskId))
       // เตือนฉัน is the caller's own list. It returned every member's
       // reminders, which now carry their own private wording.
-      .where(and(eq(reminder.workspaceId, workspaceId), eq(reminder.recipientUserId, membership.userId)))
+      .where(
+        and(
+          eq(reminder.workspaceId, workspaceId),
+          eq(reminder.recipientUserId, membership.userId),
+          // A calendar event's notification belongs to the event, which
+          // shows on กำหนดส่ง; listing it here too would read as a duplicate.
+          isNull(reminder.eventId),
+        ),
+      )
       .orderBy(asc(reminder.sendAt));
     return NextResponse.json({
       reminders: rows.map(({ note, ...r }) => ({ ...r, title: r.title ?? note })),

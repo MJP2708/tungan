@@ -209,17 +209,29 @@ task lands in at most one list, first match wins: เลยกำหนด → �
 "งานเยอะ" needs both 5+ open and twice the team average. Every member can
 see it, like the task list itself.
 
-## Calendar view (2026-10-09)
+## Calendar (2026-10-09)
 
-กำหนดส่ง is a month calendar of what is already stored — deadlines by
-Bangkok calendar day (`lib/calendar.ts`, tested), Sunday first, six rows,
-Buddhist-era year in the title. A day shows its count (red when any of it
-is late); picking a day lists its tasks and who has how many. Undated work
-is a link to งาน. **Not a calendar of its own**: no events, no sync —
-calendar sync stays out of scope. Seven `minmax(0, 1fr)` columns down to
-320px; side by side with the day from 1021px. `tools/visual/contrast.mjs`
-now judges "dark enough for white text" by WCAG contrast (≥ 3:1), so brand
-blue selected states pass and glass-on-dark still fails.
+ปฏิทิน (`?p=calendar`, was กำหนดส่ง) is a month calendar by Bangkok day
+(`lib/calendar.ts`): deadlines, **events** and the person's own
+**reminders**. A day shows one count (red when a task is late, a blue line
+under the date when it has an event); picking it lists กิจกรรม, เตือนฉัน and
+งานถึงกำหนด. "+ เพิ่ม" adds an event or a reminder (`components/event-dialog.tsx`;
+no native pickers — the day is stepped with ‹ ›, times are themed selects).
+Calendar **sync** with Google/Outlook stays out of scope.
+
+- **Events (decided 2026-10-09):** for me, the whole workspace, or picked
+  people. "Everyone" = members + people seen in the LINE group, the same as
+  ทุกคน tasks (`everyoneAssignable`). Private events are seen by their maker
+  only — not even admins. Edit/delete: the maker, or an owner/admin for a
+  shared one. Data in `lib/calendar-events.ts`, rules in
+  `lib/calendar-event-rules.ts`, migration 0015.
+- **Notifications go by LINE and are counted (decided 2026-10-09):** one
+  `reminder` row per person (kind `event`, `event_id`), so the dispatcher,
+  quota, quiet hours and one-message-per-person digest all apply; the message
+  heading is นัดหมาย with the time and join link. The form says how many
+  messages it will use before saving. Quiet hours move an alert earlier,
+  never after the event. Delivery is in 15-minute steps (cron-job.org,
+  08:00–21:45). Event alerts are not listed in เตือนฉัน.
 
 ## Languages (decided 2026-10-09)
 
@@ -470,7 +482,7 @@ node tools/visual/contrast.mjs  # light text left on a light surface
 **End-to-end against a real backend** lives in `tools/e2e/` (README there):
 the production build, a throwaway local Postgres, two signed-in people, a
 webhook signed with a fake channel secret, and every step checked in the
-database — 54 checks (57 after 17:00 Bangkok) across create → review → approve, LINE drafts,
+database — 57 checks (60 after 17:00 Bangkok) across create → review → approve, LINE drafts,
 reminders, settings, workspaces, cron, logout, announcements and ทุกคน tasks. Every key in `.env.local`
 must be overridden when starting that server, because `.env.local` is
 production; `tools/e2e/lib.mjs` refuses a non-localhost database.

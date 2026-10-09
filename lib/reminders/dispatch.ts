@@ -5,6 +5,7 @@ import { reminder, task, workspace } from '../db/schema.ts';
 import { pushToUser, usedThisMonth } from '../line/messaging.ts';
 import { formatDeadline } from '../deadline.ts';
 import { appLink } from '../deep-link.ts';
+import { eventsForMessages } from '../calendar-events.ts';
 
 /** How long a runner owns the rows it claimed. */
 const LEASE_MINUTES = 5;
@@ -44,10 +45,10 @@ async function claimDue(now: Date) {
         limit ${BATCH}
         for update skip locked
      )
-    returning id, workspace_id, task_id, recipient_user_id, send_at, attempts, kind, note
+    returning id, workspace_id, task_id, event_id, recipient_user_id, send_at, attempts, kind, note
   `);
   return (rows as unknown as { rows: Array<{
-    id: string; workspace_id: string; task_id: string | null; note: string | null;
+    id: string; workspace_id: string; task_id: string | null; event_id: string | null; note: string | null;
     recipient_user_id: string; send_at: string; attempts: number; kind: string;
   }> }).rows ?? [];
 }
@@ -106,6 +107,7 @@ export async function dispatchDueReminders(
   result.recipients = groups.size;
 
   const titles = await titlesFor(claimed.map((c) => c.task_id).filter(Boolean) as string[]);
+  const events = await eventsForMessages(claimed.map((c) => c.event_id).filter(Boolean) as string[]);
 
   for (const [key, rows] of groups) {
     const [workspaceId, recipientUserId] = key.split('::');
@@ -115,13 +117,28 @@ export async function dispatchDueReminders(
     // Merging them under one heading would make the reviewer read their own
     // queue as a list of things they are late on.
     const toReview = rows.filter((r) => r.kind === 'review_due');
-    const toDo = rows.filter((r) => r.kind !== 'review_due');
+    // Calendar events are where to be, not work to do: their own heading.
+    const coming = rows.filter((r) => r.kind === 'event' && r.event_id && events.has(r.event_id));
+    const toDo = rows.filter((r) => r.kind !== 'review_due' && r.kind !== 'event');
     const lineFor = (r: (typeof rows)[number]) => {
       const t = r.task_id ? titles.get(r.task_id) : null;
       const when = t?.dueAt ? ` · ${formatDeadline(t.dueAt, { now })}` : '';
       return `• ${t?.title ?? r.note ?? 'งานที่ต้องทำ'}${when}`;
     };
     const sections: string[] = [];
+    if (coming.length) {
+      const eventLine = (r: (typeof rows)[number]) => {
+        const e = events.get(r.event_id!)!;
+        const when = e.allDay
+          ? `${formatDeadline(e.startsAt, { now }).replace(/\s*\d{1,2}:\d{2}$/, '')} · ทั้งวัน`
+          : formatDeadline(e.startsAt, { now });
+        return `• ${e.title} · ${when}${e.link ? `\n  เข้าร่วม: ${e.link}` : ''}`;
+      };
+      sections.push(
+        (coming.length === 1 ? 'นัดหมาย' : `นัดหมาย ${coming.length} รายการ`) +
+          `\n${coming.map(eventLine).join('\n')}`,
+      );
+    }
     if (toDo.length) {
       sections.push(
         (toDo.length === 1 ? 'เตือนงาน' : `เตือนงาน ${toDo.length} รายการ`) +
