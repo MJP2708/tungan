@@ -1,0 +1,269 @@
+{
+  "type": "bubble",
+  "size": "mega",
+  "body": {
+    "type": "box",
+    "layout": "vertical",
+    "spacing": "sm",
+    "paddingAll": "20px",
+    "background": {
+      "type": "linearGradient",
+      "angle": "150deg",
+      "startColor": "#FFE1D8",
+      "centerColor": "#F6F2FB",
+      "endColor": "#D9E6FF",
+      "centerPosition": "45%"
+    },
+    "contents": [
+      {
+        "type": "box",
+        "layout": "horizontal",
+        "alignItems": "center",
+        "contents": [
+          {
+            "type": "text",
+            "text": "ทันงาน",
+            "size": "sm",
+            "weight": "bold",
+            "color": "#090909",
+            "flex": 0
+          },
+          {
+            "type": "text",
+            "text": "ทุกพื้นที่งาน",
+            "size": "xxs",
+            "color": "#5D5D57",
+            "align": "end"
+          }
+        ]
+      },
+      {
+        "type": "text",
+        "text": "งานของคุณ 6 งาน",
+        "size": "xl",
+        "color": "#090909",
+        "wrap": true
+      },
+      {
+        "type": "text",
+        "text": "เลยกำหนด · 1",
+        "size": "xs",
+        "weight": "bold",
+        "color": "#C4241F",
+        "margin": "none"
+      },
+      {
+        "type": "box",
+        "layout": "vertical",
+        "margin": "sm",
+        "paddingAll": "10px",
+        "cornerRadius": "12px",
+        "backgroundColor": "#FFFFFFB8",
+        "action": {
+          "type": "uri",
+          "label": "เปิดงาน",
+          "uri": "https://liff.line.me/1234567890-abcdefgh?task=t1"
+        },
+        "contents": [
+          {
+            "type": "text",
+            "text": "ส่งใบเสนอราคาให้ลูกค้า ABC พร้อมแนบแบบบูธ",
+            "size": "sm",
+            "weight": "bold",
+            "color": "#090909",
+            "wrap": true,
+            "maxLines": 2
+          },
+          {
+            "type": "text",
+            "text": "เลย 3 ชม. · วันนี้ 11:02 · ทีม Ops",
+            "size": "xxs",
+            "color": "#C4241F",
+            "wrap": true
+          }
+        ]
+      },
+      {
+        "type": "text",
+        "text": "วันนี้ · 1",
+        "size": "xs",
+        "weight": "bold",
+        "color": "#5D5D57",
+        "margin": "lg"
+      },
+      {
+        "type": "box",
+        "layout": "vertical",
+        "margin": "sm",
+        "paddingAll": "10px",
+        "cornerRadius": "12px",
+        "backgroundColor": "#FFFFFFB8",
+        "action": {
+          "type": "uri",
+          "label": "เปิดงาน",
+          "uri": "https://liff.line.me/1234567890-abcdefgh?task=t2"
+        },
+        "contents": [
+          {
+            "type": "text",
+            "text": "โทรหาลูกค้า",
+            "size": "sm",
+            "weight": "bold",
+            "color": "#090909",
+            "wrap": true,
+            "maxLines": 2
+          },
+          {
+            "type": "text",
+            "text": "อีก 3 ชม. · วันนี้ 17:02 · ทีม Ops",
+            "size": "xxs",
+            "color": "#5D5D57",
+            "wrap": true
+          }
+        ]
+      },
+      {
+        "type": "text",
+        "text": "รอคุณรับ · 1",
+        "size": "xs",
+        "weight": "bold",
+        "color": "#5D5D57",
+        "margin": "lg"
+      },
+      {
+        "type": "box",
+        "layout": "vertical",
+        "margin": "sm",
+        "paddingAll": "10px",
+        "cornerRadius": "12px",
+        "backgroundColor": "#FFFFFFB8",
+        "action": {
+          "type": "uri",
+          "label": "เปิดงาน",
+          "uri": "https://liff.line.me/1234567890-abcdefgh?task=t3"
+        },
+        "contents": [
+          {
+            "type": "text",
+            "text": "ออกแบบป้ายหน้างาน",
+            "size": "sm",
+            "weight": "bold",
+            "color": "#090909",
+            "wrap": true,
+            "maxLines": 2
+          },
+          {
+            "type": "text",
+            "text": "อีก 1 วัน · พรุ่งนี้ 20:02 · ทีม Ops",
+            "size": "xxs",
+            "color": "#5D5D57",
+            "wrap": true
+          }
+        ]
+      },
+      {
+        "type": "text",
+        "text": "รอคุณตรวจ · 1",
+        "size": "xs",
+        "weight": "bold",
+        "color": "#5D5D57",
+        "margin": "lg"
+      },
+      {
+        "type": "box",
+        "layout": "vertical",
+        "margin": "sm",
+        "paddingAll": "10px",
+        "cornerRadius": "12px",
+        "backgroundColor": "#FFFFFFB8",
+        "action": {
+          "type": "uri",
+          "label": "เปิดงาน",
+          "uri": "https://liff.line.me/1234567890-abcdefgh?task=t4"
+        },
+        "contents": [
+          {
+            "type": "text",
+            "text": "สรุปงบประมาณอีเวนต์",
+            "size": "sm",
+            "weight": "bold",
+            "color": "#090909",
+            "wrap": true,
+            "maxLines": 2
+          },
+          {
+            "type": "text",
+            "text": "ส่งตรวจแล้ว · กำหนด พรุ่งนี้ 10:02 · ทีม Ops",
+            "size": "xxs",
+            "color": "#5D5D57",
+            "wrap": true
+          }
+        ]
+      },
+      {
+        "type": "text",
+        "text": "7 วันข้างหน้า · 1",
+        "size": "xs",
+        "weight": "bold",
+        "color": "#5D5D57",
+        "margin": "lg"
+      },
+      {
+        "type": "box",
+        "layout": "vertical",
+        "margin": "sm",
+        "paddingAll": "10px",
+        "cornerRadius": "12px",
+        "backgroundColor": "#FFFFFFB8",
+        "action": {
+          "type": "uri",
+          "label": "เปิดงาน",
+          "uri": "https://liff.line.me/1234567890-abcdefgh?task=t5"
+        },
+        "contents": [
+          {
+            "type": "text",
+            "text": "ต่อทะเบียนรถ",
+            "size": "sm",
+            "weight": "bold",
+            "color": "#090909",
+            "wrap": true,
+            "maxLines": 2
+          },
+          {
+            "type": "text",
+            "text": "อีก 4 วัน · 13 ต.ค. 18:02 · งานส่วนตัว",
+            "size": "xxs",
+            "color": "#5D5D57",
+            "wrap": true
+          }
+        ]
+      },
+      {
+        "type": "separator",
+        "color": "#09090914",
+        "margin": "lg"
+      },
+      {
+        "type": "text",
+        "text": "หลังจากนั้นหรือไม่มีกำหนด 1 งาน",
+        "size": "xs",
+        "color": "#5D5D57",
+        "wrap": true,
+        "margin": "md"
+      },
+      {
+        "type": "button",
+        "style": "primary",
+        "color": "#090909",
+        "height": "sm",
+        "margin": "lg",
+        "action": {
+          "type": "uri",
+          "label": "เปิดในแอป",
+          "uri": "https://liff.line.me/1234567890-abcdefgh"
+        }
+      }
+    ]
+  }
+}

@@ -46,6 +46,8 @@ import { parseAnnouncement } from './announce.ts';
 import { postAnnouncement } from '../announcements.ts';
 import { createTasks } from '../tasks/create.ts';
 import { applyMentions, mentionedPeople, type Mentionee } from './mentions.ts';
+import { isMyWorkRequest, myWorkMessage, summarizeMyWork } from './my-work.ts';
+import { myWorkFor } from '../tasks/my-work.ts';
 
 export type LineSource = {
   type?: 'user' | 'group' | 'room';
@@ -774,6 +776,36 @@ async function handleMessage(event: LineEventPayload) {
     ).catch((error) => console.error('[webhook][processing-error] help reply failed', error));
     return;
   }
+  // "@ทันงาน งานของฉัน": what is waiting on me, on the free reply token. A
+  // group hears only about its own workspace; a private chat gets all of them.
+  if (event.replyToken && isMyWorkRequest(text)) {
+    const me = await actorFor(event);
+    const workspaceIds = isGroup ? (resolved ? [resolved.workspaceId] : []) : null;
+    const now = new Date();
+    const work = summarizeMyWork(me ? await myWorkFor(me, workspaceIds) : [], now);
+    let scope = 'ทุกพื้นที่งาน';
+    if (isGroup && resolved) {
+      const [ws] = await db()
+        .select({ name: workspace.name })
+        .from(workspace)
+        .where(eq(workspace.id, resolved.workspaceId))
+        .limit(1);
+      scope = ws?.name ?? 'กลุ่มนี้';
+    }
+    await replyMessage(
+      event.replyToken,
+      [myWorkMessage(work, {
+        now,
+        scope,
+        showWorkspace: !isGroup,
+        appUrl: appLink(),
+        taskUrl: (id) => appLink({ task: id }),
+      })] as never,
+      { workspaceId: resolved?.workspaceId },
+    ).catch((error) => console.error('[webhook][processing-error] my-work reply failed', error));
+    return;
+  }
+
   if (!resolved) {
     console.warn('[webhook] message from an unbound source', event.source?.type);
     return;

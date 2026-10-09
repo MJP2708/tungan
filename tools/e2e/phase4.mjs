@@ -226,6 +226,25 @@ await step('adding the bot to a new group links it by itself; the first to tag i
   await p.keyboard.press('Escape');
 });
 
+await step('"@ทันงาน งานของฉัน" in the group is answered, not turned into a task', may.page, async () => {
+  const before = (await q('select count(*)::int n from inbox_item'))[0].n;
+  for (const text of ['@ทันงาน งานของฉัน', '@ทันงาน มีงานอะไรบ้างครับ']) {
+    const id = `e2e-mywork-${Date.now()}-${text.length}`;
+    const body = JSON.stringify({ destination: 'Ue2e', events: [{
+      type: 'message', mode: 'active', timestamp: Date.now(), webhookEventId: id,
+      deliveryContext: { isRedelivery: false }, replyToken: `rt-${id}`,
+      source: { type: 'group', groupId: 'C00000000000000000000000000000001', userId: 'U00000000000000000000000000000b05' },
+      message: { id: `m-${id}`, type: 'text', text },
+    }] });
+    const sig = crypto.createHmac('sha256', 'e2e-channel-secret').update(body).digest('base64');
+    const res = await fetch(BASE + '/api/webhooks/line', { method: 'POST', headers: { 'content-type': 'application/json', 'x-line-signature': sig }, body });
+    expect(res.status === 200, `webhook ${res.status}`);
+  }
+  await sleep(1500);
+  const after = (await q('select count(*)::int n from inbox_item'))[0].n;
+  expect(after === before, `a draft was made from the question (${before} → ${after})`);
+});
+
 /** Open ปฏิทิน on ทีมทดสอบ and pick tomorrow. */
 async function calendarTomorrow(page) {
   // Switching workspace goes back to วันนี้, so switch first, then open ปฏิทิน.

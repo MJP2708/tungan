@@ -172,6 +172,14 @@ proves nothing here.
   `export const runtime = 'nodejs'`. Dedup on `webhookEventId` with a unique
   constraint and honour `deliveryContext.isRedelivery`. Ack fast, work after.
 - Raw message retention **7 days or less**. On `unsend`, delete or mask it.
+- **"งานของฉัน" from LINE (2026-10-09):** `@ทันงาน งานของฉัน` in a group,
+  or `งานของฉัน` / `มีงานอะไรบ้าง` / `my tasks` in a 1:1 chat, is answered on
+  the **free reply token** with a card: เลยกำหนด, วันนี้, รอคุณรับ, รอคุณตรวจ,
+  7 วันข้างหน้า, each row opening the task in the app. Recognised only when
+  the **whole message** is the question (`lib/line/my-work.ts`), so
+  "งานของฉันคือส่งรายงาน…" still becomes a draft. A group hears only about
+  its own workspace — never a personal or other team's task; a 1:1 chat
+  covers every workspace (`lib/tasks/my-work.ts`).
 
 ## Announcements and ทุกคน (decided 2026-10-08)
 
@@ -497,7 +505,7 @@ node tools/visual/contrast.mjs  # light text left on a light surface
 **End-to-end against a real backend** lives in `tools/e2e/` (README there):
 the production build, a throwaway local Postgres, two signed-in people, a
 webhook signed with a fake channel secret, and every step checked in the
-database — 57 checks (60 after 17:00 Bangkok) across create → review → approve, LINE drafts,
+database — 58 checks (61 after 17:00 Bangkok) across create → review → approve, LINE drafts,
 reminders, settings, workspaces, cron, logout, announcements and ทุกคน tasks. Every key in `.env.local`
 must be overridden when starting that server, because `.env.local` is
 production; `tools/e2e/lib.mjs` refuses a non-localhost database.
