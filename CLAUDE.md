@@ -98,6 +98,21 @@ LINE channels, the Neon project, and all cloud resources, then hands over IDs.
   every `request()` is counted in `lib/api/activity.ts` except the app's own
   background checks (`/changes`, `/api/announcements` GET). Movement lives
   in motion.css, so with reduced motion it is a still line.
+- **Our own liquid glass (decided 2026-10-09):** Glass-HQ's liquid-glass
+  library was looked at and turned down (WebGPU-only, Safari/LINE-iOS
+  issues, refracts only its own scene). Ours is SVG + CSS: `app/liquid.css`
+  (imported **last**; removing it restores the previous glass),
+  `components/liquid-glass.tsx` (mounted in the layout) and
+  `lib/liquid-glass.ts` (pure, tested). `html[data-liquid]`: `refract` on
+  Chromium phones that are not low-end (LINE on Android included) — an SVG
+  displacement lens drawn per surface size, run as a backdrop-filter, so the
+  page behind bends at the rim; `frost` elsewhere (iPhone/LINE iOS, Firefox,
+  low-end, reduced motion) — clearer glass, specular highlight, lit rim.
+  Refracting surfaces: bottom nav, top bar, desktop sidebar, toast only.
+  Menus (select/popover) are firm frost, never lens: options must read.
+  Text straight on glass needs a firm tint (the top bar is .82/.68 with 9px
+  blur) — check with `UA=<LINE Android UA> node tools/visual/contrast.mjs`.
+  No position is set on the surfaces (sidebar is fixed, top bar sticky).
 - `app/globals.css` stays untouched: override order, specificity, layers and
   `!important` all matter. It is 5,663 lines with 127 `!important` and **zero
   `@layer`**, so the cascade rests entirely on source order and the three

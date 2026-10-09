@@ -102,9 +102,11 @@ export function answer(url) {
 }
 
 /** A signed-in phone page with every API call answered from fixtures. */
-export async function fixturePage(browser, base, { width = 390, height = 844 } = {}) {
+export async function fixturePage(browser, base, { width = 390, height = 844, userAgent = process.env.UA } = {}) {
   const ctx = await browser.newContext({
     viewport: { width, height }, deviceScaleFactor: 2, isMobile: true, hasTouch: true,
+    // e.g. LINE on Android, to see the liquid-glass refraction level.
+    ...(userAgent ? { userAgent } : {}),
     // LOCALE=en-US runs the harness on the English app (the 'auto' setting
     // follows the browser's language).
     locale: process.env.LOCALE ?? 'th-TH', timezoneId: 'Asia/Bangkok',

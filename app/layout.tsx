@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Geist_Mono, Prompt } from 'next/font/google';
 import { ActivityBar } from '@/components/activity-bar';
+import { LiquidGlass } from '@/components/liquid-glass';
 import './globals.css';
 // Glass theme layer. Must stay AFTER globals.css; removing it restores the old look.
 import './theme-glass.css';
@@ -13,6 +14,9 @@ import './redesign.css';
 // Motion (2026-10-09): subtle entrances and press feedback. Last; removing
 // it removes all of the new motion and nothing else.
 import './motion.css';
+// Liquid glass (2026-10-09): our own refraction and specular glass on the
+// nav, top bar, sidebar and popups. Last; removing it restores the old glass.
+import './liquid.css';
 
 const prompt = Prompt({
   variable: '--font-prompt',
@@ -63,6 +67,7 @@ export default function RootLayout({
     <html lang="th">
       <body className={`${prompt.variable} ${geistMono.variable} antialiased`}>
         <ActivityBar />
+        <LiquidGlass />
         {children}
       </body>
     </html>

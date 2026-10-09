@@ -1,0 +1,133 @@
+/* ══ Liquid glass (2026-10-09) ════════════════════════════════════════════
+   Our own, in CSS and SVG only. Imported LAST; removing the import in
+   app/layout.tsx restores the previous glass exactly.
+
+   The surfaces: bottom nav, top bar, desktop sidebar and the toast refract
+   (LIQUID_SURFACES in components/liquid-glass.tsx); select/popover menus get
+   the firmer frost only, so their options always read cleanly.
+
+   Levels (html[data-liquid], set by components/liquid-glass.tsx):
+   - every browser with backdrop-filter: "frost" — clearer than before, with
+     a specular highlight across the top and a rim lit from above-left;
+   - "refract" (Chromium, capable phones): the same, plus an SVG lens so the
+     page behind really bends at the rim, with much less blur.
+   - no backdrop-filter, or reduced transparency: untouched — the solid
+     fallbacks in theme-glass.css / theme-atelier.css stay in force.
+   Brand blue is not used here: glass is decoration, never state. */
+
+:root {
+  --lg-tint-top: rgba(255, 255, 255, 0.5);
+  --lg-tint-bottom: rgba(255, 255, 255, 0.2);
+  --lg-frost: blur(18px) saturate(190%) brightness(1.04);
+  --lg-clear: blur(5px) saturate(190%) brightness(1.05);
+  --lg-shadow:
+    0 18px 40px -18px rgba(70, 56, 130, 0.32),
+    0 2px 6px -2px rgba(9, 9, 9, 0.08);
+  /* The rim: bright where light enters (top), soft at the sides, a faint
+     return at the bottom — the edge you see on real glass. */
+  --lg-rim:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.4),
+    inset 1px 0 0 rgba(255, 255, 255, 0.55),
+    inset -1px 0 0 rgba(255, 255, 255, 0.45),
+    inset 0 -10px 20px -14px rgba(255, 255, 255, 0.7);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :is(.mobile-nav, .topbar, .desktop-sidebar, [data-slot='select-content'], [data-slot='popover-content'], .toast-host) {
+    border-color: rgba(255, 255, 255, 0.72);
+    background: linear-gradient(180deg, var(--lg-tint-top), var(--lg-tint-bottom));
+    box-shadow: var(--lg-shadow), var(--lg-rim);
+    -webkit-backdrop-filter: var(--lg-frost);
+    backdrop-filter: var(--lg-frost);
+    isolation: isolate;
+  }
+
+  /* Menus sit over busy content: much firmer frost, so the options read
+     cleanly; still glass at the edges. */
+  :is([data-slot='select-content'], [data-slot='popover-content']) {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.8));
+    -webkit-backdrop-filter: blur(26px) saturate(190%);
+    backdrop-filter: blur(26px) saturate(190%);
+  }
+
+  /* The specular highlight: light caught across the upper curve. Under the
+     content (z-index -1 inside an isolated surface) and never interactive. */
+  :is(.mobile-nav, .topbar, .desktop-sidebar)::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background:
+      radial-gradient(120% 70% at 18% -10%, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0) 55%),
+      radial-gradient(80% 60% at 100% 120%, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 60%);
+    pointer-events: none;
+  }
+
+  /* A thin lit edge that is brighter top-left and fades round the side. */
+  :is(.mobile-nav, .topbar, .desktop-sidebar)::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      140deg,
+      rgba(255, 255, 255, 0.95),
+      rgba(255, 255, 255, 0.2) 35%,
+      rgba(255, 255, 255, 0.1) 65%,
+      rgba(255, 255, 255, 0.6)
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box exclude,
+      linear-gradient(#000 0 0);
+    pointer-events: none;
+  }
+
+  /* Refraction: the lens drawn for this surface's size, and only a whisper
+     of blur, so what is behind stays legible and visibly bends at the rim.
+     A slightly firmer tint keeps the labels on top readable. */
+  html[data-liquid='refract'] [data-lg] {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.64), rgba(255, 255, 255, 0.4));
+    -webkit-backdrop-filter: var(--lg-filter) var(--lg-clear);
+    backdrop-filter: var(--lg-filter) var(--lg-clear);
+  }
+
+  /* The top bar carries text straight on the glass (the workspace name on
+     desktop), with lists scrolling right under it: firmer, or the two read
+     on top of each other. The rim still bends. */
+  html[data-liquid='refract'] .topbar[data-lg] {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.68));
+    -webkit-backdrop-filter: var(--lg-filter) blur(9px) saturate(190%) brightness(1.05);
+    backdrop-filter: var(--lg-filter) blur(9px) saturate(190%) brightness(1.05);
+  }
+}
+
+/* The ::before/::after layers need a positioned host. All three already
+   are (nav fixed, top bar sticky, sidebar fixed — measured 2026-10-09); do
+   not set position here, it would move them. */
+
+/* Less motion asked for in the app: no lens (it moves as the page scrolls). */
+html[data-motion='reduced'] [data-lg] {
+  -webkit-backdrop-filter: var(--lg-frost) !important;
+  backdrop-filter: var(--lg-frost) !important;
+}
+
+/* Less transparency asked for: solid, as before. */
+@media (prefers-reduced-transparency: reduce) {
+  :is(.mobile-nav, .topbar, .desktop-sidebar, [data-slot='select-content'], [data-slot='popover-content'], .toast-host) {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    background: #ffffff !important;
+  }
+  :is(.mobile-nav, .topbar, .desktop-sidebar)::before,
+  :is(.mobile-nav, .topbar, .desktop-sidebar)::after {
+    display: none;
+  }
+}
