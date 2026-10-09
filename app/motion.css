@@ -1,0 +1,171 @@
+/* ══ Motion (2026-10-09) ═══════════════════════════════════════════════════
+   Subtle, smooth movement: things settle into place rather than perform.
+   Imported LAST; removing the import in app/layout.tsx removes all of it.
+
+   Rules this file keeps:
+   - Only opacity and transform, so a low-end LINE WebView never re-lays out
+     the page to animate it.
+   - Everything sits inside prefers-reduced-motion: no-preference, and the
+     app's own ลดภาพเคลื่อนไหว setting (html[data-motion='reduced']) already
+     turns every animation and transition off in globals.css.
+   - The task dialog (.task-entry-dialog) only ever fades. Its transform
+     belongs to the version 18 mobile fix; nothing here touches it.
+   - Short: 160–420ms. Enter animations run once, when something appears. */
+
+:root {
+  --motion-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --motion-fast: 160ms;
+  --motion-base: 240ms;
+  --motion-slow: 420ms;
+}
+
+@keyframes motion-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes motion-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes motion-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes motion-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* A screen's blocks arrive one after another, top first. The screen
+     itself already rises (page-rise in globals.css); this staggers what is
+     inside it. */
+  .content-area > .page-section > * {
+    animation: motion-rise var(--motion-slow) var(--motion-ease) backwards;
+  }
+  .content-area > .page-section > :nth-child(2) { animation-delay: 40ms; }
+  .content-area > .page-section > :nth-child(3) { animation-delay: 80ms; }
+  .content-area > .page-section > :nth-child(4) { animation-delay: 120ms; }
+  .content-area > .page-section > :nth-child(5) { animation-delay: 160ms; }
+  .content-area > .page-section > :nth-child(n + 6) { animation-delay: 200ms; }
+
+  /* Rows in a list follow, a beat apart — only the first eight, so a long
+     list is never kept waiting. */
+  .task-list > .task-row,
+  .task-lines > *,
+  .today-list > *,
+  .overview-group .task-list > * {
+    animation: motion-fade-up var(--motion-slow) var(--motion-ease) backwards;
+  }
+  :is(.task-list, .task-lines, .today-list) > :nth-child(2) { animation-delay: 30ms; }
+  :is(.task-list, .task-lines, .today-list) > :nth-child(3) { animation-delay: 60ms; }
+  :is(.task-list, .task-lines, .today-list) > :nth-child(4) { animation-delay: 90ms; }
+  :is(.task-list, .task-lines, .today-list) > :nth-child(5) { animation-delay: 120ms; }
+  :is(.task-list, .task-lines, .today-list) > :nth-child(6) { animation-delay: 150ms; }
+  :is(.task-list, .task-lines, .today-list) > :nth-child(7) { animation-delay: 180ms; }
+  :is(.task-list, .task-lines, .today-list) > :nth-child(n + 8) { animation-delay: 210ms; }
+
+  /* Bars fill from the left when they appear. */
+  .load-row > i b,
+  .beta-unlock i b,
+  .ai-meter i b {
+    transform-origin: left center;
+    animation: motion-grow 600ms var(--motion-ease) 120ms backwards;
+  }
+
+  /* A new month slides in softly. */
+  .month-grid {
+    animation: motion-fade var(--motion-base) var(--motion-ease) backwards;
+  }
+
+  /* Dialogs: a touch slower and softer than the default 100ms snap. */
+  [data-slot='dialog-overlay'] {
+    animation-duration: var(--motion-base);
+  }
+  [data-slot='dialog-content']:not(.task-entry-dialog) {
+    animation-duration: var(--motion-base);
+    animation-timing-function: var(--motion-ease);
+  }
+  /* Opacity only: see the note at the top. */
+  .task-entry-dialog[data-open] {
+    animation: motion-fade var(--motion-base) var(--motion-ease) backwards;
+  }
+
+  /* Things you tap answer the finger: colours ease, and they give a little
+     when pressed. Transform only on press, so nothing jumps at rest. */
+  :is(
+    [data-slot='button'],
+    .task-row,
+    .mobile-nav button,
+    .navigation-grid button,
+    .manage-tabs button,
+    .quick-day-switch button,
+    .month-day,
+    .month-step,
+    .month-today,
+    .overview-more,
+    .calendar-undated,
+    .line-field,
+    .announce-link,
+    .stats-grid > button
+  ) {
+    transition:
+      background-color var(--motion-fast) ease,
+      color var(--motion-fast) ease,
+      border-color var(--motion-fast) ease,
+      box-shadow var(--motion-base) ease,
+      opacity var(--motion-fast) ease,
+      transform var(--motion-fast) var(--motion-ease);
+  }
+  :is(
+    [data-slot='button'],
+    .task-row,
+    .mobile-nav button,
+    .navigation-grid button,
+    .manage-tabs button,
+    .quick-day-switch button,
+    .month-day,
+    .month-step,
+    .month-today,
+    .overview-more,
+    .calendar-undated,
+    .line-field,
+    .announce-link,
+    .stats-grid > button
+  ):active:not(:disabled) {
+    transform: scale(0.97);
+  }
+  /* A whole row barely moves: 3% of a full-width row is a lot. */
+  .task-row:active:not(:disabled),
+  .calendar-undated:active {
+    transform: scale(0.99);
+  }
+
+  /* Folding details open. */
+  details[open] > :not(summary) {
+    animation: motion-fade-up var(--motion-base) var(--motion-ease) backwards;
+  }
+}

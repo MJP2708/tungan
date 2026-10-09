@@ -9,6 +9,9 @@ import './theme-atelier.css';
 // Redesign (2026-10-02): goes with restructured screens in app/page.tsx, so
 // unlike the two theme layers it cannot be removed on its own.
 import './redesign.css';
+// Motion (2026-10-09): subtle entrances and press feedback. Last; removing
+// it removes all of the new motion and nothing else.
+import './motion.css';
 
 const prompt = Prompt({
   variable: '--font-prompt',

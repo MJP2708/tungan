@@ -3447,7 +3447,7 @@ export default function Home() {
               </button>
             )}
           </div>
-          <div className="month-grid">
+          <div className="month-grid" key={`${shownMonth.year}-${shownMonth.month}`}>
             {weekdayLabels().map((label) => (
               <span className="month-weekday" key={label} aria-hidden="true">
                 {label}
@@ -4802,7 +4802,9 @@ export default function Home() {
             </button>
           </div>
         </header>
-        <div className="content-area">
+        {/* Keyed by screen: React would otherwise reuse the same <section> for
+            the next screen, and its entrance (motion.css) would not replay. */}
+        <div className="content-area" key={page}>
           {page === 'home' && renderHome()}
           {page === 'inbox' && renderInbox()}
           {page === 'tasks' && renderTasks()}

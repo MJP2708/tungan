@@ -81,6 +81,14 @@ LINE channels, the Neon project, and all cloud resources, then hands over IDs.
   no longer holds for the app as a whole** (theme-glass/atelier still layer
   as before; git keeps every earlier version). Thai labels are never
   letter-spaced or set in mono.
+- **Motion (2026-10-09):** `app/motion.css`, imported **last**; removing
+  that import removes all of it. Opacity and transform only, 160–420ms;
+  screens stagger in (`.content-area` is keyed by page so it replays), list
+  rows follow, bars grow, pressed controls give a little. All inside
+  `prefers-reduced-motion: no-preference`, and ลดภาพเคลื่อนไหว
+  (`data-motion='reduced'`) stops it. `.task-entry-dialog` only ever fades —
+  never give it a transform animation (version 18 fix). Fill mode is
+  `backwards`, so nothing holds a transform after it finishes.
 - `app/globals.css` stays untouched: override order, specificity, layers and
   `!important` all matter. It is 5,663 lines with 127 `!important` and **zero
   `@layer`**, so the cascade rests entirely on source order and the three
