@@ -16,6 +16,8 @@ export async function GET() {
         id: workspace.id,
         name: workspace.name,
         role: workspaceMember.role,
+        kind: workspace.kind,
+        createdByUserId: workspace.createdByUserId,
         cutoff: workspace.cutoff,
         // Connected to a LINE group: a team's workspace, not a personal list.
         bound: sql<boolean>`exists (select 1 from ${groupWorkspace} where ${groupWorkspace.workspaceId} = ${workspace.id})`,

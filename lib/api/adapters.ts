@@ -20,6 +20,7 @@ export type UiMember = {
   /** False when they have not added the OA, so reminders cannot reach them. */
   canReceiveDirectMessages: boolean;
   linkStatus: 'ok' | 'not_friend' | 'not_signed_in';
+  pictureUrl: string | null;
 };
 
 export type UiProject = {
@@ -29,6 +30,8 @@ export type UiProject = {
   groupLabel: string;
   members: UiMember[];
   teams: { id: string; name: string; memberIds: string[] }[];
+  kind: 'team' | 'personal';
+  createdByUserId: string | null;
 };
 
 export { initialsFor };
@@ -43,6 +46,7 @@ export function toUiMember(m: ApiMember): UiMember {
     role: m.role,
     canReceiveDirectMessages: m.canReceiveDirectMessages,
     linkStatus: m.linkStatus ?? 'ok',
+    pictureUrl: m.pictureUrl ?? null,
   };
 }
 
@@ -56,6 +60,8 @@ export function toUiProject(w: ApiWorkspace, members: ApiMember[]): UiProject {
     groupLabel: w.name,
     members: members.map(toUiMember),
     teams: [],
+    kind: w.kind === 'personal' ? 'personal' : 'team',
+    createdByUserId: w.createdByUserId ?? null,
   };
 }
 

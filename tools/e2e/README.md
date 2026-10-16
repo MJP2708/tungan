@@ -27,7 +27,7 @@ LINE_MESSAGING_CHANNEL_SECRET=e2e-channel-secret NEXT_PUBLIC_LIFF_ID= \
 npx next start -p 3108
 
 # 3. each phase from a fresh seed
-for ph in phase1 phase2 phase3 phase4; do
+for ph in phase1 phase2 phase3 phase4 phase5; do
   PGPASSWORD=e2e psql -q -h localhost -p 55433 -U postgres -d tungan_e2e -f tools/e2e/seed.sql
   node tools/e2e/$ph.mjs
 done
@@ -39,6 +39,7 @@ done
 | 2 | personal reminders (stored wording, past times refused, snooze, two-tap delete, privacy), LINE webhook (bad signature, three drafts, redelivery, untagged ignored), edit/dismiss/confirm drafts, นำข้อความเข้า, past-deadline guard, end-of-day list, nickname, workspace rename, group setup, workspace switch remembered, new workspace, ทีม, ปฏิทิน (today's count matches the day), ภาพรวม (late work listed with its reason), cron, logout |
 | 3 | รับงาน straight from วันนี้, ขอข้อมูลเพิ่ม and ตอบ, ส่งต่อ (folded section) and the hand-off in รอคุณ, รับงานที่ส่งต่อมา, แก้ไขงาน, undo from the toast, ลบงานนี้ |
 | 4 | announcements: members cannot post, the owner posts from ทีม → ประกาศ and sees it too, a member sees it once and X closes it for good, two in a row with รับทราบ, one typed in LINE pops up in the app; ทุกคน tasks: one copy each and linked, listed once with progress, the sheet lists everyone, @All in the LINE group confirmed in the app; a new group links itself and the first to tag the bot owns it; ปฏิทิน: a team event plans one LINE notification per person (cost shown first), a member sees it read-only and not in เตือนฉัน, a reminder added from the calendar, deleting the event removes its notifications; "@ทันงาน งานของฉัน" is answered, never drafted as a task |
+| 5 | roles: a Member's direct API calls to approve / revise / change deadline / reassign / change roles all 403 and change nothing; a correctly signed forged LINE postback from a Member does not close the task; a Manager's deadline change is audited; a private ติดปัญหา note never reaches another Member through /api/tasks/:id, /review or /blocked; a personal task 404s for the Manager and is missing from their งานฉัน, its maker closes it directly, a group task still cannot be closed by its assignee; the role screen (read-only for a Member, promote with confirmation, no button on your own row, self-change 403, last Manager 409 with a reason); งานฉัน sections; "@ทันงาน งานฉัน" in a group is not drafted |
 
 Steps that depend on the clock (after 17:00 Bangkok) run only then. Each
 failure saves a screenshot in `OUT` (default `/tmp/tungan-e2e`). Set

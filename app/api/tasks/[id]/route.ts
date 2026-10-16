@@ -9,7 +9,8 @@ import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
 import { isSafeHttpUrl } from '@/lib/url.ts';
 import { assertAssignable } from '@/lib/auth/assignable.ts';
-import { mayEditTaskFields } from '@/lib/tasks/permissions.ts';
+import { groupFacts, assertCan } from '@/lib/auth/roles.ts';
+import { audit } from '@/lib/audit.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,11 +31,14 @@ export async function GET(
     const found = await loadTask(id);
     // Authorization comes from the task's own workspace, never from the URL.
     const membership = await requireMembership(found.workspaceId);
-    // A member with no connection to this task reads it as the workspace
-    // does: they see it is blocked, not why.
+    const facts = await groupFacts(found.workspaceId, membership.userId);
+    // A personal task is its maker's alone (can()).
+    await assertCan({ userId: membership.userId, workspaceId: found.workspaceId, action: 'view_group_tasks', task: found, facts });
+    // Anyone not entitled to the private reason reads it as the group does:
+    // they see it is blocked, not why.
     const history = await listTaskEvents(
       id,
-      audienceForViewer({ viewerUserId: membership.userId, role: membership.role, task: found }),
+      audienceForViewer({ viewerUserId: membership.userId, facts, task: found }),
     );
     return NextResponse.json({ task: found, history });
   } catch (error) {
@@ -51,12 +55,33 @@ export async function PATCH(
     const { id } = await params;
     const found = await loadTask(id);
     const membership = await requireMembership(found.workspaceId);
-    // Same rule as the status buttons. This route used to check only that the
-    // caller was in the workspace, so the edit form could change anyone's task.
-    if (!mayEditTaskFields(found, { userId: membership.userId, role: membership.role })) {
-      throw new HttpError(403, 'งานนี้ดูได้อย่างเดียว เพราะคุณไม่ใช่ผู้รับผิดชอบ');
-    }
     const body = await req.json().catch(() => ({}));
+    // Each field is its own permission (can()): the deadline and the person
+    // are Manager decisions; the title, note, priority and proof belong to
+    // whoever is doing the work, or a Manager. Checked before anything is
+    // written, so a refused field never leaves the others half-saved.
+    const facts = await groupFacts(found.workspaceId, membership.userId);
+    const check = (action: Parameters<typeof assertCan>[0]['action']) =>
+      assertCan({ userId: membership.userId, workspaceId: found.workspaceId, action, task: found, facts });
+    // Only an actual change counts: the edit form sends every field, and a
+    // worker saving a new title must not be refused over the deadline it
+    // left alone.
+    const sameInstant = (a: unknown, b: Date | null) =>
+      (a === null && b === null) ||
+      (a !== null && b !== null && new Date(String(a)).getTime() === b.getTime());
+    const dueChanges = body.dueAt !== undefined && !sameInstant(body.dueAt, found.dueAt);
+    const assigneeChanges =
+      body.assigneeUserId !== undefined && (body.assigneeUserId || null) !== found.assigneeUserId;
+    if (dueChanges) await check('change_deadline');
+    if (assigneeChanges) await check('reassign_task');
+    if (
+      typeof body.title === 'string' ||
+      typeof body.note === 'string' ||
+      typeof body.priority === 'string' ||
+      typeof body.evidenceUrl === 'string'
+    ) {
+      await check('edit_task_details');
+    }
 
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     const changed: string[] = [];
@@ -71,7 +96,7 @@ export async function PATCH(
       patch.note = body.note;
       changed.push('รายละเอียด');
     }
-    if (body.dueAt !== undefined) {
+    if (dueChanges) {
       // A real instant or nothing. Never a phrase.
       if (body.dueAt === null) {
         patch.dueAt = null;
@@ -84,7 +109,7 @@ export async function PATCH(
       }
       changed.push('กำหนดส่ง');
     }
-    if (body.assigneeUserId !== undefined) {
+    if (assigneeChanges) {
       patch.assigneeUserId = await assertAssignable(found.workspaceId, body.assigneeUserId);
       changed.push('ผู้รับผิดชอบ');
     }
@@ -104,6 +129,28 @@ export async function PATCH(
     }
 
     await db().update(task).set(patch).where(eq(task.id, id));
+    if ('dueAt' in patch && String(patch.dueAt ?? '') !== String(found.dueAt ?? '')) {
+      await audit({
+        actorUserId: membership.userId,
+        action: 'deadline_changed',
+        workspaceId: found.workspaceId,
+        targetTaskId: id,
+        targetUserId: found.assigneeUserId,
+        before: { dueAt: found.dueAt },
+        after: { dueAt: patch.dueAt },
+      });
+    }
+    if ('assigneeUserId' in patch && patch.assigneeUserId !== found.assigneeUserId) {
+      await audit({
+        actorUserId: membership.userId,
+        action: 'task_reassigned',
+        workspaceId: found.workspaceId,
+        targetTaskId: id,
+        targetUserId: (patch.assigneeUserId as string | null) ?? null,
+        before: { assigneeUserId: found.assigneeUserId },
+        after: { assigneeUserId: patch.assigneeUserId },
+      });
+    }
     await db().insert(taskEvent).values({
       id: crypto.randomUUID(),
       taskId: id,
@@ -135,15 +182,8 @@ export async function DELETE(
     const { id } = await params;
     const found = await loadTask(id);
     const membership = await requireMembership(found.workspaceId);
-
-    const mayDelete =
-      membership.role === 'owner' ||
-      membership.role === 'admin' ||
-      found.createdByUserId === membership.userId ||
-      found.primaryAssigneeUserId === membership.userId;
-    if (!mayDelete) {
-      throw new HttpError(403, 'ลบได้เฉพาะผู้สร้างงาน ผู้รับผิดชอบหลัก หรือผู้ดูแลพื้นที่งาน');
-    }
+    // Who asked for it, or a Manager (can(): delete_task).
+    await assertCan({ userId: membership.userId, workspaceId: found.workspaceId, action: 'delete_task', task: found });
 
     await db().delete(task).where(eq(task.id, id));
     return NextResponse.json({ ok: true });

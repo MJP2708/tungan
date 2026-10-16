@@ -4,6 +4,8 @@ import { db } from '@/lib/db/index.ts';
 import { taskQuestion, task, taskEvent } from '@/lib/db/schema.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
+import { groupFacts } from '@/lib/auth/roles.ts';
+import { can } from '@/lib/permissions.ts';
 import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 
 export const runtime = 'nodejs';
@@ -25,9 +27,15 @@ export async function POST(
     // someone who has left does not strand the task forever — but never the
     // person who asked it: answering your own question is not an answer, and
     // it would let the request be closed without anyone having replied.
-    const isAsked = q.askedOfUserId === membership.userId;
-    const isAdmin = membership.role === 'owner' || membership.role === 'admin';
-    if (!isAsked && (!isAdmin || q.askedByUserId === membership.userId)) {
+    // The person asked; a Manager may stand in, never the asker (can()).
+    const allowed = can(
+      { userId: membership.userId },
+      'answer_question',
+      await groupFacts(q.workspaceId, membership.userId),
+      null,
+      { askedOfUserId: q.askedOfUserId, askedByUserId: q.askedByUserId },
+    );
+    if (!allowed) {
       throw new HttpError(
         403,
         q.askedByUserId === membership.userId

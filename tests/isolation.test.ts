@@ -44,8 +44,8 @@ describe('workspace isolation', { skip: !URL_ ? 'TEST_DATABASE_URL not set' : fa
       { id: wsM, name: 'Mallory Co' },
     ]);
     await db.insert(workspaceMember).values([
-      { workspaceId: wsA, userId: alice.id, role: 'owner', nickname: 'Alice' },
-      { workspaceId: wsM, userId: mallory.id, role: 'owner', nickname: 'Mallory' },
+      { workspaceId: wsA, userId: alice.id, role: 'manager', nickname: 'Alice' },
+      { workspaceId: wsM, userId: mallory.id, role: 'manager', nickname: 'Mallory' },
     ]);
     await db.insert(task).values({
       id: 'task-secret',

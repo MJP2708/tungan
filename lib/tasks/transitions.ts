@@ -12,7 +12,9 @@ import { audienceLabel, defaultVisibilityFor, normalizeVisibility } from '../eve
 import { BLOCKED_REASONS, isBlockedReason } from './reasons.ts';
 import { appLink } from '../deep-link.ts';
 import { assertAssignable } from '../auth/assignable.ts';
-import { mayActOnTask } from './permissions.ts';
+import { groupFacts, assertCan } from '../auth/roles.ts';
+import { MANAGER, type Action } from '../permissions.ts';
+import { audit } from '../audit.ts';
 
 /**
  * Every way a task can move, in one place.
@@ -48,13 +50,8 @@ export function isTransition(value: unknown): value is TransitionAction {
 }
 
 
-/** Reviewing someone's work is a different right from doing the work. */
-const REVIEW_ACTIONS = new Set(['approve', 'revision']);
 
-/** The only two things the person receiving an offer may do. */
-const HANDOFF_ANSWERS = new Set(['accept_handoff', 'decline_handoff']);
 
-export type TransitionActor = { userId: string; role: string };
 
 /**
  * Read one field of the request body as text.
@@ -102,18 +99,34 @@ async function resolveReviewer(
   createdByUserId: string | null,
   assigneeUserId: string | null,
 ): Promise<string | null> {
-  if (createdByUserId && createdByUserId !== assigneeUserId) return createdByUserId;
-  const owners = await db()
+  // Only a Manager approves (can()), so the reviewer is a Manager: whoever
+  // asked for the work if they are one, otherwise the first other Manager.
+  // A personal task has no reviewer at all — its maker closes it.
+  const facts = await groupFacts(workspaceId, assigneeUserId ?? '');
+  if (facts.kind === 'personal') return null;
+  const managers = await db()
     .select({ userId: workspaceMember.userId })
     .from(workspaceMember)
-    .where(
-      and(
-        eq(workspaceMember.workspaceId, workspaceId),
-        inArray(workspaceMember.role, ['owner', 'admin']),
-      ),
-    );
-  return owners.find((o) => o.userId !== assigneeUserId)?.userId ?? null;
+    .where(and(eq(workspaceMember.workspaceId, workspaceId), eq(workspaceMember.role, MANAGER)));
+  const ids = managers.map((m) => m.userId);
+  if (createdByUserId && createdByUserId !== assigneeUserId && ids.includes(createdByUserId)) {
+    return createdByUserId;
+  }
+  return ids.find((id) => id !== assigneeUserId) ?? null;
 }
+
+/** Which can() action each move is. One table, so no move goes unchecked. */
+const PERMISSION_FOR: Record<TransitionAction, Action> = {
+  accept: 'update_own_task_progress',
+  info: 'update_own_task_progress',
+  blocked: 'flag_blocked_own_task',
+  handoff: 'offer_handoff',
+  accept_handoff: 'answer_handoff',
+  decline_handoff: 'answer_handoff',
+  submit: 'submit_own_task',
+  approve: 'approve_task',
+  revision: 'request_revision',
+};
 
 /**
  * Apply one transition.
@@ -136,85 +149,20 @@ export async function applyTransition(params: {
   const found = rows[0];
   if (!found) throw new HttpError(404, 'ไม่พบงานนี้');
 
-  // Membership is resolved HERE, against the task's own workspace, rather
-  // than trusted from the caller. Both callers know who the actor is but not
-  // which workspace the task belongs to until this row is read, so a caller
-  // that resolved it first would be resolving the wrong thing — and the
-  // webhook has no session to resolve it from at all.
-  const [membership] = await db()
-    .select({ role: workspaceMember.role })
-    .from(workspaceMember)
-    .where(
-      and(
-        eq(workspaceMember.workspaceId, found.workspaceId),
-        eq(workspaceMember.userId, actorUserId),
-      ),
-    )
-    .limit(1);
-  // 404, not 403: a non-member must not learn that this task exists.
-  if (!membership) throw new HttpError(404, 'ไม่พบงานนี้');
-  const actor: TransitionActor = { userId: actorUserId, role: membership.role };
-
-  // Only the assignee, the primary owner, the person offered a handoff, the
-  // person who asked for the work, or a workspace manager may move a task —
-  // the same rule the UI shows as the lock icon, shared with the edit route
-  // through lib/tasks/permissions.ts.
-  const mayEdit = mayActOnTask(found, actor);
-  if (!mayEdit) throw new HttpError(403, 'งานนี้ดูได้อย่างเดียว เพราะคุณไม่ใช่ผู้รับผิดชอบ');
-
-  // ...but that only unlocks answering the offer, nothing else.
-  if (
-    found.pendingAssigneeUserId === actor.userId &&
-    found.assigneeUserId !== actor.userId &&
-    actor.role === 'member' &&
-    !HANDOFF_ANSWERS.has(action)
-  ) {
-    throw new HttpError(403, 'รับงานที่ส่งต่อมาก่อน จึงจะแก้ไขงานนี้ได้');
-  }
-
-  // Likewise, asking for work does not make it yours to do. The creator
-  // gets อนุมัติ and ขอแก้ไข, not the worker's status buttons — otherwise a
-  // manager could quietly mark a task accepted on someone else's behalf.
-  if (
-    found.createdByUserId === actor.userId &&
-    found.assigneeUserId !== actor.userId &&
-    actor.role === 'member' &&
-    !REVIEW_ACTIONS.has(action)
-  ) {
-    throw new HttpError(403, 'งานนี้อยู่กับผู้รับผิดชอบ · คุณตรวจหรือขอแก้ไขได้');
-  }
-
-  // Approving your own submission would make review meaningless, so the
-  // person who asked for the work signs it off, not the person who did it.
-  // This is enforced here rather than in the UI, which is where the
-  // prototype's approval had no check at all.
-  if (REVIEW_ACTIONS.has(action)) {
-    const mayReview =
-      actor.role === 'owner' ||
-      actor.role === 'admin' ||
-      found.createdByUserId === actor.userId;
-    if (!mayReview) {
-      throw new HttpError(403, 'ตรวจงานได้เฉพาะผู้สั่งงานหรือผู้ดูแลพื้นที่งาน');
-    }
-
-    // Having review rights in the workspace is not the same as having them
-    // over your own work. An owner who does a task still cannot sign it off
-    // when somebody else asked for it — otherwise every approval on the
-    // record could have been self-issued, and none of them prove anything.
-    //
-    // A task someone created for themselves is the exception: nobody else
-    // is waiting on it, and blocking it would leave a solo workspace with
-    // no way to ever close anything.
-    const askedBySomeoneElse =
-      !!found.createdByUserId && found.createdByUserId !== found.assigneeUserId;
-    if (
-      action === 'approve' &&
-      found.assigneeUserId === actor.userId &&
-      askedBySomeoneElse
-    ) {
-      throw new HttpError(403, 'ปิดงานของตัวเองไม่ได้ · ให้ผู้สั่งงานหรือผู้ดูแลเป็นคนอนุมัติ');
-    }
-  }
+  // Who may make this move is decided by can() (lib/permissions.ts),
+  // against the task's own group, resolved HERE rather than trusted from the
+  // caller: the app and LINE postbacks both arrive at this line, so a forged
+  // postback meets exactly the check an API call does. Not a member: 404, so
+  // the task's existence is not confirmed.
+  const facts = await groupFacts(found.workspaceId, actorUserId);
+  await assertCan({
+    userId: actorUserId,
+    workspaceId: found.workspaceId,
+    action: PERMISSION_FOR[action],
+    task: found,
+    facts,
+  });
+  const actor = { userId: actorUserId };
 
   // ขอข้อมูล and ติดปัญหา carry a short note saying what is needed. Without
   // it the team view can only say someone is stuck, not what would unstick
@@ -384,6 +332,45 @@ export async function applyTransition(params: {
     .returning({ id: task.id });
   if (!applied.length) {
     return { ok: true as const, alreadyApplied: true, warning: linkWarning, eventId: null, visibility: null, audienceNote: null };
+  }
+
+  // The audit log: approvals (self-approval flagged), revision requests, and
+  // a hand-off accepted — the moment responsibility actually moves.
+  if (action === 'approve') {
+    await audit({
+      actorUserId,
+      action: 'task_approved',
+      workspaceId: found.workspaceId,
+      targetTaskId: taskId,
+      targetUserId: found.assigneeUserId,
+      before: { status: found.status },
+      after: { status: 'done', personal: facts.kind === 'personal' },
+      // The sole Manager signing off their own task (can() allows it only
+      // then), or the maker of a personal task closing it.
+      selfApproved: found.assigneeUserId === actorUserId,
+    });
+  }
+  if (action === 'revision') {
+    await audit({
+      actorUserId,
+      action: 'revision_requested',
+      workspaceId: found.workspaceId,
+      targetTaskId: taskId,
+      targetUserId: found.assigneeUserId,
+      before: { status: found.status, dueAt: found.dueAt },
+      after: { status: 'progress', dueAt: patch.dueAt ?? null, note },
+    });
+  }
+  if (action === 'accept_handoff') {
+    await audit({
+      actorUserId,
+      action: 'task_reassigned',
+      workspaceId: found.workspaceId,
+      targetTaskId: taskId,
+      targetUserId: actorUserId,
+      before: { assigneeUserId: found.assigneeUserId },
+      after: { assigneeUserId: actorUserId, via: 'handoff' },
+    });
   }
 
   // Handing over moves the reminders too. Leaving them behind would keep

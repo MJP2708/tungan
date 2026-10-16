@@ -55,9 +55,9 @@ describe('announcements and ทุกคน tasks', { skip: !URL_ ? 'TEST_DATABA
     ]);
     await db().insert(schema.workspace).values([{ id: ws, name: 'ทีมทดสอบ' }, { id: 'ws-2', name: 'อีกทีม' }]);
     await db().insert(schema.workspaceMember).values([
-      { workspaceId: ws, userId: boss, role: 'owner' },
+      { workspaceId: ws, userId: boss, role: 'manager' },
       { workspaceId: ws, userId: may, role: 'member' },
-      { workspaceId: 'ws-2', userId: outsider, role: 'owner' },
+      { workspaceId: 'ws-2', userId: outsider, role: 'manager' },
     ]);
     await db().insert(schema.lineGroup).values({ id: 'g1', lineGroupId: 'C1', name: 'กลุ่ม' });
     await db().insert(schema.groupWorkspace).values({ lineGroupId: 'g1', workspaceId: ws });

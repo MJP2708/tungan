@@ -6,15 +6,15 @@ export const iso = (h) => new Date(now + h * 3600e3).toISOString();
 export const me = {
   user: { userId: 'u1', lineUserId: 'U1', displayName: 'พิมพ์ชนก', isOaFriend: true, addFriendUrl: null },
   workspaces: [
-    { id: 'w1', name: 'ทีม Operations ฝ่ายอีเวนต์และโปรดักชันภาคกลาง', role: 'owner', cutoff: '17:00' },
-    { id: 'w2', name: 'งานของฉัน', role: 'owner', cutoff: '17:00' },
+    { id: 'w1', name: 'ทีม Operations ฝ่ายอีเวนต์และโปรดักชันภาคกลาง', role: 'manager', kind: 'team', createdByUserId: 'u1', cutoff: '17:00' },
+    { id: 'w2', name: 'งานของฉัน', role: 'manager', kind: 'personal', createdByUserId: 'u1', cutoff: '17:00' },
   ],
 };
 export const members = {
   completeness: 'known_members_only',
   completenessNote: 'แสดงเฉพาะสมาชิกที่เคยพูดในกลุ่มหรือเข้าใช้แอปแล้ว',
   members: [
-    { userId: 'u1', displayName: 'พิมพ์ชนก', nickname: 'พิม', role: 'owner', canReceiveDirectMessages: true, linkStatus: 'ok' },
+    { userId: 'u1', displayName: 'พิมพ์ชนก', nickname: 'พิม', role: 'manager', canReceiveDirectMessages: true, linkStatus: 'ok' },
     { userId: 'u2', displayName: 'ศุภวัฒน์ เจริญพงศ์ไพศาล', nickname: 'ศุภวัฒน์ เจริญพงศ์ไพศาล', role: 'member', canReceiveDirectMessages: false, linkStatus: 'not_friend' },
     { userId: 'u3', displayName: 'เมย์', nickname: 'เมย์ 🌸', role: 'member', canReceiveDirectMessages: true, linkStatus: 'ok' },
     { userId: 'u4', displayName: 'Tony', nickname: 'โทนี่ (ฝ่ายขาย)', role: 'member', canReceiveDirectMessages: false, linkStatus: 'not_signed_in' },
@@ -41,6 +41,14 @@ export const inbox = { items: [
   { id: 'i2', workspaceId: 'w1', senderName: 'เมย์', rawMessage: '@ทันงาน เช็คของ', suggestedTitle: 'เช็คของ', suggestedAssigneeUserId: null, suggestedDueAt: null, confidence: 'fallback' },
 ] };
 const fixed = {
+  // งานฉัน (2026-10-17): one of each section, across a group and personal.
+  '/api/me/tasks': { tasks: [
+    { id: 't1', title: 'ส่งใบเสนอราคาให้ลูกค้า ABC', dueAt: iso(3), status: 'progress', reviewState: 'revision', blockedReason: null, workspaceId: 'w1', groupName: 'ทีม Operations ฝ่ายอีเวนต์และโปรดักชันภาคกลาง', personal: false },
+    { id: 't3', title: 'โทรหาลูกค้า', dueAt: iso(-2), status: 'blocked', reviewState: 'working', blockedReason: 'รอลูกค้า', workspaceId: 'w1', groupName: 'ทีม Operations ฝ่ายอีเวนต์และโปรดักชันภาคกลาง', personal: false },
+    { id: 'x1', title: 'ต่อทะเบียนรถ', dueAt: iso(5), status: 'todo', reviewState: 'working', blockedReason: null, workspaceId: 'w2', groupName: null, personal: true },
+    { id: 't6', title: 'ออกแบบป้ายหน้างาน', dueAt: iso(30), status: 'progress', reviewState: 'working', blockedReason: null, workspaceId: 'w1', groupName: 'ทีม Operations ฝ่ายอีเวนต์และโปรดักชันภาคกลาง', personal: false },
+    { id: 't4', title: 'สรุปงบประมาณอีเวนต์', dueAt: iso(20), status: 'review', reviewState: 'review', blockedReason: null, workspaceId: 'w1', groupName: 'ทีม Operations ฝ่ายอีเวนต์และโปรดักชันภาคกลาง', personal: false },
+  ] },
   '/api/auth/me': me,
   '/api/workspaces': { workspaces: me.workspaces },
   '/api/groups': { groups: [

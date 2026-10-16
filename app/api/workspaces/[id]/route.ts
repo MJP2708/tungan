@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
 import { workspace } from '@/lib/db/schema.ts';
-import { requireMembership } from '@/lib/auth/session.ts';
+import { requireCan } from '@/lib/auth/require-can.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
 
 export const runtime = 'nodejs';
@@ -16,8 +16,8 @@ const MAX_NAME = 60;
  *
  * There was no way to do this at all: a workspace created at first sign-in is
  * called "งานของฉัน", and a group connected to it before one-tap setup existed
- * left a whole team looking at someone's personal space. Owners and admins can
- * fix the name instead of starting again.
+ * left a whole team looking at someone's personal space. Managers can fix the
+ * name instead of starting again (can(): edit_group_settings).
  */
 export async function PATCH(
   req: Request,
@@ -25,7 +25,7 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    await requireMembership(id, { roles: ['owner', 'admin'] });
+    await requireCan(id, 'edit_group_settings');
 
     const body = await req.json().catch(() => ({}));
 

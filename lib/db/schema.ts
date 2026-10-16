@@ -66,6 +66,13 @@ export const workspace = pgTable('workspace', {
    *  negative — a refused read simply falls back to the rules. */
   aiDailyCap: integer('ai_daily_cap').notNull().default(20),
   aiAllowance: integer('ai_allowance').notNull().default(50),
+  /** team: a LINE group's workspace or one made in the app. personal: the
+   *  person's own, made at first sign-in — "no group"; only its creator ever
+   *  sees its tasks (lib/permissions.ts). */
+  kind: text('kind').notNull().default('team'),
+  /** Who set it up. The recovery path for roles: they may always name a
+   *  Manager here, even when nobody else can (lib/permissions.ts). */
+  createdByUserId: text('created_by_user_id').references((): AnyPgColumn => lineUser.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -107,7 +114,9 @@ export const workspaceMember = pgTable(
   {
     workspaceId: text('workspace_id').notNull().references(() => workspace.id, { onDelete: 'cascade' }),
     userId: text('user_id').notNull().references(() => lineUser.id, { onDelete: 'cascade' }),
-    role: text('role').notNull().default('member'), // owner | admin | member
+    /** manager | member (2026-10-17). Every decision on it goes through
+     *  can() in lib/permissions.ts — nowhere else compares it. */
+    role: text('role').notNull().default('member'),
     /** Display only, scoped to this workspace. */
     nickname: text('nickname').notNull().default(''),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -223,6 +232,8 @@ export const task = pgTable(
     index('task_workspace_idx').on(t.workspaceId),
     index('task_due_idx').on(t.dueAt),
     index('task_batch_idx').on(t.batchId),
+    // งานฉัน: everything assigned to one person, by deadline and status.
+    index('task_assignee_due_status_idx').on(t.assigneeUserId, t.dueAt, t.status),
   ],
 );
 
@@ -560,4 +571,26 @@ export const calendarEventAttendee = pgTable(
     userId: text('user_id').notNull().references(() => lineUser.id, { onDelete: 'cascade' }),
   },
   (t) => [primaryKey({ columns: [t.eventId, t.userId] }), index('calendar_event_attendee_user_idx').on(t.userId)],
+);
+
+/**
+ * Who changed what that matters (2026-10-17): role changes, approvals
+ * (self-approval flagged), revision requests, reassignments and deadline
+ * changes. Append-only. `workspaceId` is the group.
+ */
+export const auditLog = pgTable(
+  'audit_log',
+  {
+    id: text('id').primaryKey(),
+    actorUserId: text('actor_user_id').references(() => lineUser.id, { onDelete: 'set null' }),
+    action: text('action').notNull(),
+    targetUserId: text('target_user_id').references(() => lineUser.id, { onDelete: 'set null' }),
+    targetTaskId: text('target_task_id'),
+    workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    selfApproved: boolean('self_approved').notNull().default(false),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('audit_log_workspace_idx').on(t.workspaceId, t.at)],
 );

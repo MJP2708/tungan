@@ -5,6 +5,7 @@ import { groupWorkspace, lineGroup, lineGroupMember, workspace, workspaceMember 
 import { requireSession, HttpError } from '@/lib/auth/session.ts';
 import { errorResponse, isUniqueViolation } from '@/lib/api/handler.ts';
 import { grantWorkspaceToGroup, syncGroupMemberships } from '@/lib/auth/membership.ts';
+import { MANAGER } from '@/lib/permissions.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -49,11 +50,12 @@ export async function POST(
 
     const workspaceId = crypto.randomUUID();
     const name = group.name || 'ทีมจาก LINE';
-    await db().insert(workspace).values({ id: workspaceId, name });
+    // Whoever sets the group up is its first Manager, and its creator.
+    await db().insert(workspace).values({ id: workspaceId, name, createdByUserId: user.userId });
     await db().insert(workspaceMember).values({
       workspaceId,
       userId: user.userId,
-      role: 'owner',
+      role: MANAGER,
       nickname: user.displayName,
     });
     try {

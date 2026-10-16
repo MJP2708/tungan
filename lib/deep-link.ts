@@ -19,8 +19,12 @@ const ORIGIN = 'https://app.invalid';
  * saying "เปิดในแอป: /" is worse than one with no link at all, so callers
  * leave the line out instead.
  */
-export function appLink(target: { task?: string } = {}): string {
-  const query = target.task ? `?task=${encodeURIComponent(target.task)}` : '';
+export function appLink(target: { task?: string; page?: Page } = {}): string {
+  const query = target.task
+    ? `?task=${encodeURIComponent(target.task)}`
+    : target.page && target.page !== 'home'
+      ? `?p=${encodeURIComponent(target.page)}`
+      : '';
   const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
   if (liffId) return `https://liff.line.me/${liffId}${query}`;
   const base = (process.env.APP_BASE_URL ?? '').replace(/\/$/, '');

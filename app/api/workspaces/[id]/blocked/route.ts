@@ -4,6 +4,7 @@ import { db } from '@/lib/db/index.ts';
 import { task, lineUser } from '@/lib/db/schema.ts';
 import { latestEventPerTask } from '@/lib/db/events.ts';
 import { canReadPrivate } from '@/lib/events/visibility.ts';
+import { groupFacts } from '@/lib/auth/roles.ts';
 import { requireMembership } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
 
@@ -25,6 +26,7 @@ export async function GET(
   try {
     const { id } = await params;
     const membership = await requireMembership(id);
+    const facts = await groupFacts(id, membership.userId);
 
     const stuck = await db()
       .select({
@@ -54,7 +56,7 @@ export async function GET(
     // private note into memory and trusting a later filter is how one bad
     // line of code turns a private note into a public one.
     const insider = stuck.filter((t) =>
-      canReadPrivate({ viewerUserId: membership.userId, role: membership.role, task: t }),
+      canReadPrivate({ viewerUserId: membership.userId, facts, task: t }),
     );
     const outsider = stuck.filter((t) => !insider.includes(t));
     const [privateLatest, publicLatest] = await Promise.all([

@@ -86,7 +86,7 @@ describe('LINE flow: message to draft to task', { skip: !URL_ ? 'TEST_DATABASE_U
     ]);
     await db().insert(schema.workspace).values({ id: ws, name: 'ทีมทดสอบ' });
     await db().insert(schema.workspaceMember).values([
-      { workspaceId: ws, userId: boss.id, role: 'owner' },
+      { workspaceId: ws, userId: boss.id, role: 'manager' },
       { workspaceId: ws, userId: worker.id, role: 'member' },
     ]);
     await db().insert(schema.lineGroup).values({ id: groupRow, lineGroupId: LINE_GROUP, name: 'กลุ่มทีม' });
@@ -206,7 +206,7 @@ describe('LINE flow: message to draft to task', { skip: !URL_ ? 'TEST_DATABASE_U
     assert.doesNotMatch(replyText(), /สร้างพื้นที่งานของกลุ่มนี้/, 'and does not send anyone to a button');
   });
 
-  test('chatting lets you in; the first to tag @ทันงาน becomes owner; the next is a member', async () => {
+  test('chatting lets you in; the first to tag @ทันงาน becomes its first Manager; the next is a member', async () => {
     await handleEvent(inNewGroup({ type: 'join' }));
     const workspaceId = (await newGroupWorkspace())!;
 
@@ -214,7 +214,7 @@ describe('LINE flow: message to draft to task', { skip: !URL_ ? 'TEST_DATABASE_U
     assert.equal(await roleIn(workspaceId, worker.id), 'member', 'seen in the group → in the workspace');
 
     await handleEvent(inNewGroup({ type: 'message', message: { id: 'tag-1', type: 'text', text: '@ทันงาน ส่งรายงาน พรุ่งนี้' } }));
-    assert.equal(await roleIn(workspaceId, boss.id), 'owner', 'the first to tag the bot owns it');
+    assert.equal(await roleIn(workspaceId, boss.id), 'manager', 'the first to tag the bot sets it up: its first Manager');
 
     await handleEvent(inNewGroup({ type: 'message', message: { id: 'tag-2', type: 'text', text: '@ทันงาน โทรหาลูกค้า พรุ่งนี้' } }, worker.lineUserId));
     assert.equal(await roleIn(workspaceId, worker.id), 'member', 'tagging later does not take it over');
@@ -258,7 +258,7 @@ describe('LINE flow: message to draft to task', { skip: !URL_ ? 'TEST_DATABASE_U
       message: { id: 'ann-member', type: 'text', text: '@ทันงาน ประกาศ: หยุดงานพรุ่งนี้' },
     }));
     assert.equal((await db().select().from(schema.announcement)).length, 0);
-    assert.match(replyText(), /เฉพาะเจ้าของหรือผู้ดูแล/);
+    assert.match(replyText(), /เฉพาะผู้จัดการ/);
   });
 
   test('a task about announcing something is still a task', async () => {

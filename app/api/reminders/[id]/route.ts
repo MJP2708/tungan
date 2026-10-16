@@ -4,6 +4,7 @@ import { db } from '@/lib/db/index.ts';
 import { reminder } from '@/lib/db/schema.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
+import { assertCan } from '@/lib/auth/roles.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,9 +27,10 @@ export async function PATCH(
     const { id } = await params;
     const found = await load(id);
     const membership = await requireMembership(found.workspaceId);
-    // A reminder is addressed to one person; only they or an admin change it.
-    if (found.recipientUserId !== membership.userId && membership.role === 'member') {
-      throw new HttpError(403, 'แก้ได้เฉพาะเจ้าของการเตือน');
+    // A reminder is addressed to one person; only they or a Manager change
+    // it (can(): manage_others_reminders).
+    if (found.recipientUserId !== membership.userId) {
+      await assertCan({ userId: membership.userId, workspaceId: found.workspaceId, action: 'manage_others_reminders' });
     }
     const body = await req.json().catch(() => ({}));
     const patch: Record<string, unknown> = {};
@@ -70,8 +72,8 @@ export async function DELETE(
     const { id } = await params;
     const found = await load(id);
     const membership = await requireMembership(found.workspaceId);
-    if (found.recipientUserId !== membership.userId && membership.role === 'member') {
-      throw new HttpError(403, 'ลบได้เฉพาะเจ้าของการเตือน');
+    if (found.recipientUserId !== membership.userId) {
+      await assertCan({ userId: membership.userId, workspaceId: found.workspaceId, action: 'manage_others_reminders' });
     }
     await db().delete(reminder).where(eq(reminder.id, id));
     return NextResponse.json({ ok: true });

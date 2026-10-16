@@ -5,7 +5,7 @@
 // Usage: node tools/visual/contrast.mjs   (against `next start -p 3107`)
 import { launch, BASE } from './pw.mjs';
 import { fixturePage } from './fixtures.mjs';
-const PAGES = ['home','inbox','tasks','calendar','reports','reminders','ai','manage','settings'];
+const PAGES = ['home','inbox','tasks','mine','calendar','reports','reminders','ai','manage','settings'];
 function scan() {
   const rgb = (s) => (s.match(/[\d.]+/g) || []).map(Number);
   const isLight = ([r, g, b]) => r > 200 && g > 200 && b > 200;

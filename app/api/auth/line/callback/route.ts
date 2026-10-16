@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { MANAGER } from '@/lib/permissions.ts';
 import { cookies } from 'next/headers';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
@@ -103,11 +104,12 @@ async function upsertUserAndSession(identity: {
     });
     // First run: one personal workspace so the app is never empty-broken.
     const workspaceId = crypto.randomUUID();
-    await db().insert(workspace).values({ id: workspaceId, name: 'งานของฉัน' });
+    // Personal: "no group" — only this person ever sees its tasks.
+    await db().insert(workspace).values({ id: workspaceId, name: 'งานของฉัน', kind: 'personal', createdByUserId: userId });
     await db().insert(workspaceMember).values({
       workspaceId,
       userId,
-      role: 'owner',
+      role: MANAGER,
       nickname: identity.displayName,
     });
   } else {

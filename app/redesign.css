@@ -2003,3 +2003,137 @@ details.delegate-section > summary:focus-visible {
   color: var(--ink-3);
   font-size: 13px;
 }
+
+/* ══ Roles (2026-10-17) — plain on purpose: the UI is being redesigned in
+   Figma and will restyle these. ══════════════════════════════════════════ */
+/* A sibling of the member's row button, so the existing .member-list >
+   button layout is untouched; this only makes it a compact pill. */
+.member-list > button.role-change {
+  display: flex;
+  width: fit-content;
+  min-height: 44px;
+  align-items: center;
+  margin: 8px 16px 10px auto;
+  border: 1px solid var(--hairline-strong, #deded9);
+  border-radius: 999px;
+  background: #ffffff;
+  padding: 0 16px;
+  color: #090909;
+  font-size: 13px;
+}
+
+.member-list > button.role-change:focus-visible,
+.no-manager-banner button:focus-visible {
+  outline: 2px solid #0080ff;
+  outline-offset: 2px;
+}
+
+.role-note {
+  margin: 0 0 8px;
+  color: var(--ink-3, #5d5d57);
+  font-size: 13px;
+}
+
+.no-manager-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 14px;
+  border: 1px solid #f0d9a8;
+  border-radius: 16px;
+  background: #fff8e6;
+  padding: 10px 14px;
+  color: #5c4100;
+  font-size: 13.5px;
+}
+
+.no-manager-banner button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: #090909;
+  padding: 0 16px;
+  color: #ffffff;
+  font-size: 13px;
+}
+
+/* ══ งานฉัน (2026-10-17) — plain; restyled later from Figma ════════════════ */
+.mine-page .mine-filter {
+  width: 100%;
+  max-width: 320px;
+  margin-bottom: 12px;
+}
+
+.mine-section {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 14px 16px;
+}
+
+.mine-section h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mine-section h3 span {
+  color: var(--ink-3, #5d5d57);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.mine-section.is-overdue h3,
+.mine-section.is-revision h3 {
+  color: #c4241f;
+}
+
+.mine-list {
+  display: grid;
+}
+
+.mine-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  border: 0;
+  border-top: 1px solid var(--hairline, #deded9);
+  background: transparent;
+  padding: 8px 2px;
+  color: inherit;
+  text-align: left;
+}
+
+.mine-row:first-child {
+  border-top: 0;
+}
+
+.mine-row:focus-visible {
+  outline: 2px solid #0080ff;
+  outline-offset: -2px;
+}
+
+.mine-text {
+  display: grid;
+  min-width: 0;
+}
+
+.mine-text strong {
+  overflow: hidden;
+  font-size: 14.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mine-text small {
+  overflow: hidden;
+  color: var(--ink-3, #5d5d57);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

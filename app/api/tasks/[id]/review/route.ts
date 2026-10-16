@@ -6,6 +6,8 @@ import { listTaskEvents } from '@/lib/db/events.ts';
 import { audienceForViewer } from '@/lib/events/visibility.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
+import { groupFacts, assertCan } from '@/lib/auth/roles.ts';
+import { can } from '@/lib/permissions.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -46,13 +48,15 @@ export async function GET(
     const t = rows[0];
     if (!t) throw new HttpError(404, 'ไม่พบงานนี้');
     const membership = await requireMembership(t.workspaceId);
+    const facts = await groupFacts(t.workspaceId, membership.userId);
+    await assertCan({ userId: membership.userId, workspaceId: t.workspaceId, action: 'view_group_tasks', task: t, facts });
 
     const [history, questions] = await Promise.all([
       // The reviewer is a manager on this task, so they see the private
       // notes — that is who a ติดปัญหา note was written for.
       listTaskEvents(
         id,
-        audienceForViewer({ viewerUserId: membership.userId, role: membership.role, task: t }),
+        audienceForViewer({ viewerUserId: membership.userId, facts, task: t }),
       ),
       db()
         .select({
@@ -74,10 +78,7 @@ export async function GET(
       origin: t.note || null,
       // Whether this reader is the one who signs it off, so the UI does not
       // offer buttons the server will refuse.
-      canReview:
-        membership.role === 'owner' ||
-        membership.role === 'admin' ||
-        t.createdByUserId === membership.userId,
+      canReview: can({ userId: membership.userId }, 'approve_task', facts, t),
     });
   } catch (error) {
     return errorResponse(error);

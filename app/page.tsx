@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import {
   AlertCircle,
@@ -43,7 +43,7 @@ import {
   Hourglass,
   PencilLine,
 } from 'lucide-react';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
@@ -112,7 +112,8 @@ import { normalizeMeetingLink, meetingLinkLabel } from '@/lib/meeting-link';
 import { EventDialog, eventTimeLabel, audienceLabel, type EventDialogTarget } from '@/components/event-dialog';
 import { t, setLocale, intlLocale, localeFromBrowser, type Locale } from '@/lib/i18n';
 import { teamOverview, formatSpan, ATTENTION_ORDER, type AttentionKind } from '@/lib/tasks/overview';
-import { mayEditTaskFields } from '@/lib/tasks/permissions';
+import { mySections, type MyTask } from '@/lib/tasks/my-tasks';
+import { can, roleOf, isManagerRole, MEMBER, type Action, type GroupFacts, type TaskFacts } from '@/lib/permissions';
 import { useToast, ToastHost } from '@/components/toast-host';
 import * as queue from '@/lib/api/queue';
 import { toUiTask, toUiCapture, toUiMember } from '@/lib/api/adapters';
@@ -144,6 +145,8 @@ type Member = {
   role: string;
   /** ok | not_friend (cannot receive DMs) | not_signed_in (never opened the app) */
   linkStatus?: 'ok' | 'not_friend' | 'not_signed_in';
+  /** LINE display picture. */
+  pictureUrl?: string | null;
 };
 type Account = {
   loggedIn: boolean;
@@ -161,6 +164,10 @@ type Project = {
   groupLabel: string;
   members: Member[];
   teams: Team[];
+  /** personal = "no group": only its creator sees its tasks. */
+  kind?: 'team' | 'personal';
+  /** Who set the group up: may always name a Manager. */
+  createdByUserId?: string | null;
 };
 type Task = {
   id: string;
@@ -265,6 +272,7 @@ const navigationIcons = {
   home: LayoutGrid,
   inbox: Inbox,
   tasks: ListTodo,
+  mine: UserRound,
   calendar: CalendarDays,
   reports: BarChart3,
   reminders: Bell,
@@ -284,15 +292,35 @@ const timeOptions = Array.from(
 function PersonAvatar({
   initials,
   size = 'default',
+  picture,
 }: {
   initials: string;
   size?: 'sm' | 'default' | 'lg';
+  /** LINE display picture; the initials show until (or unless) it loads. */
+  picture?: string | null;
 }) {
   return (
     <Avatar size={size}>
+      {picture && <AvatarImage src={picture} alt="" referrerPolicy="no-referrer" />}
       <AvatarFallback className="avatar-mono">{initials}</AvatarFallback>
     </Avatar>
   );
+}
+
+/** The status words งานฉัน shows next to each task. */
+function myStatusLabel(task: { status: string; reviewState: string }): string {
+  if (task.status === 'review') return 'รอตรวจ';
+  if (task.reviewState === 'revision') return 'ส่งกลับแก้ไข';
+  if (task.status === 'blocked') return 'ติดปัญหา';
+  if (task.status === 'progress') return 'กำลังทำ';
+  return 'ต้องทำ';
+}
+
+/** Thai label for a stored role. The decision about it is always can(). */
+function roleLabel(role: string): string {
+  if (isManagerRole(role)) return t('ผู้จัดการ');
+  if (roleOf(role)) return t('สมาชิก');
+  return t('ยังไม่เข้าแอป');
 }
 function Brand({ mobile = false }: { mobile?: boolean }) {
   return (
@@ -660,6 +688,13 @@ export default function Home() {
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [notificationsSeen, setNotificationsSeen] = useState(false);
   const [nicknameMember, setNicknameMember] = useState<Member | null>(null);
+  // งานฉัน: my tasks across every group, plus personal ones.
+  const [myTaskList, setMyTaskList] = useState<MyTask[] | null>(null);
+  const [myTaskGroup, setMyTaskGroup] = useState<string>('all');
+  const [myTaskMore, setMyTaskMore] = useState<string | null>(null);
+  // Promote/demote, waiting for the person to confirm (role management).
+  const [roleChange, setRoleChange] = useState<{ member: Member; to: 'manager' | 'member' } | null>(null);
+  const [roleError, setRoleError] = useState('');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | Status>('all');
   // งาน's ของฉัน chip: only work that is mine, alongside any status filter.
@@ -1075,6 +1110,19 @@ export default function Home() {
   }
 
   /** Open a task that lives in another workspace. */
+  /** Open a task from งานฉัน, staying on งานฉัน (the sheet opens over it). */
+  async function openMyTask(workspaceId: string, taskId: string) {
+    try {
+      if (workspaceId !== selectedProject.id) {
+        setSelectedProjectId(workspaceId);
+        await refreshWorkspace(workspaceId);
+      }
+      setSelectedTaskId(taskId);
+    } catch (error) {
+      reportError(error, t('เปิดงานไม่สำเร็จ'));
+    }
+  }
+
   async function openTaskElsewhere(workspaceId: string, taskId: string) {
     setSelectedProjectId(workspaceId);
     navigate('home');
@@ -1380,6 +1428,27 @@ export default function Home() {
     void refreshReminders();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshReminders reads the workspace itself
   }, [page, loadCalendarEvents]);
+  // งานฉัน loads when it is opened, and again whenever tasks change.
+  useEffect(() => {
+    if (page !== 'mine' || !account.loggedIn) return;
+    let cancelled = false;
+    api
+      .mineView()
+      .then((res) => {
+        if (!cancelled) setMyTaskList(res.tasks);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setMyTaskList([]);
+          reportError(error, t('โหลดงานฉันไม่สำเร็จ'));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reportError is stable in effect
+  }, [page, account.loggedIn, tasks]);
+
   /** Events by Bangkok day; one spanning days shows on each (up to a month). */
   const eventsByDay = useMemo(() => {
     const map = new Map<DayKey, ApiEvent[]>();
@@ -1431,46 +1500,54 @@ export default function Home() {
     });
   }
   /**
-   * May this person change the task's details (title, deadline, assignee)?
-   * The server's rule, shared from lib/tasks/permissions.ts, so the button
-   * is offered to exactly the people the edit route accepts — including the
-   * person who assigned it and workspace managers, who do not do the work.
+   * This person's standing in a group — the same facts the server gives
+   * can() (lib/permissions.ts), so the app offers exactly what the server
+   * will accept. The server is still the authority; this only decides what
+   * to draw. No role is compared here.
    */
+  function factsFor(projectId: string): GroupFacts {
+    const project = getProject(projectId);
+    const me = project.members.find((m) => m.id === meUserId);
+    return {
+      role: me ? (roleOf(me.role) ?? MEMBER) : null,
+      kind: project.kind === 'personal' ? 'personal' : 'team',
+      managerCount: project.members.filter((m) => isManagerRole(m.role)).length,
+      createdByUserId: project.createdByUserId ?? null,
+    };
+  }
+  function taskFactsOf(task: Task): TaskFacts {
+    return {
+      assigneeUserId: task.assigneeId || null,
+      primaryAssigneeUserId: task.primaryAssigneeId || null,
+      pendingAssigneeUserId: task.pendingAssigneeId ?? null,
+      createdByUserId: task.createdById ?? null,
+    };
+  }
+  /** can() for this person, in a task's group (or the open one). */
+  function mayDo(action: Action, task?: Task | null, extra?: Parameters<typeof can>[4]) {
+    return can(
+      { userId: meUserId },
+      action,
+      factsFor(task?.projectId ?? selectedProject.id),
+      task ? taskFactsOf(task) : null,
+      extra,
+    );
+  }
+  /** The edit button: anything about the task this person may change. */
   function canEditFields(task: Task) {
-    const role = selectedProject.members.find((m) => m.id === meUserId)?.role ?? 'member';
-    return mayEditTaskFields(
-      {
-        assigneeUserId: task.assigneeId || null,
-        primaryAssigneeUserId: task.primaryAssigneeId || null,
-        createdByUserId: task.createdById ?? null,
-      },
-      { userId: meUserId, role },
-    );
-  }
-  function canEditTask(task: Task) {
-    const primaryType = task.primaryAssigneeType || task.assigneeType;
-    const primaryId = task.primaryAssigneeId || task.assigneeId;
     return (
-      assignmentIsMine(task.projectId, task.assigneeType, task.assigneeId) ||
-      assignmentIsMine(task.projectId, primaryType, primaryId)
+      mayDo('edit_task_details', task) ||
+      mayDo('change_deadline', task) ||
+      mayDo('reassign_task', task)
     );
   }
-  /**
-   * Whether this person may CLOSE the task, which is a different right from
-   * being able to work on it.
-   *
-   * Mirrors the server rule in app/api/tasks/[id]/status/route.ts so the
-   * button is not offered and then refused. The server is still the authority
-   * — this only decides what to draw.
-   */
+  /** The worker's buttons (รับงาน, ติดปัญหา, ส่งตรวจ…): their own task. */
+  function canEditTask(task: Task) {
+    return mayDo('update_own_task_progress', task);
+  }
+  /** อนุมัติ / ขอแก้: a Manager (or the maker of a personal task). */
   function canReviewTask(task: Task) {
-    const role = selectedProject.members.find((m) => m.id === meUserId)?.role;
-    const mine = assignmentIsMine(task.projectId, task.assigneeType, task.assigneeId);
-    const askedBySomeoneElse = !!task.createdById && task.createdById !== task.assigneeId;
-    // Signing off your own work when somebody else asked for it would make
-    // every approval on the record potentially self-issued.
-    if (mine && askedBySomeoneElse) return false;
-    return role === 'owner' || role === 'admin' || task.createdById === meUserId;
+    return mayDo('approve_task', task) || mayDo('request_revision', task);
   }
 
   // Preset day + themed time select -> one real instant in Asia/Bangkok.
@@ -1980,10 +2057,9 @@ export default function Home() {
     openActionSheet({ kind: 'revision', task });
   }
 
-  /** Owner or admin of the workspace currently open. */
+  /** May change the open group's settings (a Manager, via can()). */
   function isWorkspaceManager() {
-    const role = selectedProject.members.find((m) => m.id === meUserId)?.role;
-    return role === 'owner' || role === 'admin';
+    return mayDo('edit_group_settings');
   }
 
   function renameWorkspace() {
@@ -3340,6 +3416,96 @@ export default function Home() {
    * งาน, redesigned: grouped by what the deadline means today, one line per
    * task. The groups carry the order, so rows are not numbered.
    */
+  /** งานฉัน (2026-10-17). Plain on purpose: restyled later from Figma. */
+  const renderMine = () => {
+    const list = myTaskList ?? [];
+    const groups = Array.from(
+      new Map(list.map((task) => [task.workspaceId, task.groupName ?? t('ส่วนตัว')])).entries(),
+    );
+    const shown = myTaskGroup === 'all' ? list : list.filter((task) => task.workspaceId === myTaskGroup);
+    const sections = mySections(shown, now);
+    const CAP = 20;
+    return (
+      <section className="page-section mine-page">
+        <div className="section-intro">
+          <div>
+            <h2 data-kicker={pageKicker('mine')}>{t('งานฉัน')}</h2>
+          </div>
+        </div>
+        {groups.length > 1 && (
+          <Select value={myTaskGroup} onValueChange={(value) => setMyTaskGroup(value as string)}>
+            <SelectTrigger className="themed-field-trigger mine-filter" aria-label={t('กรองตามกลุ่ม')}>
+              <span>
+                {myTaskGroup === 'all'
+                  ? t('ทุกกลุ่ม')
+                  : (groups.find(([id]) => id === myTaskGroup)?.[1] ?? t('ทุกกลุ่ม'))}
+              </span>
+            </SelectTrigger>
+            <SelectContent className="themed-select-content">
+              <SelectItem value="all">{t('ทุกกลุ่ม')}</SelectItem>
+              {groups.map(([id, name]) => (
+                <SelectItem value={id} key={id}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {myTaskList === null ? (
+          <SkeletonList rows={3} />
+        ) : sections.length === 0 ? (
+          <div className="panel">
+            <EmptyState
+              title={t('ไม่มีงานของคุณตอนนี้')}
+              body={t('สร้างงานได้จากปุ่ม สร้างงาน หรือพิมพ์งานในแชทกับบอททันงาน')}
+            />
+          </div>
+        ) : (
+          sections.map((section) => {
+            const expanded = myTaskMore === section.key;
+            const rows = expanded ? section.items : section.items.slice(0, CAP);
+            return (
+              <div className={`panel mine-section is-${section.key}`} key={section.key}>
+                <h3>
+                  {t(section.title)} <span>{section.total}</span>
+                </h3>
+                <div className="mine-list">
+                  {rows.map((task) => (
+                    <button
+                      type="button"
+                      key={task.id}
+                      className="mine-row"
+                      onClick={() => void openMyTask(task.workspaceId, task.id)}
+                    >
+                      <span className="mine-text">
+                        <strong>{task.title}</strong>
+                        <small>
+                          {task.groupName ?? t('ส่วนตัว')} ·{' '}
+                          {task.dueAt ? formatDeadline(task.dueAt, { now }) : t('ไม่มีกำหนด')} ·{' '}
+                          {t(myStatusLabel(task))}
+                        </small>
+                      </span>
+                      {task.status === 'blocked' && <Badge variant="outline">{t('ติดปัญหา')}</Badge>}
+                    </button>
+                  ))}
+                </div>
+                {section.total > CAP && (
+                  <button
+                    type="button"
+                    className="overview-more"
+                    onClick={() => setMyTaskMore(expanded ? null : section.key)}
+                  >
+                    {expanded ? t('ย่อ') : t('ดูทั้งหมด {0} งาน', section.total)}
+                  </button>
+                )}
+              </div>
+            );
+          })
+        )}
+      </section>
+    );
+  };
+
   const renderTasks = () => {
     // A ทุกคน task is ten copies; list it once — your own copy if you have
     // one, otherwise one row standing for all of them.
@@ -4425,14 +4591,20 @@ export default function Home() {
               <h3>{t('สมาชิก ·')} {selectedProject.members.length}</h3>
             </div>
           </div>
+          {!selectedProject.members.some(
+            (m) => m.id !== meUserId && mayDo('change_member_role', null, { targetUserId: m.id }),
+          ) && (
+            <p className="role-note">{t('ผู้จัดการเป็นคนแต่งตั้งหรือลดบทบาท · คุณดูรายชื่อได้อย่างเดียว')}</p>
+          )}
           <div className="member-list">
             {selectedProject.members.map((member) => (
-              <button key={member.id} onClick={() => setNicknameMember(member)}>
-                <PersonAvatar initials={member.initials} />
+              <Fragment key={member.id}>
+              <button onClick={() => setNicknameMember(member)}>
+                <PersonAvatar initials={member.initials} picture={member.pictureUrl} />
                 <div>
                   <strong>{member.nickname}</strong>
                   <span>
-                    LINE: {member.lineName} · {member.role}
+                    LINE: {member.lineName} · {roleLabel(member.role)}
                   </span>
                 </div>
                 <Badge variant="outline">
@@ -4446,6 +4618,24 @@ export default function Home() {
                 </Badge>
                 <Pencil />
               </button>
+              {/* Promote / demote: shown to whoever can() allows — Managers,
+                  or the group's creator — never for your own row, and only
+                  for people who have joined (someone only seen in the chat
+                  has no role yet). The server checks again. */}
+              {roleOf(member.role) &&
+                mayDo('change_member_role', null, { targetUserId: member.id }) && (
+                  <button
+                    type="button"
+                    className="role-change"
+                    onClick={() => {
+                      setRoleError('');
+                      setRoleChange({ member, to: isManagerRole(member.role) ? 'member' : 'manager' });
+                    }}
+                  >
+                    {isManagerRole(member.role) ? t('ลดเป็นสมาชิก') : t('ตั้งเป็นผู้จัดการ')}
+                  </button>
+                )}
+              </Fragment>
             ))}
           </div>
           {blockedItems.length > 0 && (
@@ -4980,9 +5170,34 @@ export default function Home() {
         {/* Keyed by screen: React would otherwise reuse the same <section> for
             the next screen, and its entrance (motion.css) would not replay. */}
         <div className="content-area" key={page}>
+          {/* No Manager in this group (the last one left the LINE group):
+              tasks stay, approvals wait. Whoever set the group up can name
+              one — they get a button; everyone else is told what is going on. */}
+          {selectedProjectId !== 'mine' &&
+            factsFor(selectedProject.id).kind === 'team' &&
+            factsFor(selectedProject.id).role &&
+            factsFor(selectedProject.id).managerCount === 0 && (
+              <div className="no-manager-banner" role="status">
+                <span>{t('กลุ่มนี้ยังไม่มีผู้จัดการ · งานที่รอตรวจจะรอจนมีผู้จัดการ')}</span>
+                {selectedProject.members.some(
+                  (m) => m.id !== meUserId && mayDo('change_member_role', null, { targetUserId: m.id }),
+                ) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManageTab('members');
+                      navigate('manage');
+                    }}
+                  >
+                    {t('แต่งตั้งผู้จัดการ')}
+                  </button>
+                )}
+              </div>
+            )}
           {page === 'home' && renderHome()}
           {page === 'inbox' && renderInbox()}
           {page === 'tasks' && renderTasks()}
+          {page === 'mine' && renderMine()}
           {page === 'calendar' && renderCalendar()}
           {page === 'reports' && renderReports()}
           {page === 'reminders' && renderReminders()}
@@ -6187,6 +6402,56 @@ export default function Home() {
               <Button type="submit">{t('เพิ่มลิงก์')}</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+      {/* Role change, confirmed with the existing dialog component as-is. */}
+      <Dialog open={!!roleChange} onOpenChange={(open) => !open && setRoleChange(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {roleChange?.to === 'manager'
+                ? t('ตั้ง {0} เป็นผู้จัดการ?', roleChange.member.nickname)
+                : t('ลด {0} เป็นสมาชิก?', roleChange?.member.nickname ?? '')}
+            </DialogTitle>
+            <DialogDescription>
+              {roleChange?.to === 'manager'
+                ? t('ผู้จัดการอนุมัติงาน ขอแก้ เปลี่ยนคนรับผิดชอบและกำหนดส่ง และเห็นเหตุผลที่ติดปัญหาของทุกงานในกลุ่มนี้')
+                : t('สมาชิกสร้างงานและทำงานของตัวเองได้ แต่อนุมัติหรือเปลี่ยนกำหนดส่งไม่ได้')}
+            </DialogDescription>
+          </DialogHeader>
+          {roleError && (
+            <p className="entry-error" role="alert">
+              {roleError}
+            </p>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setRoleChange(null)}>
+              {t('ยกเลิก')}
+            </Button>
+            <Button
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                if (!roleChange) return;
+                setBusy(true);
+                setRoleError('');
+                try {
+                  await api.setMemberRole(selectedProject.id, roleChange.member.id, roleChange.to, newIdempotencyKey());
+                  await refreshWorkspace(selectedProject.id);
+                  setRoleChange(null);
+                  setNotice(t('เปลี่ยนบทบาทแล้ว'));
+                } catch (error) {
+                  // The last-Manager and own-role rules are the server's;
+                  // its reason is shown as it is.
+                  setRoleError(error instanceof ApiError ? t(error.message) : t('เปลี่ยนบทบาทไม่สำเร็จ'));
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {t('ยืนยัน')}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog

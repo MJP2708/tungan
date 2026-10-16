@@ -26,7 +26,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const events = await listEvents({
       workspaceId: id,
       userId: membership.userId,
-      role: membership.role,
       from,
       to,
     });

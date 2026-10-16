@@ -4,6 +4,7 @@ import { db } from '@/lib/db/index.ts';
 import { workspace, workspaceMember } from '@/lib/db/schema.ts';
 import { requireSession } from '@/lib/auth/session.ts';
 import { errorResponse, withIdempotency } from '@/lib/api/handler.ts';
+import { MANAGER } from '@/lib/permissions.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,8 @@ export async function GET() {
         id: workspace.id,
         name: workspace.name,
         role: workspaceMember.role,
+        kind: workspace.kind,
+        createdByUserId: workspace.createdByUserId,
         cutoff: workspace.cutoff,
         quietHoursStart: workspace.quietHoursStart,
         quietHoursEnd: workspace.quietHoursEnd,
@@ -52,11 +55,12 @@ export async function POST(req: Request) {
       },
       async () => {
         const id = crypto.randomUUID();
-        await db().insert(workspace).values({ id, name });
+        // Whoever makes a group is its first Manager, and its creator.
+        await db().insert(workspace).values({ id, name, createdByUserId: user.userId });
         await db().insert(workspaceMember).values({
           workspaceId: id,
           userId: user.userId,
-          role: 'owner',
+          role: MANAGER,
           nickname: user.displayName,
         });
         return { id, name };

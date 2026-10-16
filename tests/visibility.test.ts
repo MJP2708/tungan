@@ -80,36 +80,41 @@ test('an unknown visibility is treated as the safe default, never as client', ()
 const TASK = {
   assigneeUserId: 'worker',
   primaryAssigneeUserId: null,
-  createdByUserId: 'manager',
-  reviewerUserId: 'manager',
+  createdByUserId: 'asker',
 };
+const asMember = { role: 'member' as const, kind: 'team' as const, managerCount: 1, createdByUserId: 'boss' };
+const asManager = { ...asMember, role: 'manager' as const };
 
-test('worker and manager can read the private note, a bystander cannot', () => {
-  assert.equal(canReadPrivate({ viewerUserId: 'worker', role: 'member', task: TASK }), true);
-  assert.equal(canReadPrivate({ viewerUserId: 'manager', role: 'member', task: TASK }), true);
-  // Everyone in the workspace can see the task is blocked. Not everyone gets
+test('the worker and any Manager read the private note; a member who asked for it does not (2026-10-17)', () => {
+  assert.equal(canReadPrivate({ viewerUserId: 'worker', facts: asMember, task: TASK }), true);
+  assert.equal(canReadPrivate({ viewerUserId: 'boss', facts: asManager, task: TASK }), true);
+  // Asking for the work no longer entitles a plain member to the reason.
+  assert.equal(canReadPrivate({ viewerUserId: 'asker', facts: asMember, task: TASK }), false);
+  // Everyone in the group can see the task is blocked. Not everyone gets
   // to read why.
-  assert.equal(canReadPrivate({ viewerUserId: 'someone', role: 'member', task: TASK }), false);
+  assert.equal(canReadPrivate({ viewerUserId: 'someone', facts: asMember, task: TASK }), false);
 });
 
 test('the author of a note can always read it back', () => {
   // Otherwise a worker writes a note and immediately cannot see it, which
   // reads as the app having lost it.
   assert.equal(
-    canReadPrivate({
-      viewerUserId: 'helper',
-      role: 'member',
-      event: { actorUserId: 'helper' },
-      task: TASK,
-    }),
+    canReadPrivate({ viewerUserId: 'helper', facts: asMember, event: { actorUserId: 'helper' }, task: TASK }),
     true,
   );
 });
 
+test('not a member of the group: never', () => {
+  assert.equal(
+    canReadPrivate({ viewerUserId: 'worker', facts: { ...asMember, role: null }, task: TASK }),
+    false,
+  );
+});
+
 test('a bystander reads the task at the same level the group does', () => {
-  assert.equal(audienceForViewer({ viewerUserId: 'someone', role: 'member', task: TASK }), 'workspace');
-  assert.equal(audienceForViewer({ viewerUserId: 'worker', role: 'member', task: TASK }), 'private');
-  assert.equal(audienceForViewer({ viewerUserId: 'boss', role: 'owner', task: TASK }), 'private');
+  assert.equal(audienceForViewer({ viewerUserId: 'someone', facts: asMember, task: TASK }), 'workspace');
+  assert.equal(audienceForViewer({ viewerUserId: 'worker', facts: asMember, task: TASK }), 'private');
+  assert.equal(audienceForViewer({ viewerUserId: 'boss', facts: asManager, task: TASK }), 'private');
 });
 
 test('every level says plainly who will read it', () => {

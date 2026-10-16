@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, eq, inArray, notInArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import {
   lineGroupMember,
@@ -10,6 +10,7 @@ import {
   workspace,
 } from '../db/schema.ts';
 import { isUniqueViolation } from '../db/errors.ts';
+import { MANAGER, MEMBER } from '../permissions.ts';
 
 /**
  * Give a signed-in user access to every workspace whose LINE group they are
@@ -54,7 +55,7 @@ export async function syncGroupMemberships(userId: string): Promise<string[]> {
       missing.map((workspaceId) => ({
         workspaceId,
         userId,
-        role: 'member',
+        role: MEMBER,
         nickname: profile[0]?.displayName ?? '',
       })),
     )
@@ -119,23 +120,41 @@ export async function admitToGroupWorkspace(
     .limit(1);
   await db()
     .insert(workspaceMember)
-    .values({ workspaceId, userId, role: 'member', nickname: profile?.displayName ?? '' })
+    .values({ workspaceId, userId, role: MEMBER, nickname: profile?.displayName ?? '' })
     .onConflictDoNothing();
   if (options.mayOwn) await claimOwnershipIfNone(workspaceId, userId);
   return workspaceId;
 }
 
-/** Make this member the owner, only if the workspace has none at all. */
+/**
+ * Whoever sets the group up becomes its first Manager — only while it has
+ * never been set up (no creator recorded). The claim is one conditional
+ * update, so two people tagging at once cannot both win.
+ *
+ * Once set up, this never hands out Manager again: if the last Manager later
+ * leaves, the group waits for its creator to name one (lib/auth/roles.ts),
+ * rather than whoever happens to speak next taking over.
+ */
 async function claimOwnershipIfNone(workspaceId: string, userId: string): Promise<void> {
-  const owners = await db()
-    .select({ userId: workspaceMember.userId })
-    .from(workspaceMember)
-    .where(and(eq(workspaceMember.workspaceId, workspaceId), eq(workspaceMember.role, 'owner')))
-    .limit(1);
-  if (owners.length) return;
+  // Never set up: no creator recorded AND no Manager at all. Both, because a
+  // creator's account can be deleted (the column then empties) while the
+  // group still has Managers — that is not an unclaimed group.
+  const claimed = await db()
+    .update(workspace)
+    .set({ createdByUserId: userId })
+    .where(
+      and(
+        eq(workspace.id, workspaceId),
+        isNull(workspace.createdByUserId),
+        sql`not exists (select 1 from ${workspaceMember} m
+                         where m.workspace_id = ${workspaceId} and m.role = ${MANAGER})`,
+      ),
+    )
+    .returning({ id: workspace.id });
+  if (!claimed.length) return;
   await db()
     .update(workspaceMember)
-    .set({ role: 'owner' })
+    .set({ role: MANAGER })
     .where(and(eq(workspaceMember.workspaceId, workspaceId), eq(workspaceMember.userId, userId)));
 }
 
@@ -185,11 +204,38 @@ export async function grantWorkspaceToGroup(
       toAdd.map((userId) => ({
         workspaceId,
         userId,
-        role: 'member',
+        role: MEMBER,
         nickname: nameOf.get(userId) ?? '',
       })),
     )
     .onConflictDoNothing();
 
   return toAdd.length;
+}
+
+/**
+ * The person's own workspace — "no group" (2026-10-17). Tasks they make for
+ * themselves in a private chat with the bot live here, seen by nobody else.
+ * Made on first need, so someone who has never opened the app can still keep
+ * a personal task from LINE.
+ */
+export async function ensurePersonalWorkspace(userId: string): Promise<string> {
+  const [found] = await db()
+    .select({ id: workspace.id })
+    .from(workspace)
+    .innerJoin(workspaceMember, eq(workspaceMember.workspaceId, workspace.id))
+    .where(and(eq(workspace.kind, 'personal'), eq(workspaceMember.userId, userId)))
+    .limit(1);
+  if (found) return found.id;
+  const [profile] = await db()
+    .select({ displayName: lineUser.displayName })
+    .from(lineUser)
+    .where(eq(lineUser.id, userId))
+    .limit(1);
+  const id = crypto.randomUUID();
+  await db().insert(workspace).values({ id, name: 'งานของฉัน', kind: 'personal', createdByUserId: userId });
+  await db()
+    .insert(workspaceMember)
+    .values({ workspaceId: id, userId, role: MANAGER, nickname: profile?.displayName ?? '' });
+  return id;
 }

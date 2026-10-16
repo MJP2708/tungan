@@ -41,10 +41,13 @@ test('invalid saved values use safe defaults', () => {
 test('all desktop destinations are available in the shared mobile menu', () => {
   const pages = appNavigation.map((item) => item.page);
   assert.equal(new Set(pages).size, pages.length);
-  for (const page of ['calendar', 'reports', 'ai', 'manage', 'settings'])
+  for (const page of ['mine', 'calendar', 'reports', 'ai', 'manage', 'settings'])
     assert.ok(pages.includes(page as (typeof pages)[number]));
   for (const page of mobilePrimaryPages) assert.ok(pages.includes(page));
-  assert.equal(pages.length, 9);
+  assert.equal(pages.length, 10);
+  // The phone bar stays วันนี้ / LINE / งาน / เตือน (+ เพิ่มเติม): งานฉัน lives
+  // in the full menu.
+  assert.ok(!mobilePrimaryPages.includes('mine'));
 });
 test('completed preference filters the general list but explicit completed filter still works', () => {
   assert.equal(visibleInTaskList('done', 'all', false), false);
@@ -57,7 +60,8 @@ test('completed preference filters the general list but explicit completed filte
 test('every screen has a numbered index line, in navigation order', () => {
   assert.equal(pageKicker('home'), '01 — TODAY');
   assert.equal(pageKicker('tasks'), '03 — TASKS');
-  assert.equal(pageKicker('settings'), '09 — SETTINGS');
+  assert.equal(pageKicker('mine'), '04 — MY TASKS');
+  assert.equal(pageKicker('settings'), '10 — SETTINGS');
   for (const { page } of appNavigation) {
     assert.match(pageKicker(page), /^\d{2} — [A-Z ]+$/, page);
   }

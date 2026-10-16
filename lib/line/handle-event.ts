@@ -46,8 +46,12 @@ import { parseAnnouncement } from './announce.ts';
 import { postAnnouncement } from '../announcements.ts';
 import { createTasks } from '../tasks/create.ts';
 import { applyMentions, mentionedPeople, type Mentionee } from './mentions.ts';
-import { isMyWorkRequest, myWorkMessage, summarizeMyWork } from './my-work.ts';
-import { myWorkFor } from '../tasks/my-work.ts';
+import { isMyWorkRequest, myTasksCard, myTasksPointer } from './my-work.ts';
+import { myTasksFor } from '../tasks/my-work.ts';
+import { mostUrgent, mySections } from '../tasks/my-tasks.ts';
+import { can } from '../permissions.ts';
+import { groupFacts, managerLeftGroup } from '../auth/roles.ts';
+import { ensurePersonalWorkspace } from '../auth/membership.ts';
 
 export type LineSource = {
   type?: 'user' | 'group' | 'room';
@@ -131,7 +135,9 @@ export async function handleEvent(event: LineEventPayload) {
       break;
     case 'memberLeft':
       // Members are kept, not deleted: their name still has to render on the
-      // tasks they were assigned.
+      // tasks they were assigned. A Manager who leaves stops being one; if
+      // they were the last, the group waits for its creator to name another.
+      await handleMemberLeft(event);
       break;
     case 'postback':
       await handlePostback(event);
@@ -250,6 +256,25 @@ async function noteGroupMember(
   return userRowId;
 }
 
+async function handleMemberLeft(event: LineEventPayload) {
+  const groupId = event.source?.groupId ?? event.source?.roomId;
+  if (!groupId) return;
+  const [bound] = await db()
+    .select({ workspaceId: groupWorkspace.workspaceId })
+    .from(lineGroup)
+    .innerJoin(groupWorkspace, eq(groupWorkspace.lineGroupId, lineGroup.id))
+    .where(eq(lineGroup.lineGroupId, groupId))
+    .limit(1);
+  if (!bound) return;
+  const left = (event.left?.members ?? []).map((m) => m.userId).filter(Boolean) as string[];
+  if (!left.length) return;
+  const users = await db()
+    .select({ id: lineUser.id })
+    .from(lineUser)
+    .where(inArray(lineUser.lineUserId, left));
+  for (const u of users) await managerLeftGroup(bound.workspaceId, u.id);
+}
+
 async function handleLeave(_event: LineEventPayload) {
   // Nothing to undo. The group row stays so history still resolves, and its
   // workspace binding stays too: groups get their workspace automatically
@@ -345,10 +370,11 @@ async function handleUndo(event: LineEventPayload, params: URLSearchParams) {
   // Anyone in the group sees this button. Only the person who confirmed the
   // task — or a workspace owner/admin — may take it back; it used to delete
   // for whoever tapped.
+  // A forged postback meets the same check an API call does: can().
   const actorUserId = await actorFor(event);
-  const role = actorUserId ? await roleIn(t.workspaceId, actorUserId) : null;
   const mayUndo =
-    !!actorUserId && (t.createdByUserId === actorUserId || role === 'owner' || role === 'admin');
+    !!actorUserId &&
+    can({ userId: actorUserId }, 'undo_new_task', await groupFacts(t.workspaceId, actorUserId), t);
   if (!mayUndo) {
     if (event.replyToken) {
       await replyMessage(event.replyToken,
@@ -387,14 +413,6 @@ async function actorFor(event: LineEventPayload): Promise<string | null> {
   return rows[0]?.id ?? null;
 }
 
-async function roleIn(workspaceId: string, userId: string): Promise<string | null> {
-  const rows = await db()
-    .select({ role: workspaceMember.role })
-    .from(workspaceMember)
-    .where(and(eq(workspaceMember.workspaceId, workspaceId), eq(workspaceMember.userId, userId)))
-    .limit(1);
-  return rows[0]?.role ?? null;
-}
 
 async function replyTo(event: LineEventPayload, workspaceId: string, messages: unknown[]) {
   if (!event.replyToken) return;
@@ -776,33 +794,29 @@ async function handleMessage(event: LineEventPayload) {
     ).catch((error) => console.error('[webhook][processing-error] help reply failed', error));
     return;
   }
-  // "@ทันงาน งานของฉัน": what is waiting on me, on the free reply token. A
-  // group hears only about its own workspace; a private chat gets all of them.
+  // "งานฉัน", on the free reply token (2026-10-17). In a group: only a short
+  // line and a button — someone's tasks are never listed where the whole
+  // group reads them. In a private chat: the 5 most urgent, in งานฉัน's
+  // section order, and the button to the full page.
   if (event.replyToken && isMyWorkRequest(text)) {
-    const me = await actorFor(event);
-    const workspaceIds = isGroup ? (resolved ? [resolved.workspaceId] : []) : null;
-    const now = new Date();
-    const work = summarizeMyWork(me ? await myWorkFor(me, workspaceIds) : [], now);
-    let scope = 'ทุกพื้นที่งาน';
-    if (isGroup && resolved) {
-      const [ws] = await db()
-        .select({ name: workspace.name })
-        .from(workspace)
-        .where(eq(workspace.id, resolved.workspaceId))
-        .limit(1);
-      scope = ws?.name ?? 'กลุ่มนี้';
-    }
-    await replyMessage(
-      event.replyToken,
-      [myWorkMessage(work, {
+    const mineUrl = appLink({ page: 'mine' });
+    let message: unknown;
+    if (isGroup) {
+      message = myTasksPointer({ appUrl: mineUrl });
+    } else {
+      const me = await actorFor(event);
+      const now = new Date();
+      const tasks = me ? await myTasksFor(me) : [];
+      const total = mySections(tasks, now).reduce((n, sec) => n + sec.total, 0);
+      message = myTasksCard(mostUrgent(tasks, now, 5), {
         now,
-        scope,
-        showWorkspace: !isGroup,
-        appUrl: appLink(),
+        total,
+        appUrl: mineUrl,
         taskUrl: (id) => appLink({ task: id }),
-      })] as never,
-      { workspaceId: resolved?.workspaceId },
-    ).catch((error) => console.error('[webhook][processing-error] my-work reply failed', error));
+      });
+    }
+    await replyMessage(event.replyToken, [message] as never, { workspaceId: resolved?.workspaceId })
+      .catch((error) => console.error('[webhook][processing-error] my-work reply failed', error));
     return;
   }
 
@@ -818,11 +832,12 @@ async function handleMessage(event: LineEventPayload) {
   const announced = parseAnnouncement(text);
   if (announced) {
     const author = await actorFor(event);
-    const role = author ? await roleIn(resolved.workspaceId, author) : null;
+    const mayAnnounce =
+      !!author && can({ userId: author }, 'post_announcement', await groupFacts(resolved.workspaceId, author));
     const say = (reply: string) =>
       replyTo(event, resolved.workspaceId, [{ type: 'text', text: reply }]);
-    if (!author || (role !== 'owner' && role !== 'admin')) {
-      await say('ประกาศได้เฉพาะเจ้าของหรือผู้ดูแลพื้นที่งาน\nถ้าต้องการให้ทุกคนทำงานนี้ ใช้ @ทันงาน @All แทนได้');
+    if (!author || !mayAnnounce) {
+      await say('ประกาศได้เฉพาะผู้จัดการของกลุ่ม\nถ้าต้องการให้ทุกคนทำงานนี้ ใช้ @ทันงาน @All แทนได้');
       return;
     }
     if (!announced.title) {
@@ -903,6 +918,20 @@ async function handleMessage(event: LineEventPayload) {
     ? (await everyoneAssignable(resolved.workspaceId, await actorFor(event))).length
     : 0;
 
+  // A private message for yourself is a personal task — "no group", seen by
+  // nobody else (2026-10-17). One that names a teammate, or @All, goes to the
+  // team you share: a task only you could see cannot be someone else's. This
+  // keeps the private-chat route working for a team whose group already has
+  // another bot.
+  const senderId = !isGroup ? await actorFor(event) : null;
+  const destinationOf = (d: (typeof drafts)[number]) =>
+    !isGroup &&
+    resolved.personalWorkspaceId &&
+    !mentionsAll &&
+    (!d.assigneeUserId || d.assigneeUserId === senderId)
+      ? resolved.personalWorkspaceId
+      : resolved.workspaceId;
+
   const draftIds: string[] = [];
   for (const d of drafts) {
     const rowId = crypto.randomUUID();
@@ -911,7 +940,7 @@ async function handleMessage(event: LineEventPayload) {
       .insert(inboxItem)
       .values({
         id: rowId,
-        workspaceId: resolved.workspaceId,
+        workspaceId: destinationOf(d),
         lineGroupId: sourceIdOf(event.source),
         senderLineUserId: event.source?.userId ?? null,
         senderName: resolved.senderName,
@@ -920,7 +949,12 @@ async function handleMessage(event: LineEventPayload) {
         // unique, which is what makes a redelivered message a no-op.
         lineMessageId: draftIds.length === 1 ? (event.message?.id ?? null) : null,
         suggestedTitle: d.title,
-        suggestedAssigneeUserId: mentionsAll ? null : d.assigneeUserId,
+        // A personal task is the maker's own: theirs to do, unless they said
+        // otherwise.
+        suggestedAssigneeUserId: mentionsAll
+          ? null
+          : (d.assigneeUserId ??
+            (!isGroup && destinationOf(d) === resolved.personalWorkspaceId ? senderId : null)),
         assignAll: mentionsAll,
         suggestedDueAt: d.dueAt,
         confidence: d.confidence,
@@ -971,7 +1005,10 @@ async function handleMessage(event: LineEventPayload) {
               ? `ทุกคน · ${everyoneCount} คน`
               : nameOf(d.assigneeUserId),
             assigneeSource: mentionsAll ? '@All' : d.assigneeSource,
-            workspaceName: resolved.dmWorkspaceName,
+            workspaceName:
+              !isGroup && destinationOf(d) === resolved.personalWorkspaceId
+                ? 'งานส่วนตัว'
+                : resolved.dmWorkspaceName,
           })),
         ),
       ],
@@ -1098,6 +1135,8 @@ async function resolveWorkspace(event: LineEventPayload) {
   let cutoff = '17:00';
   // Named on the card in a 1:1 chat, where it was chosen rather than implied.
   let dmWorkspaceName: string | null = null;
+  // 1:1 chat only: the sender's personal workspace, for tasks for themselves.
+  let personalWorkspaceId: string | null = null;
 
   if (groupId) {
     const rows = await db()
@@ -1138,6 +1177,10 @@ async function resolveWorkspace(event: LineEventPayload) {
       )
       .where(eq(lineUser.lineUserId, senderLineUserId))
       .orderBy(
+        // A team first (2026-10-17): it is where names and @mentions in a
+        // private message resolve to teammates. The personal workspace is
+        // where self-addressed tasks land (personalWorkspaceId below).
+        sql`(${workspace.kind} = 'team') desc`,
         sql`${memberSchedule.updatedAt} desc nulls last`,
         sql`${workspaceMember.createdAt} desc`,
       )
@@ -1146,6 +1189,20 @@ async function resolveWorkspace(event: LineEventPayload) {
       workspaceId = rows[0].workspaceId;
       cutoff = rows[0].cutoff;
       dmWorkspaceName = rows[0].workspaceName;
+    }
+    // Their own "no group" workspace, made on first need, so a private
+    // message is never dropped for want of a workspace.
+    const [me] = await db()
+      .select({ id: lineUser.id })
+      .from(lineUser)
+      .where(eq(lineUser.lineUserId, senderLineUserId))
+      .limit(1);
+    if (me) {
+      personalWorkspaceId = await ensurePersonalWorkspace(me.id);
+      if (!workspaceId) {
+        workspaceId = personalWorkspaceId;
+        dmWorkspaceName = null;
+      }
     }
   }
 
@@ -1162,6 +1219,7 @@ async function resolveWorkspace(event: LineEventPayload) {
   return {
     workspaceId,
     dmWorkspaceName,
+    personalWorkspaceId,
     cutoff,
     senderUserId: sender?.userId,
     senderName: sender?.nickname || sender?.displayName || '',

@@ -5,6 +5,7 @@ import { lineUser, workspace, workspaceMember } from '@/lib/db/schema.ts';
 import { verifyLineIdToken } from '@/lib/line/verify.ts';
 import { createSession } from '@/lib/auth/session.ts';
 import { syncGroupMemberships } from '@/lib/auth/membership.ts';
+import { MANAGER } from '@/lib/permissions.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -51,11 +52,12 @@ export async function POST(req: NextRequest) {
     // A brand-new account starts with its own empty personal workspace.
     // Prototype localStorage is never imported into a real account.
     const workspaceId = crypto.randomUUID();
-    await db().insert(workspace).values({ id: workspaceId, name: 'งานของฉัน' });
+    // Personal: "no group" — only this person ever sees its tasks.
+    await db().insert(workspace).values({ id: workspaceId, name: 'งานของฉัน', kind: 'personal', createdByUserId: userId });
     await db().insert(workspaceMember).values({
       workspaceId,
       userId,
-      role: 'owner',
+      role: MANAGER,
       nickname: identity.displayName,
     });
   } else {

@@ -11,6 +11,8 @@
  * one proving a private note cannot reach the group or the client.
  */
 
+import { can, type GroupFacts, type TaskFacts } from '../permissions.ts';
+
 export const VISIBILITY_LEVELS = ['private', 'workspace', 'client'] as const;
 export type Visibility = (typeof VISIBILITY_LEVELS)[number];
 
@@ -54,47 +56,39 @@ export function normalizeVisibility(value: unknown, fallback: Visibility = 'work
 }
 
 /**
- * Whether this viewer is one of the two people a private note is for.
+ * Whether this viewer may read a private ติดปัญหา note (2026-10-17).
  *
- * "Worker ↔ manager": the person who wrote it, the person doing the task, the
- * person who asked for it, and whoever has to sign it off. A workspace owner
- * counts because they already have review rights over the work; another member
- * with no connection to the task does not, even though they can see the task.
+ * Decided by can() in lib/permissions.ts: a Manager of the group may
+ * (view_blocked_reason, any task there); anyone else only their own — the
+ * task they are doing, or the note they wrote (view_own_blocked_reason). A
+ * member who merely asked for the work, or watches it, does not.
  */
 export function canReadPrivate(params: {
   viewerUserId: string;
-  role: string;
+  facts: GroupFacts;
   event?: { actorUserId?: string | null };
-  task: {
-    assigneeUserId?: string | null;
-    primaryAssigneeUserId?: string | null;
-    createdByUserId?: string | null;
-    reviewerUserId?: string | null;
-  };
+  task: TaskFacts;
 }): boolean {
-  const { viewerUserId, role, event, task } = params;
+  const { viewerUserId, facts, event, task } = params;
   if (!viewerUserId) return false;
-  if (event?.actorUserId === viewerUserId) return true;
-  if (role === 'owner' || role === 'admin') return true;
+  const user = { userId: viewerUserId };
   return (
-    task.assigneeUserId === viewerUserId ||
-    task.primaryAssigneeUserId === viewerUserId ||
-    task.createdByUserId === viewerUserId ||
-    task.reviewerUserId === viewerUserId
+    can(user, 'view_blocked_reason', facts, task) ||
+    can(user, 'view_own_blocked_reason', facts, task, { noteAuthorUserId: event?.actorUserId ?? null })
   );
 }
 
 /**
  * The audience to read a task's history as.
  *
- * Everyone in a workspace can see the task; not everyone can see why it is
- * stuck. A member with no connection to the task drops to the workspace
- * audience, which is the same thing the group would see.
+ * Everyone in a group can see the task; not everyone can see why it is
+ * stuck. Anyone not entitled drops to the workspace audience — the same
+ * thing the group would see.
  */
 export function audienceForViewer(params: {
   viewerUserId: string;
-  role: string;
-  task: Parameters<typeof canReadPrivate>[0]['task'];
+  facts: GroupFacts;
+  task: TaskFacts;
 }): Audience {
   return canReadPrivate(params) ? 'private' : 'workspace';
 }

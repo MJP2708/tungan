@@ -31,6 +31,7 @@ export async function GET(
         nickname: workspaceMember.nickname,
         role: workspaceMember.role,
         canReceiveDirectMessages: lineUser.isOaFriend,
+        pictureUrl: lineUser.pictureUrl,
       })
       .from(workspaceMember)
       .innerJoin(lineUser, eq(lineUser.id, workspaceMember.userId))
@@ -52,6 +53,7 @@ export async function GET(
           lineUserId: lineUser.lineUserId,
           displayName: lineUser.displayName,
           canReceiveDirectMessages: lineUser.isOaFriend,
+          pictureUrl: lineUser.pictureUrl,
         })
         .from(lineGroupMember)
         .innerJoin(lineUser, eq(lineUser.id, lineGroupMember.userId))
@@ -69,18 +71,21 @@ export async function GET(
           lineUserId: s.lineUserId,
           displayName: s.displayName,
           nickname: s.displayName || 'สมาชิกในกลุ่ม',
+          // Seen in the chat, never signed in: no role in the group yet.
           role: 'guest',
           canReceiveDirectMessages: s.canReceiveDirectMessages,
+          pictureUrl: s.pictureUrl,
         }));
     }
 
+    const signedIn = new Set(accountMembers.map((m) => m.userId));
     const members = [...accountMembers, ...groupOnly].map((m) => ({
       ...m,
       // Two different reasons a person may be unreachable, and the fix is
       // different for each, so the UI must not merge them.
       linkStatus: !m.canReceiveDirectMessages
         ? 'not_friend'
-        : m.role === 'guest'
+        : !signedIn.has(m.userId)
           ? 'not_signed_in'
           : 'ok',
     }));

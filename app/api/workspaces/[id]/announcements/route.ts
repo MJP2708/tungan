@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { requireMembership } from '@/lib/auth/session.ts';
+import { groupFacts } from '@/lib/auth/roles.ts';
+import { requireCan } from '@/lib/auth/require-can.ts';
+import { can } from '@/lib/permissions.ts';
 import { errorResponse, withIdempotency } from '@/lib/api/handler.ts';
 import { listAnnouncements, postAnnouncement } from '@/lib/announcements.ts';
 
@@ -14,7 +17,9 @@ export async function GET(
   try {
     const { id } = await params;
     const membership = await requireMembership(id);
-    const manager = membership.role === 'owner' || membership.role === 'admin';
+    // Names of who has not seen it: Managers (can()); authors get their own
+    // in listAnnouncements.
+    const manager = can({ userId: membership.userId }, 'see_unread_names', await groupFacts(id, membership.userId));
     return NextResponse.json({
       announcements: await listAnnouncements(id, membership.userId, { manager }),
     });
@@ -23,14 +28,14 @@ export async function GET(
   }
 }
 
-/** Post one. Owners and admins only — checked here, not just hidden in the UI. */
+/** Post one. Managers only (can()) — checked here, not just hidden in the UI. */
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params;
-    const membership = await requireMembership(id, { roles: ['owner', 'admin'] });
+    const membership = await requireCan(id, 'post_announcement');
     const body = await req.json().catch(() => ({}));
     const { result, replayedId } = await withIdempotency(
       { key: req.headers.get('idempotency-key'), workspaceId: id, route: 'POST /api/workspaces/announcements' },

@@ -1,57 +1,59 @@
 import 'server-only';
-import { and, eq, ne, or, inArray } from 'drizzle-orm';
+import { and, eq, ne, or } from 'drizzle-orm';
 import { db } from '../db/index.ts';
-import { task, workspace } from '../db/schema.ts';
-import type { MyWorkItem } from '../line/my-work.ts';
+import { task, workspace, workspaceMember } from '../db/schema.ts';
+import type { MyTask } from './my-tasks.ts';
+
+/** The most งานฉัน returns; sections cap what they draw (lib/tasks/my-tasks.ts). */
+export const MY_TASKS_LIMIT = 300;
 
 /**
- * Everything waiting on one person, for "@ทันงาน งานของฉัน" in LINE.
- *
- * Their open tasks, hand-offs waiting for them to accept, and work handed in
- * to them for review. `workspaceIds` limits it — a group only ever hears about
- * its own workspace; null means every workspace (a private chat with the bot).
- * Assignment, not membership, decides "mine": someone seen in a group can be
- * given work before they ever open the app.
+ * งานฉัน (2026-10-17): open tasks assigned to me in every group I belong
+ * to, plus my personal tasks. Joined on MY membership, so a workspace I am
+ * not in — even one where someone once assigned me work — never appears. A
+ * personal task is only ever its maker's: it is matched by maker as well as
+ * by assignee, and a personal workspace has no other member to see it.
+ * Served by the (assignee, due date, status) index.
  */
-export async function myWorkFor(userId: string, workspaceIds: string[] | null): Promise<MyWorkItem[]> {
-  if (workspaceIds && workspaceIds.length === 0) return [];
-  const scope = workspaceIds ? inArray(task.workspaceId, workspaceIds) : undefined;
+export async function myTasksFor(userId: string): Promise<MyTask[]> {
   const rows = await db()
     .select({
       id: task.id,
       title: task.title,
       dueAt: task.dueAt,
       status: task.status,
-      assigneeUserId: task.assigneeUserId,
-      pendingAssigneeUserId: task.pendingAssigneeUserId,
-      createdByUserId: task.createdByUserId,
+      reviewState: task.reviewState,
+      blockedReason: task.blockedReason,
+      workspaceId: task.workspaceId,
       workspaceName: workspace.name,
+      kind: workspace.kind,
     })
     .from(task)
+    .innerJoin(
+      workspaceMember,
+      and(eq(workspaceMember.workspaceId, task.workspaceId), eq(workspaceMember.userId, userId)),
+    )
     .innerJoin(workspace, eq(workspace.id, task.workspaceId))
     .where(
       and(
         ne(task.status, 'done'),
-        scope,
         or(
           eq(task.assigneeUserId, userId),
-          eq(task.pendingAssigneeUserId, userId),
-          and(eq(task.createdByUserId, userId), eq(task.status, 'review')),
+          and(eq(workspace.kind, 'personal'), eq(task.createdByUserId, userId)),
         ),
       ),
     )
-    .limit(200);
-
-  const items: MyWorkItem[] = [];
-  for (const r of rows) {
-    const base = { id: r.id, title: r.title, dueAt: r.dueAt, status: r.status, workspaceName: r.workspaceName };
-    if (r.pendingAssigneeUserId === userId) items.push({ ...base, role: 'handoff' });
-    else if (r.assigneeUserId === userId) items.push({ ...base, role: 'mine' });
-    // Asked for it and it is handed in: theirs to check. Someone reviewing
-    // their own task is not asked twice.
-    if (r.createdByUserId === userId && r.status === 'review' && r.assigneeUserId !== userId) {
-      items.push({ ...base, role: 'review' });
-    }
-  }
-  return items;
+    .orderBy(task.dueAt)
+    .limit(MY_TASKS_LIMIT);
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    dueAt: r.dueAt,
+    status: r.status,
+    reviewState: r.reviewState,
+    blockedReason: r.blockedReason,
+    workspaceId: r.workspaceId,
+    personal: r.kind === 'personal',
+    groupName: r.kind === 'personal' ? null : r.workspaceName,
+  }));
 }

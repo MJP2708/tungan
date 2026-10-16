@@ -20,6 +20,15 @@ import {
 } from './calendar-event-rules.ts';
 import { scheduleReminder } from './reminders/schedule.ts';
 import { everyoneAssignable } from './auth/assignable.ts';
+import { groupFacts } from './auth/roles.ts';
+import { can, type GroupFacts } from './permissions.ts';
+
+/** A private event is its maker's alone; a shared one, its maker or a
+ *  Manager (can(): edit_shared_event). */
+function mayEdit(event: { audience: string; createdByUserId: string | null }, userId: string, facts: GroupFacts) {
+  if (event.audience === 'me') return event.createdByUserId === userId;
+  return can({ userId }, 'edit_shared_event', facts, null, { authorUserId: event.createdByUserId });
+}
 
 /**
  * Calendar events: all database access for them (2026-10-09). Visibility and
@@ -67,11 +76,10 @@ async function memberIdsOf(workspaceId: string): Promise<string[]> {
 export async function listEvents(params: {
   workspaceId: string;
   userId: string;
-  role: string;
   from: Date;
   to: Date;
 }): Promise<EventView[]> {
-  const { workspaceId, userId, role, from, to } = params;
+  const { workspaceId, userId, from, to } = params;
   const rows = await db()
     .select({
       event: calendarEvent,
@@ -112,7 +120,7 @@ export async function listEvents(params: {
     byEvent.get(a.eventId)!.push({ userId: a.userId, name: a.nickname || a.displayName || 'ไม่ทราบชื่อ' });
   }
 
-  const manager = role === 'owner' || role === 'admin';
+  const facts = await groupFacts(workspaceId, userId);
   return rows
     .filter(({ event }) =>
       canSeeEvent(event, userId, (byEvent.get(event.id) ?? []).map((a) => a.userId)),
@@ -131,9 +139,7 @@ export async function listEvents(params: {
       createdByUserId: event.createdByUserId,
       createdByName,
       attendees: byEvent.get(event.id) ?? [],
-      // A shared event can be changed by whoever made it or a manager; a
-      // private one only by its owner (a manager cannot see it anyway).
-      canEdit: event.createdByUserId === userId || (manager && event.audience !== 'me'),
+      canEdit: mayEdit(event, userId, facts),
     }));
 }
 
@@ -254,12 +260,8 @@ export async function createEvent(params: {
 async function editableEvent(eventId: string, userId: string) {
   const [event] = await db().select().from(calendarEvent).where(eq(calendarEvent.id, eventId)).limit(1);
   if (!event) throw new HttpError(404, 'ไม่พบกิจกรรมนี้');
-  const [membership] = await db()
-    .select({ role: workspaceMember.role })
-    .from(workspaceMember)
-    .where(and(eq(workspaceMember.workspaceId, event.workspaceId), eq(workspaceMember.userId, userId)))
-    .limit(1);
-  if (!membership) throw new HttpError(404, 'ไม่พบกิจกรรมนี้');
+  const facts = await groupFacts(event.workspaceId, userId);
+  if (!facts.role) throw new HttpError(404, 'ไม่พบกิจกรรมนี้');
   const attendeeIds = (
     await db()
       .select({ userId: calendarEventAttendee.userId })
@@ -267,8 +269,7 @@ async function editableEvent(eventId: string, userId: string) {
       .where(eq(calendarEventAttendee.eventId, eventId))
   ).map((r) => r.userId);
   if (!canSeeEvent(event, userId, attendeeIds)) throw new HttpError(404, 'ไม่พบกิจกรรมนี้');
-  const manager = membership.role === 'owner' || membership.role === 'admin';
-  if (event.createdByUserId !== userId && !(manager && event.audience !== 'me')) {
+  if (!mayEdit(event, userId, facts)) {
     throw new HttpError(403, 'แก้ได้เฉพาะคนที่สร้างกิจกรรมหรือผู้ดูแลพื้นที่งาน');
   }
   return event;

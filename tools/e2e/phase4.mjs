@@ -217,7 +217,7 @@ await step('adding the bot to a new group links it by itself; the first to tag i
   const [bound] = await q("select gw.workspace_id from group_workspace gw join line_group g on g.id=gw.line_group_id where g.line_group_id=$1", [GROUP]);
   expect(bound, 'not linked');
   const [m] = await q("select role from workspace_member where workspace_id=$1 and user_id='u-boss'", [bound.workspace_id]);
-  expect(m && m.role === 'owner', `role ${m?.role}`);
+  expect(m && m.role === 'manager', `role ${m?.role}`);
   // And it is simply there in the app's workspace list — no button pressed.
   const p = boss.page;
   await p.goto(BASE + '/', { waitUntil: 'networkidle' });

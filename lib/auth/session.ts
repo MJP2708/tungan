@@ -106,10 +106,7 @@ export type Membership = {
  * this session's user. A caller who is not a member gets 404, not 403, so the
  * API does not confirm that someone else's workspace exists.
  */
-export async function requireMembership(
-  workspaceId: string,
-  options: { roles?: string[] } = {},
-): Promise<Membership> {
+export async function requireMembership(workspaceId: string): Promise<Membership> {
   const user = await requireSession();
   if (!workspaceId) throw new HttpError(400, 'ต้องระบุพื้นที่งาน');
 
@@ -135,8 +132,7 @@ export async function requireMembership(
 
   const membership = rows[0];
   if (!membership) throw new HttpError(404, 'ไม่พบพื้นที่งานนี้');
-  if (options.roles && !options.roles.includes(membership.role)) {
-    throw new HttpError(403, 'สิทธิ์ไม่พอสำหรับการกระทำนี้');
-  }
+  // What this member may do is decided by can() (lib/permissions.ts), with
+  // the facts from lib/auth/roles.ts — never by comparing the role here.
   return membership;
 }

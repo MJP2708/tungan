@@ -74,10 +74,12 @@ describe('task lifecycle', { skip: !URL_ ? 'TEST_DATABASE_URL not set' : false }
       { id: 'ws-other', name: 'อีกทีม' },
     ]);
     await db().insert(schema.workspaceMember).values([
-      { workspaceId: ws, userId: boss, role: 'member' }, // asks for work, not an admin
+      // Asks for the work and, as a Manager, signs it off (2026-10-17: only a
+      // Manager approves; asking alone no longer does).
+      { workspaceId: ws, userId: boss, role: 'manager' },
       { workspaceId: ws, userId: worker, role: 'member' },
       { workspaceId: ws, userId: other, role: 'member' },
-      { workspaceId: 'ws-other', userId: outsider, role: 'owner' },
+      { workspaceId: 'ws-other', userId: outsider, role: 'manager' },
     ]);
     await db().insert(schema.task).values({
       id: TASK, workspaceId: ws, title: 'ส่งใบเสนอราคา',

@@ -34,8 +34,8 @@ describe('calendar events', { skip: !URL_ ? 'TEST_DATABASE_URL not set' : false 
     (await db().select().from(schema.reminder).where(eq(schema.reminder.eventId, eventId)))
       .map((r) => ({ to: r.recipientUserId, sendAt: r.sendAt, state: r.state, kind: r.kind }))
       .sort((a, b) => a.to.localeCompare(b.to));
-  const visibleTo = async (userId: string, role = 'member') =>
-    (await ev.listEvents({ workspaceId: ws, userId, role, ...range })).map((e) => e.title);
+  const visibleTo = async (userId: string, _role?: string) =>
+    (await ev.listEvents({ workspaceId: ws, userId, ...range })).map((e) => e.title);
 
   before(async () => {
     schema = await import('../lib/db/schema.ts');
@@ -64,10 +64,10 @@ describe('calendar events', { skip: !URL_ ? 'TEST_DATABASE_URL not set' : false 
     ]);
     await db().insert(schema.workspace).values([{ id: ws, name: 'ทีมทดสอบ' }, { id: 'ws-2', name: 'อีกทีม' }]);
     await db().insert(schema.workspaceMember).values([
-      { workspaceId: ws, userId: boss, role: 'owner' },
+      { workspaceId: ws, userId: boss, role: 'manager' },
       { workspaceId: ws, userId: may, role: 'member' },
       { workspaceId: ws, userId: nont, role: 'member' },
-      { workspaceId: 'ws-2', userId: outsider, role: 'owner' },
+      { workspaceId: 'ws-2', userId: outsider, role: 'manager' },
     ]);
   });
 
@@ -134,7 +134,11 @@ describe('calendar events', { skip: !URL_ ? 'TEST_DATABASE_URL not set' : false 
       workspaceId: ws, createdBy: boss,
       body: { title: 'ประชุม', startsAt: days(2).toISOString(), audience: 'everyone', notifyMinutes: 60 },
     });
-    const later = days(5);
+    // 14:00 Bangkok, five days out: inside working hours whenever the test
+    // runs, so quiet hours never shift the alert (it used to fail at night).
+    const [y, mo, d] = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' })
+      .format(days(5)).split('-').map(Number);
+    const later = fromZonedWallClock(y, mo, d, 14, 0);
     await ev.updateEvent({
       eventId: id, userId: boss,
       body: { title: 'ประชุม', startsAt: later.toISOString(), audience: 'me', notifyMinutes: 60 },

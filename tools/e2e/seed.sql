@@ -9,9 +9,10 @@ INSERT INTO line_user (id, line_user_id, display_name, is_oa_friend) VALUES
   ('u-boss', 'U00000000000000000000000000000b05', 'หัวหน้าบอส', true),
   ('u-may',  'U00000000000000000000000000000a11', 'เมย์', true),
   ('u-nont', 'U0000000000000000000000000000n0n7', 'นนท์', true);
-INSERT INTO workspace (id, name, cutoff) VALUES ('ws-team', 'ทีมทดสอบ', '17:00'), ('ws-boss-own', 'งานของฉัน', '17:00');
+INSERT INTO workspace (id, name, cutoff, kind) VALUES ('ws-team', 'ทีมทดสอบ', '17:00', 'team'), ('ws-boss-own', 'งานของฉัน', '17:00', 'personal');
 INSERT INTO workspace_member (workspace_id, user_id, role) VALUES
-  ('ws-team', 'u-boss', 'owner'), ('ws-team', 'u-may', 'member'), ('ws-boss-own', 'u-boss', 'owner');
+  ('ws-team', 'u-boss', 'manager'), ('ws-team', 'u-may', 'member'), ('ws-boss-own', 'u-boss', 'manager');
+UPDATE workspace SET created_by_user_id = 'u-boss';
 INSERT INTO session (id, user_id, expires_at) VALUES
   ('46fe8d485b71f886e06bb8da77ab5b370cbe3d376a7e14fcca16cb7f94fdb3e3', 'u-boss', now() + interval '1 day'), ('cc390a97ff0ef249ca93cc5285e3d625a30dbdfd69e93730f2b91f0e0967eec2', 'u-may', now() + interval '1 day');
 INSERT INTO line_group (id, line_group_id, name) VALUES

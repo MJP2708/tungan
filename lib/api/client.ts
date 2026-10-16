@@ -9,6 +9,10 @@ export type ApiWorkspace = {
   id: string;
   name: string;
   role: string;
+  /** team, or personal ("no group": only its creator sees its tasks). */
+  kind?: 'team' | 'personal';
+  /** Who set it up: may always name a Manager (lib/permissions.ts). */
+  createdByUserId?: string | null;
   cutoff: string;
   quietHoursStart?: string;
   quietHoursEnd?: string;
@@ -26,6 +30,8 @@ export type ApiMember = {
   canReceiveDirectMessages: boolean;
   /** ok | not_friend | not_signed_in — different problems, different fixes. */
   linkStatus: 'ok' | 'not_friend' | 'not_signed_in';
+  /** Their LINE display picture, when LINE gave one. */
+  pictureUrl?: string | null;
 };
 
 export type ApiGroup = {
@@ -487,6 +493,29 @@ export const api = {
 
   deleteEvent: (id: string) =>
     request<{ ok: true }>(`/api/events/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  /** Manager or Member. The server applies every rule (lib/permissions.ts). */
+  setMemberRole: (workspaceId: string, userId: string, role: 'manager' | 'member', idempotencyKey: string) =>
+    request<{ ok: true; changed?: boolean }>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(userId)}/role`,
+      { method: 'PATCH', body: JSON.stringify({ role }), idempotencyKey },
+    ),
+
+  /** งานฉัน: my open tasks in every group, plus my personal ones. */
+  mineView: () =>
+    request<{
+      tasks: Array<{
+        id: string;
+        title: string;
+        dueAt: string | null;
+        status: string;
+        reviewState: string;
+        blockedReason: string | null;
+        workspaceId: string;
+        groupName: string | null;
+        personal: boolean;
+      }>;
+    }>('/api/me/tasks'),
 
   changes: (workspaceId: string) =>
     request<{ version: string; pendingInbox: number }>(

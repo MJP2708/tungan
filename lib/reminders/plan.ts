@@ -40,6 +40,7 @@ export async function planRemindersForTask(taskId: string, now = new Date()) {
       quietEnd: workspace.quietHoursEnd,
       workStart: workspace.workingHoursStart,
       workEnd: workspace.workingHoursEnd,
+      kind: workspace.kind,
     })
     .from(task)
     .innerJoin(workspace, eq(workspace.id, task.workspaceId))
@@ -65,6 +66,10 @@ export async function planRemindersForTask(taskId: string, now = new Date()) {
 
   // A closed task reminds nobody.
   if (t.status === 'done') return { assignee: null, owner: null, reviewer: null };
+  // A personal task gets no automatic push: every push is a counted message,
+  // and there is no daily digest to fold it into yet (2026-10-17). What the
+  // person sets themselves in เตือนฉัน is left alone above.
+  if (t.kind === 'personal') return { assignee: null, owner: null, reviewer: null };
 
   const workspaceHours: WorkingHours = { startsAt: t.workStart, endsAt: t.workEnd };
   const quiet = { start: t.quietStart, end: t.quietEnd };

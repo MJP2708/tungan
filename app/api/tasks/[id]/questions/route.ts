@@ -5,11 +5,11 @@ import { db } from '@/lib/db/index.ts';
 import { task, taskQuestion, taskEvent, lineUser } from '@/lib/db/schema.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
+import { assertCan } from '@/lib/auth/roles.ts';
 import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { nextWorkingMorning } from '@/lib/reminders/policy.ts';
 import { appLink } from '@/lib/deep-link.ts';
 import { assertAssignable } from '@/lib/auth/assignable.ts';
-import { mayActOnTask } from '@/lib/tasks/permissions.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -74,9 +74,8 @@ export async function POST(
     }
     // Asking puts the task on hold, so it is an action on the task: a
     // bystander could otherwise mark anyone's work ติดปัญหา.
-    if (!mayActOnTask(found, { userId: membership.userId, role: membership.role })) {
-      throw new HttpError(403, 'งานนี้ดูได้อย่างเดียว เพราะคุณไม่ใช่ผู้รับผิดชอบ');
-    }
+    // Its worker or a Manager (can(): ask_question).
+    await assertCan({ userId: membership.userId, workspaceId: found.workspaceId, action: 'ask_question', task: found });
     // The question is DMed to them, so they must be in this workspace.
     await assertAssignable(found.workspaceId, askedOfUserId);
 

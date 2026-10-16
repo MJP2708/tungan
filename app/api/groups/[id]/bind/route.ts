@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/lib/db/index.ts';
 import { lineGroup, lineGroupMember, groupWorkspace } from '@/lib/db/schema.ts';
-import { requireMembership, HttpError } from '@/lib/auth/session.ts';
+import { HttpError } from '@/lib/auth/session.ts';
+import { requireCan } from '@/lib/auth/require-can.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
 import { grantWorkspaceToGroup } from '@/lib/auth/membership.ts';
 
@@ -22,7 +23,14 @@ export async function POST(
     // Two independent checks, because the caller controls both ids:
     // they must be a member of the workspace, and we must have seen them
     // in the group.
-    const membership = await requireMembership(workspaceId);
+    // Connecting a group is a group setting: Managers only (can()). A
+    // personal workspace is "no group" by definition — binding one would show
+    // its private tasks to everyone in the chat.
+    const { userId, facts } = await requireCan(workspaceId, 'edit_group_settings');
+    if (facts.kind === 'personal') {
+      throw new HttpError(409, 'งานส่วนตัวเชื่อมกับกลุ่ม LINE ไม่ได้ · สร้างพื้นที่งานของทีมก่อน');
+    }
+    const membership = { userId };
 
     const seen = await db()
       .select({ userId: lineGroupMember.userId })
@@ -81,7 +89,7 @@ export async function DELETE(
       .where(eq(groupWorkspace.lineGroupId, id))
       .limit(1);
     if (!rows[0]) throw new HttpError(404, 'กลุ่มนี้ยังไม่ได้เชื่อม');
-    await requireMembership(rows[0].workspaceId, { roles: ['owner', 'admin'] });
+    await requireCan(rows[0].workspaceId, 'edit_group_settings');
     await db().delete(groupWorkspace).where(eq(groupWorkspace.lineGroupId, id));
     return NextResponse.json({ ok: true });
   } catch (error) {

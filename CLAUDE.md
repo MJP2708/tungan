@@ -172,21 +172,64 @@ proves nothing here.
   `export const runtime = 'nodejs'`. Dedup on `webhookEventId` with a unique
   constraint and honour `deliveryContext.isRedelivery`. Ack fast, work after.
 - Raw message retention **7 days or less**. On `unsend`, delete or mask it.
-- **"งานของฉัน" from LINE (2026-10-09):** `@ทันงาน งานของฉัน` in a group,
-  or `งานของฉัน` / `มีงานอะไรบ้าง` / `my tasks` in a 1:1 chat, is answered on
-  the **free reply token** with a card: เลยกำหนด, วันนี้, รอคุณรับ, รอคุณตรวจ,
-  7 วันข้างหน้า, each row opening the task in the app. Recognised only when
-  the **whole message** is the question (`lib/line/my-work.ts`), so
-  "งานของฉันคือส่งรายงาน…" still becomes a draft. A group hears only about
-  its own workspace — never a personal or other team's task; a 1:1 chat
-  covers every workspace (`lib/tasks/my-work.ts`).
+- **"งานฉัน" from LINE (2026-10-09, changed 2026-10-17):** `งานฉัน` /
+  `งานของฉัน` / `มีงานอะไรบ้าง` / `my tasks`, answered on the **free reply
+  token**. In a 1:1 chat: the 5 most urgent in งานฉัน's section order and a
+  button to the page. In a group (`@ทันงาน งานฉัน`): **only** a short line and
+  the button — someone's tasks are never listed in a group. Recognised only
+  when the **whole message** is the question (`lib/line/my-work.ts`), so
+  "งานของฉันคือส่งรายงาน…" still becomes a draft.
+
+## Roles and permissions (decided 2026-10-17)
+
+- **Two roles, on group membership: MEMBER and MANAGER** (`workspace_member.role`
+  = `member` | `manager`). A "group" is a workspace: each LINE group has
+  exactly one, and an app-made workspace is a group with no chat. The same
+  person can be MANAGER in one group and MEMBER in another. Whoever sets a
+  group up (first to tag the bot, or makes it) is its first MANAGER and its
+  creator (`workspace.created_by_user_id`); everyone new is MEMBER.
+- **Every permission check goes through `can(user, action, group, task?)`**
+  in `lib/permissions.ts` — the only file that compares a role. Facts come
+  from `lib/auth/roles.ts` (`groupFacts`, `assertCan`); routes use
+  `requireCan` (`lib/auth/require-can.ts`). API routes, the app screen and
+  LINE postbacks all ask it; a forged postback meets the same check.
+  `tests/permissions.test.ts` fails if a role is compared anywhere else.
+- Member and Manager: create tasks, view group tasks, progress / submit /
+  block their own task, read their own private reason. Manager only:
+  approve, request revision, reassign, change deadline, read any private
+  ติดปัญหา reason in the group, change roles, group settings, announce.
+  Asking for a task no longer gives a Member review rights.
+- Rules: nobody changes their own role; a group never reaches zero Managers
+  by demotion (count + change in one transaction with a row lock); a
+  Manager cannot approve their own task while another Manager exists — as
+  the only one they can, logged `self_approved`. A Manager who leaves the
+  LINE group becomes a Member; with none left the group shows a banner,
+  approvals wait, and the creator (recovery path, not a third role) names one.
+  Tagging the bot never hands out Manager once a group has been set up.
+- `audit_log` records role changes, approvals, revision requests,
+  reassignments and deadline changes (`lib/audit.ts`). Migration 0016 maps
+  owner/admin → manager, member → member.
+- **Personal tasks** live in the person's own workspace (`workspace.kind =
+  'personal'`, "no group"): only their maker sees or touches them — never a
+  Manager — and the maker closes them directly, the one exception to
+  submitted ≠ closed. A private-chat task for yourself is personal; one
+  naming a teammate goes to the team workspace you share (keeps the DM
+  fallback). Personal tasks get no automatic push reminders (no daily digest
+  exists yet).
+- **งานฉัน** (`?p=mine`): my open tasks across every group I belong to plus
+  my personal ones, in sections ส่งกลับแก้ไข → เลยกำหนด → วันนี้ → สัปดาห์นี้
+  → ภายหลัง → รอตรวจ (`lib/tasks/my-tasks.ts`, Bangkok days, week ends
+  Sunday). In LINE: a private chat gets the 5 most urgent; a group gets only
+  a short line and a button — never a list.
+- **Out of scope:** custom roles, tags. **Next planned change:** the manager
+  view/dashboard.
 
 ## Announcements and ทุกคน (decided 2026-10-08)
 
-- **Announcements:** owners and admins post — in the app (ทีม → ประกาศ,
-  server-checked: `requireMembership(id, { roles: ['owner','admin'] })`) or
-  in LINE with `@ทันงาน ประกาศ: หัวข้อ` (new line for details; same role
-  check; parsed by `lib/line/announce.ts`, and "ประกาศผล…" stays a task).
+- **Announcements:** Managers post — in the app (ทีม → ประกาศ,
+  server-checked: `requireCan(id, 'post_announcement')`) or
+  in LINE with `@ทันงาน ประกาศ: หัวข้อ` (new line for details; same
+  can() check; parsed by `lib/line/announce.ts`, and "ประกาศผล…" stays a task).
   Every member **including the author** sees each one **once**, as a popup
   before using the app (re-checked when the app comes back into view),
   closed with X or รับทราบ. Closing is stored server-side (`announcement_read`), so it does
@@ -195,7 +238,7 @@ proves nothing here.
   `lib/announcements.ts`; history on ทีม → ประกาศ.
 - **Read receipts and meeting links (2026-10-09):** the history shows
   "รับทราบแล้ว x/y" (current members who closed it) to everyone; the names of
-  who has not are sent **only** to the author, owners and admins — `null`
+  who has not are sent **only** to the author and Managers — `null`
   for everyone else, decided on the server. An announcement may carry one
   link (`announcement.link`, migration 0014) shown as a "เข้าร่วม Google Meet /
   Zoom / Teams / เปิดใน LINE" button; `lib/meeting-link.ts` validates and
@@ -311,7 +354,8 @@ database dumps.
 ## Out of scope
 
 Auto-scan of all messages, native apps, calendar sync, file storage, public
-signup, annual plans, per-group add-ons, public leaderboards.
+signup, annual plans, per-group add-ons, public leaderboards, custom roles,
+tags.
 
 ## AI scope — updated 2026-10-02
 
@@ -505,7 +549,7 @@ node tools/visual/contrast.mjs  # light text left on a light surface
 **End-to-end against a real backend** lives in `tools/e2e/` (README there):
 the production build, a throwaway local Postgres, two signed-in people, a
 webhook signed with a fake channel secret, and every step checked in the
-database — 58 checks (61 after 17:00 Bangkok) across create → review → approve, LINE drafts,
+database — 68 checks (71 after 17:00 Bangkok) across create → review → approve, LINE drafts,
 reminders, settings, workspaces, cron, logout, announcements and ทุกคน tasks. Every key in `.env.local`
 must be overridden when starting that server, because `.env.local` is
 production; `tools/e2e/lib.mjs` refuses a non-localhost database.

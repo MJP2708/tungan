@@ -91,7 +91,7 @@ describe('reminder dispatch', { skip: !URL_ ? 'TEST_DATABASE_URL not set' : fals
     ]);
     await db().insert(schema.workspace).values({ id: ws, name: 'ทีมทดสอบ' });
     await db().insert(schema.workspaceMember).values([
-      { workspaceId: ws, userId: boss, role: 'owner' },
+      { workspaceId: ws, userId: boss, role: 'manager' },
       { workspaceId: ws, userId: worker, role: 'member' },
     ]);
     await db().insert(schema.task).values([

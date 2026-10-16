@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { planReviewNudge, DEFAULT_WORKING_HOURS } from '../lib/reminders/policy.ts';
+import { can } from '../lib/permissions.ts';
 
 /**
  * Submitting is not closing.
@@ -12,19 +13,20 @@ import { planReviewNudge, DEFAULT_WORKING_HOURS } from '../lib/reminders/policy.
  * shows up as a failing test rather than as a permission hole.
  */
 
-/** The rule from app/api/tasks/[id]/status/route.ts, in one place. */
+/** Closing is can('approve_task') — the one rule, in lib/permissions.ts. */
 function mayClose(params: {
-  role: 'owner' | 'admin' | 'member';
+  role: 'manager' | 'member';
   actorId: string;
   assigneeId: string | null;
   createdById: string | null;
+  managerCount?: number;
 }) {
-  const { role, actorId, assigneeId, createdById } = params;
-  const hasReviewRight = role === 'owner' || role === 'admin' || createdById === actorId;
-  if (!hasReviewRight) return false;
-  const askedBySomeoneElse = !!createdById && createdById !== assigneeId;
-  if (assigneeId === actorId && askedBySomeoneElse) return false;
-  return true;
+  return can(
+    { userId: params.actorId },
+    'approve_task',
+    { role: params.role, kind: 'team', managerCount: params.managerCount ?? 1, createdByUserId: 'founder' },
+    { assigneeUserId: params.assigneeId, createdByUserId: params.createdById },
+  );
 }
 
 test('a worker cannot close their own task', () => {
@@ -35,46 +37,40 @@ test('a worker cannot close their own task', () => {
   );
 });
 
-test('review rights do not extend to your own work', () => {
-  // Being an owner is not the same as being allowed to sign off your own
-  // submission. If it were, every approval on the record could be self-issued.
+test('a Manager cannot sign off their own work while another Manager could', () => {
+  // If they could, every approval on the record could be self-issued.
   assert.equal(
-    mayClose({ role: 'owner', actorId: 'boss', assigneeId: 'boss', createdById: 'client-lead' }),
+    mayClose({ role: 'manager', actorId: 'boss', assigneeId: 'boss', createdById: 'client-lead', managerCount: 2 }),
     false,
   );
 });
 
-test('the person who asked for the work can close it', () => {
+test('only a Manager closes work — asking for it no longer does (2026-10-17)', () => {
   assert.equal(
-    mayClose({ role: 'member', actorId: 'manager', assigneeId: 'worker', createdById: 'manager' }),
-    true,
+    mayClose({ role: 'member', actorId: 'asker', assigneeId: 'worker', createdById: 'asker' }),
+    false,
   );
   assert.equal(
-    mayClose({ role: 'admin', actorId: 'admin', assigneeId: 'worker', createdById: 'manager' }),
-    true,
-  );
-});
-
-test('a task you made for yourself can still be closed by you', () => {
-  // Otherwise a one-person workspace could never close anything, which is a
-  // worse failure than the one the rule is guarding against.
-  assert.equal(
-    mayClose({ role: 'owner', actorId: 'solo', assigneeId: 'solo', createdById: 'solo' }),
+    mayClose({ role: 'manager', actorId: 'admin', assigneeId: 'worker', createdById: 'asker' }),
     true,
   );
 });
 
-test('a task with no recorded owner falls to the workspace owner, not to anyone', () => {
-  // Rows from before the creator was recorded have nobody to sign them off.
-  // Letting any member close them would mean any member could close every
-  // orphaned task in the workspace, which is a wider hole than the one this
-  // rule exists to close.
+test('the only Manager can close their own task (and it is logged as self-approved)', () => {
+  // Otherwise a one-Manager group could never close the Manager's own work.
+  assert.equal(
+    mayClose({ role: 'manager', actorId: 'solo', assigneeId: 'solo', createdById: 'solo', managerCount: 1 }),
+    true,
+  );
+});
+
+test('a task with no recorded owner falls to a Manager, not to anyone', () => {
   assert.equal(
     mayClose({ role: 'member', actorId: 'someone', assigneeId: 'worker', createdById: null }),
     false,
   );
   assert.equal(
-    mayClose({ role: 'owner', actorId: 'boss', assigneeId: 'worker', createdById: null }),
+    mayClose({ role: 'manager', actorId: 'boss', assigneeId: 'worker', createdById: null }),
     true,
   );
 });
@@ -86,56 +82,39 @@ test('a stranger to the task cannot close it', () => {
   );
 });
 
-/**
- * Reaching the review check at all is a separate gate from passing it.
- *
- * The route's mayEdit check runs first. An account manager who asked for the
- * work usually holds a plain member role and is not the assignee, so without
- * being named here they were refused before the review rule — which names
- * them explicitly — ever ran.
- */
-function mayAct(params: {
-  role: 'owner' | 'admin' | 'member';
-  actorId: string;
-  assigneeId: string | null;
-  createdById: string | null;
-  action: string;
-}) {
-  const { role, actorId, assigneeId, createdById, action } = params;
-  const isReview = action === 'approve' || action === 'revision';
-  const mayEdit =
-    assigneeId === actorId ||
-    createdById === actorId ||
-    role === 'owner' ||
-    role === 'admin';
-  if (!mayEdit) return false;
-  // Asking for work does not make it yours to do.
-  if (createdById === actorId && assigneeId !== actorId && role === 'member' && !isReview) {
-    return false;
-  }
-  return true;
+/** Which can() action each status button is (as lib/tasks/transitions.ts). */
+const ACTION_FOR = {
+  accept: 'update_own_task_progress',
+  submit: 'submit_own_task',
+  blocked: 'flag_blocked_own_task',
+  handoff: 'offer_handoff',
+  approve: 'approve_task',
+  revision: 'request_revision',
+} as const;
+
+function mayAct(params: { role: 'manager' | 'member'; actorId: string; action: keyof typeof ACTION_FOR }) {
+  return can(
+    { userId: params.actorId },
+    ACTION_FOR[params.action],
+    { role: params.role, kind: 'team', managerCount: 1, createdByUserId: 'founder' },
+    { assigneeUserId: 'worker', createdByUserId: 'am' },
+  );
 }
 
-test('the asker reaches the review actions even as a plain member', () => {
-  assert.equal(
-    mayAct({ role: 'member', actorId: 'am', assigneeId: 'worker', createdById: 'am', action: 'approve' }),
-    true,
-  );
-  assert.equal(
-    mayAct({ role: 'member', actorId: 'am', assigneeId: 'worker', createdById: 'am', action: 'revision' }),
-    true,
-  );
+test('asking for the work does not give a member the review actions any more (2026-10-17)', () => {
+  assert.equal(mayAct({ role: 'member', actorId: 'am', action: 'approve' }), false);
+  assert.equal(mayAct({ role: 'member', actorId: 'am', action: 'revision' }), false);
+  assert.equal(mayAct({ role: 'manager', actorId: 'am', action: 'approve' }), true);
+  assert.equal(mayAct({ role: 'manager', actorId: 'am', action: 'revision' }), true);
 });
 
-test('the asker cannot use the worker status buttons on their behalf', () => {
+test('nobody uses the worker status buttons on the worker\u2019s behalf — not the asker, not a Manager', () => {
   // Marking someone else's task accepted or submitted would put words in
   // their mouth, and the record is meant to be neutral.
-  for (const action of ['accept', 'submit', 'blocked', 'handoff']) {
-    assert.equal(
-      mayAct({ role: 'member', actorId: 'am', assigneeId: 'worker', createdById: 'am', action }),
-      false,
-      action,
-    );
+  for (const action of ['accept', 'submit', 'blocked', 'handoff'] as const) {
+    assert.equal(mayAct({ role: 'member', actorId: 'am', action }), false, action);
+    assert.equal(mayAct({ role: 'manager', actorId: 'am', action }), false, `${action} as a Manager`);
+    assert.equal(mayAct({ role: 'member', actorId: 'worker', action }), true, `${action} as the worker`);
   }
 });
 
