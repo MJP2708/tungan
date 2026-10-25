@@ -138,6 +138,8 @@ export type UiCapture = {
   dueAt: string | null;
   confidence: ApiInboxItem['confidence'];
   assignAll?: boolean;
+  aiAssisted?: boolean;
+  aiReason?: string | null;
   state: 'pending' | 'created' | 'dismissed';
 };
 
@@ -162,6 +164,8 @@ export function toUiCapture(item: ApiInboxItem): UiCapture {
     dueAt: item.suggestedDueAt,
     confidence: item.confidence,
     assignAll: Boolean(item.assignAll),
+    aiAssisted: Boolean(item.aiAssisted),
+    aiReason: item.aiReason ?? null,
     state: 'pending',
   };
 }

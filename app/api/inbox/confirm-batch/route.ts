@@ -6,6 +6,8 @@ import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
 import { everyoneAssignable } from '@/lib/auth/assignable.ts';
 import { createTasks } from '@/lib/tasks/create.ts';
+import { recordConfirmedDraft } from '@/lib/ai/training.ts';
+import { DRAFT_CONTENT_CLEARED } from '@/lib/retention.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -38,7 +40,7 @@ export async function POST(req: Request) {
     for (const item of items) {
       const claimed = await db()
         .update(inboxItem)
-        .set({ state: 'created', rawMessage: null })
+        .set({ state: 'created', ...DRAFT_CONTENT_CLEARED })
         .where(and(eq(inboxItem.id, item.id), eq(inboxItem.state, 'pending')))
         .returning({ id: inboxItem.id });
       if (!claimed.length) {
@@ -60,6 +62,14 @@ export async function POST(req: Request) {
           eventDetail: 'ยืนยันพร้อมกันหลายรายการ',
         });
         created.push(...made.ids);
+        await recordConfirmedDraft({
+          draft: item,
+          confirmed: {
+            title: item.suggestedTitle || 'งานจาก LINE',
+            assigneeUserIds: item.assignAll ? [] : assignees.filter((u): u is string => Boolean(u)),
+            dueAt: item.suggestedDueAt,
+          },
+        });
       } catch (error) {
         // Hand this draft back rather than leave it claimed with no task.
         await db().update(inboxItem).set({ state: 'pending' }).where(eq(inboxItem.id, item.id));

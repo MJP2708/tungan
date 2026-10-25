@@ -80,6 +80,9 @@ export type ApiInboxItem = {
   /** Tagged @All: confirming gives everyone their own copy. */
   assignAll?: boolean;
   confidence: 'explicit' | 'inferred' | 'fallback';
+  /** The model helped read it; the reason is the model's, for the person confirming. */
+  aiAssisted?: boolean;
+  aiReason?: string | null;
 };
 
 /** Something everyone in a workspace needs to know. */
@@ -536,7 +539,39 @@ export const api = {
         configured: boolean; enabled: boolean; remaining: number;
         allowance: number; usedToday: number; dailyCap: number;
       };
+      /** Training on confirmed drafts (opt-in). Null while AI is not set up. */
+      training?: {
+        optIn: boolean; consentAt: string | null; consentVersion: string | null;
+        currentVersion: string; examples: number;
+      } | null;
     }>(
       `/api/usage?workspaceId=${encodeURIComponent(workspaceId)}`,
+    ),
+
+  /** AI (2026-10-25): suggestions and summaries. Each is one answer, shown
+   *  once; a retry under the same key is neither charged nor asked again. */
+  aiPriorities: (workspaceId: string, idempotencyKey: string) =>
+    request<{ suggestions: Array<{ taskId: string; reason: string }> }>('/api/me/priorities', {
+      method: 'POST',
+      body: JSON.stringify({ workspaceId }),
+      idempotencyKey,
+    }),
+
+  aiTaskSummary: (taskId: string, idempotencyKey: string) =>
+    request<{ summary: string; nextStep: string | null }>(
+      `/api/tasks/${encodeURIComponent(taskId)}/ai-summary`,
+      { method: 'POST', body: JSON.stringify({}), idempotencyKey },
+    ),
+
+  aiPeriodSummary: (workspaceId: string, range: 'day' | 'week', idempotencyKey: string) =>
+    request<{ range: 'day' | 'week'; summary: string; highlights: string[] }>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/ai-summary`,
+      { method: 'POST', body: JSON.stringify({ range }), idempotencyKey },
+    ),
+
+  setTrainingOptIn: (workspaceId: string, on: boolean, consentVersion: string | null) =>
+    request<{ ok: true; aiTrainingOptIn: boolean; deleted: number }>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}`,
+      { method: 'PATCH', body: JSON.stringify({ aiTrainingOptIn: on, consentVersion }) },
     ),
 };

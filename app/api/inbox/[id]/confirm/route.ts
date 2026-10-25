@@ -6,6 +6,8 @@ import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { errorResponse, withIdempotency } from '@/lib/api/handler.ts';
 import { assertAssignable, everyoneAssignable } from '@/lib/auth/assignable.ts';
 import { createTasks } from '@/lib/tasks/create.ts';
+import { recordConfirmedDraft } from '@/lib/ai/training.ts';
+import { DRAFT_CONTENT_CLEARED } from '@/lib/retention.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -78,7 +80,7 @@ export async function POST(
           // what the privacy page and the bot's join message promise. (It used
           // to be copied into task.note here, where unsend and retention
           // could never reach it.)
-          .set({ state: 'created', rawMessage: null })
+          .set({ state: 'created', ...DRAFT_CONTENT_CLEARED })
           .where(and(eq(inboxItem.id, id), eq(inboxItem.state, 'pending')))
           .returning({ id: inboxItem.id });
         if (!claimed.length) throw new HttpError(409, 'ข้อความนี้ถูกจัดการไปแล้ว');
@@ -102,6 +104,15 @@ export async function POST(
             .where(eq(inboxItem.id, id));
           throw error;
         }
+        // Opted-in teams keep what was read next to what the person confirmed.
+        await recordConfirmedDraft({
+          draft: item,
+          confirmed: {
+            title,
+            assigneeUserIds: toEveryone ? [] : assignees.filter((u): u is string => Boolean(u)),
+            dueAt,
+          },
+        });
         return { id: created.ids[0], created: created.ids.length };
       },
     );

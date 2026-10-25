@@ -1,7 +1,7 @@
 import 'server-only';
 import { and, isNotNull, lt, sql } from 'drizzle-orm';
 import { db } from './db/index.ts';
-import { inboxItem, lineEvent } from './db/schema.ts';
+import { aiUsage, inboxItem, lineEvent } from './db/schema.ts';
 
 /**
  * Throw away message content we no longer need.
@@ -22,11 +22,25 @@ import { inboxItem, lineEvent } from './db/schema.ts';
  */
 
 export const CONTENT_DAYS = 7;
+
+/**
+ * Everything on a draft that holds the message's words: the text itself, and
+ * (2026-10-25) what the model read from it and why. One set, cleared together
+ * wherever the text goes — confirm, dismiss, unsend, and the job below.
+ */
+export const DRAFT_CONTENT_CLEARED = {
+  rawMessage: null,
+  aiReason: null,
+  rulesReading: null,
+  aiReading: null,
+} as const;
+
 const ROW_DAYS = 30;
 
 export type RetentionResult = {
   inboxCleared: number;
   payloadsCleared: number;
+  answersCleared: number;
   eventsDeleted: number;
 };
 
@@ -38,9 +52,17 @@ export async function purgeExpiredContent(now = new Date()): Promise<RetentionRe
   // already clears the text; this catches the ones left sitting.
   const inboxCleared = await db()
     .update(inboxItem)
-    .set({ rawMessage: null })
+    .set(DRAFT_CONTENT_CLEARED)
     .where(and(isNotNull(inboxItem.rawMessage), lt(inboxItem.createdAt, contentBefore)))
     .returning({ id: inboxItem.id });
+
+  // A stored AI answer (a summary, a reading) is kept only so a retry gets
+  // the same answer free; after the same seven days only the count remains.
+  const answersCleared = await db()
+    .update(aiUsage)
+    .set({ answer: sql`null` })
+    .where(and(isNotNull(aiUsage.answer), lt(aiUsage.createdAt, contentBefore)))
+    .returning({ id: aiUsage.id });
 
   // The event body, which holds the message text verbatim.
   const payloadsCleared = await db()
@@ -57,6 +79,7 @@ export async function purgeExpiredContent(now = new Date()): Promise<RetentionRe
   return {
     inboxCleared: inboxCleared.length,
     payloadsCleared: payloadsCleared.length,
+    answersCleared: answersCleared.length,
     eventsDeleted: eventsDeleted.length,
   };
 }

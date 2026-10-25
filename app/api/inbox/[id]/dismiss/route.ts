@@ -4,6 +4,7 @@ import { db } from '@/lib/db/index.ts';
 import { inboxItem } from '@/lib/db/schema.ts';
 import { requireMembership, HttpError } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
+import { DRAFT_CONTENT_CLEARED } from '@/lib/retention.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,7 +22,7 @@ export async function POST(
     // Dismissing drops the raw text too — we keep only what became a task.
     await db()
       .update(inboxItem)
-      .set({ state: 'dismissed', rawMessage: null })
+      .set({ state: 'dismissed', ...DRAFT_CONTENT_CLEARED })
       .where(eq(inboxItem.id, id));
     return NextResponse.json({ ok: true });
   } catch (error) {

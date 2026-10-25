@@ -3,6 +3,8 @@ import { requireMembership } from '@/lib/auth/session.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
 import { usedThisMonth, billingMonth } from '@/lib/line/messaging.ts';
 import { aiAllowanceFor } from '@/lib/ai/allowance.ts';
+import { aiConfigured } from '@/lib/ai/model.ts';
+import { trainingStatus } from '@/lib/ai/training.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,6 +25,9 @@ export async function GET(req: Request) {
       // How many messages AI may still read for this workspace. Shown as
       // "ครั้ง" — never the words token or credit.
       ai: await aiAllowanceFor(workspaceId),
+      // Asked only once AI is set up, like the allowance: safe to deploy
+      // before the migration that adds these columns.
+      training: aiConfigured() ? await trainingStatus(workspaceId) : null,
     });
   } catch (error) {
     return errorResponse(error);

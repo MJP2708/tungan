@@ -17,7 +17,11 @@ export async function GET(req: Request) {
       .from(inboxItem)
       .where(and(eq(inboxItem.workspaceId, workspaceId), eq(inboxItem.state, 'pending')))
       .orderBy(desc(inboxItem.createdAt));
-    return NextResponse.json({ items: rows });
+    // What the rules and the model each read stays on the server: it is kept
+    // for training (opt-in), not for the screen.
+    return NextResponse.json({
+      items: rows.map(({ rulesReading: _rules, aiReading: _ai, ...row }) => row),
+    });
   } catch (error) {
     return errorResponse(error);
   }

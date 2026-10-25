@@ -66,6 +66,13 @@ export const workspace = pgTable('workspace', {
    *  negative — a refused read simply falls back to the rules. */
   aiDailyCap: integer('ai_daily_cap').notNull().default(20),
   aiAllowance: integer('ai_allowance').notNull().default(50),
+  /** Training opt-in (2026-10-25): off until a Manager agrees, with the
+   *  wording version they agreed to. While on, confirmed drafts are kept as
+   *  examples (ai_training_example); turning it off deletes them. */
+  aiTrainingOptIn: boolean('ai_training_opt_in').notNull().default(false),
+  aiTrainingConsentAt: timestamp('ai_training_consent_at', { withTimezone: true }),
+  aiTrainingConsentBy: text('ai_training_consent_by').references((): AnyPgColumn => lineUser.id, { onDelete: 'set null' }),
+  aiTrainingConsentVersion: text('ai_training_consent_version'),
   /** team: a LINE group's workspace or one made in the app. personal: the
    *  person's own, made at first sign-in — "no group"; only its creator ever
    *  sees its tasks (lib/permissions.ts). */
@@ -99,6 +106,9 @@ export const aiUsage = pgTable(
     units: integer('units').notNull().default(1),
     /** Calendar day in Asia/Bangkok, "YYYY-MM-DD", for the daily cap. */
     day: text('day').notNull(),
+    /** The model's answer, so a retry under the same source gets it again
+     *  without a second call. Cleared after seven days (lib/retention.ts). */
+    answer: jsonb('answer'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -284,6 +294,9 @@ export const inboxItem = pgTable(
     /** Cleared on `unsend`, and by retention after 7 days. */
     rawMessage: text('raw_message'),
     lineMessageId: text('line_message_id'),
+    /** The LINE message every draft came from — the unique column above only
+     *  fits the first draft of a message, so unsend uses this one. */
+    sourceMessageId: text('source_message_id'),
     suggestedTitle: text('suggested_title').notNull().default(''),
     suggestedAssigneeUserId: text('suggested_assignee_user_id'),
     /** The message tagged @All: confirming creates one task per person. */
@@ -291,6 +304,14 @@ export const inboxItem = pgTable(
     suggestedDueAt: timestamp('suggested_due_at', { withTimezone: true }),
     /** explicit | inferred | fallback — drives whether we ask for confirmation. */
     confidence: text('confidence').notNull().default('fallback'),
+    /** The model helped read this one (rules alone were not enough). */
+    aiAssisted: boolean('ai_assisted').notNull().default(false),
+    /** Why the model read it that way, for the person confirming. */
+    aiReason: text('ai_reason'),
+    /** What the rules read, and what the model read — kept so a confirmed
+     *  draft can become a training example (only for teams that opted in). */
+    rulesReading: jsonb('rules_reading'),
+    aiReading: jsonb('ai_reading'),
     state: text('state').notNull().default('pending'), // pending|created|dismissed
     replyToken: text('reply_token'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -298,6 +319,7 @@ export const inboxItem = pgTable(
   (t) => [
     index('inbox_workspace_state_idx').on(t.workspaceId, t.state),
     uniqueIndex('inbox_line_message_key').on(t.lineMessageId),
+    index('inbox_source_message_idx').on(t.sourceMessageId),
   ],
 );
 
@@ -593,4 +615,33 @@ export const auditLog = pgTable(
     at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('audit_log_workspace_idx').on(t.workspaceId, t.at)],
+);
+
+/**
+ * A training example (2026-10-25): one confirmed draft from a team that opted
+ * in — the message as tagged, what the rules read, what the model read, and
+ * what the person actually confirmed. Never raw chat: only messages that
+ * tagged the bot and became a task. Deleted on unsend (by line_message_id)
+ * and all at once when the team opts out.
+ */
+export const aiTrainingExample = pgTable(
+  'ai_training_example',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull().references(() => workspace.id, { onDelete: 'cascade' }),
+    inboxItemId: text('inbox_item_id'),
+    lineMessageId: text('line_message_id'),
+    sourceText: text('source_text').notNull(),
+    rulesReading: jsonb('rules_reading'),
+    aiReading: jsonb('ai_reading'),
+    confirmed: jsonb('confirmed').notNull(),
+    /** Did the person change what was read? The examples worth most. */
+    corrected: boolean('corrected').notNull().default(false),
+    consentVersion: text('consent_version').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('ai_training_example_workspace_idx').on(t.workspaceId),
+    index('ai_training_example_message_idx').on(t.lineMessageId),
+  ],
 );

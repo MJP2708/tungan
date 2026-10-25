@@ -120,6 +120,13 @@
       "when": 1792178181358,
       "tag": "0016_roles_and_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792938322851,
+      "tag": "0017_ai_reading_and_training",
+      "breakpoints": true
     }
   ]
 }

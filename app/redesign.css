@@ -969,6 +969,44 @@ details.delegate-section > summary:focus-visible {
   gap: 6px;
 }
 
+/* AI helped read this draft (2026-10-25): a quiet note, not a badge of
+   approval. Brand blue for the mark only; the text stays ink. */
+.line-ai-note {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.line-ai-note svg {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--blue);
+}
+
+.line-ai-note span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.line-ai-note strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.line-ai-note small {
+  color: var(--ink-3);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .line-field {
   display: grid;
   min-height: 48px;
@@ -2136,4 +2174,160 @@ details.delegate-section > summary:focus-visible {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ══ AI helpers (2026-10-25) ══════════════════════════════════════════════
+   One press, one answer, labelled as AI's. Ink text on card; brand blue only
+   on the mark and the controls. */
+.ai-panel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 14px 16px;
+}
+
+.ai-panel-inline {
+  margin: 4px 0 10px;
+  padding: 0;
+}
+
+.ai-panel > .ai-panel-label,
+.ai-panel-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink-3, #5d5d57);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ai-panel-label svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--blue);
+}
+
+.ai-panel-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.ai-panel-error {
+  margin: 0;
+  color: #c4241f;
+  font-size: 13px;
+}
+
+.ai-panel .ai-picks {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-picks button {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: inherit;
+  text-align: left;
+}
+
+.ai-picks strong {
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ai-picks small,
+.ai-highlights {
+  color: var(--ink-3, #5d5d57);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ai-highlights {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.ai-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-panel .ai-panel-actions > button,
+.ai-panel > button,
+.ai-panel-inline > button {
+  min-height: 44px;
+  justify-self: start;
+}
+
+/* The training consent sits on the AI page's centred column: read as text. */
+.ai-training {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  margin: 8px 0;
+  text-align: left;
+}
+
+.ai-training > strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ai-training > p,
+.ai-training > small {
+  margin: 0;
+  color: var(--ink-3, #5d5d57);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.ai-training a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  color: var(--blue);
+}
+
+/* The AI page's own rows (allowance, hours, quota) wrap like the settings
+   rows do: with AI on, "50 reads left · used today 3/20" outgrew a 320px
+   phone in English and pushed the whole column wider than its card. */
+.ai-empty {
+  width: 100%;
+  min-width: 0;
+}
+
+.ai-empty .connection-row {
+  flex-wrap: wrap;
+}
+
+.ai-empty .connection-row > span:first-child {
+  min-width: 0;
+  flex: 1 1 160px;
+}
+
+.ai-empty .connection-row [data-slot='badge'] {
+  max-width: 100%;
+  height: auto;
+  padding-block: 4px;
+  white-space: normal;
+  text-align: left;
+  line-height: 1.4;
 }

@@ -376,13 +376,26 @@ tags.
     status) and is never silently replaced.
   - Summarise work in ทันงาน (a task and its history, a day, a week) for a
     person to read. Not a chat surface.
-- **Training data — NOT decided yet.** The product promises today: the bot
-  reads only messages that tag @ทันงาน, raw messages are kept 7 days or less,
-  and unsend deletes our copy. Proposed (awaiting the user's OK): per-
-  workspace opt-in; train on confirmed and corrected drafts (the reading next
-  to what people fixed), not on raw chat; /privacy updated; unsend and
-  deletion still honoured; PDPA consent. Until this is decided, nothing new
-  is collected for training.
+- **Training data — decided 2026-10-25 (user approved the proposal).**
+  Per-workspace opt-in, off by default, turned on only by a Manager next to
+  the consent wording (`TRAINING_CONSENT_VERSION` in `lib/ai/training.ts`;
+  the PATCH refuses without it; consent time/by/version stored). Kept per
+  confirmed draft only: the tagged message, rules reading, model reading,
+  what was confirmed, `corrected` (`ai_training_example`). Never raw chat.
+  Unsend deletes the example; opting out deletes all of the team's. This is
+  the one exception to the 7-day text rule, and /privacy says so. Nothing in
+  the app trains: export and training are a separate, later step.
+- **Built 2026-10-25 (against a stand-in; hosting not chosen yet):** see
+  `docs/ML-SERVICE.md`. Reading runs in the webhook only when `needsModel()`
+  (no deadline and no person, or a paragraph for a title), never for @All;
+  rules values win, the model fills gaps (`mergeReadings`); the card and the
+  inbox say "AI ช่วยอ่าน · ตรวจก่อนยืนยัน". ควรทำอะไรก่อน (งานฉัน), สรุปด้วย AI
+  (task sheet, history filtered by the reader's audience) and สรุปวันนี้ /
+  สัปดาห์นี้ (ภาพรวม) are one press each (`components/ai-panels.tsx`). Every
+  call goes through `answerOnce` in `lib/ai/assist.ts`: spend first, keep the
+  answer on `ai_usage.answer` (cleared at 7 days), a retry gets it back
+  unasked and uncharged, a failure is refunded. The model's reading/reason
+  on a draft is cleared with its text (`DRAFT_CONTENT_CLEARED`).
 
 OUT of scope, unchanged:
 - AI chat, open-ended conversation, or a chat surface of any kind.
@@ -549,8 +562,8 @@ node tools/visual/contrast.mjs  # light text left on a light surface
 **End-to-end against a real backend** lives in `tools/e2e/` (README there):
 the production build, a throwaway local Postgres, two signed-in people, a
 webhook signed with a fake channel secret, and every step checked in the
-database — 68 checks (71 after 17:00 Bangkok) across create → review → approve, LINE drafts,
-reminders, settings, workspaces, cron, logout, announcements and ทุกคน tasks. Every key in `.env.local`
+database — 75 checks (78 after 17:00 Bangkok) across create → review → approve, LINE drafts,
+reminders, settings, workspaces, cron, logout, announcements, ทุกคน tasks, roles and AI (phase 6, against `tools/ml/stand-in.mjs`). Every key in `.env.local`
 must be overridden when starting that server, because `.env.local` is
 production; `tools/e2e/lib.mjs` refuses a non-localhost database.
 

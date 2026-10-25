@@ -14,7 +14,11 @@ node tools/visual/check.mjs                  # overflow, clipped content, JS err
 node tools/visual/shots.mjs                  # viewport screenshots of the main screens
 node tools/visual/urls.mjs                   # every screen's address, Back, reload, start page
 node tools/visual/contrast.mjs               # light text left on a light surface
+AI=1 node tools/visual/ai.mjs                # press every AI panel, check the answer fits
 ```
+
+`AI=1` makes the fixtures say AI is on for the team, so every check above
+also covers the AI panels and the training consent.
 
 Set `CHROME=/path/to/chrome` if Playwright's own browser is not installed, and
 `OUT=` to change where screenshots go (default `/tmp/tungan-visual`).

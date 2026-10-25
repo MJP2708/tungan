@@ -4,6 +4,7 @@ import { db } from '@/lib/db/index.ts';
 import { workspace } from '@/lib/db/schema.ts';
 import { requireCan } from '@/lib/auth/require-can.ts';
 import { errorResponse } from '@/lib/api/handler.ts';
+import { setTrainingOptIn, TRAINING_CONSENT_VERSION } from '@/lib/ai/training.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,9 +26,20 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    await requireCan(id, 'edit_group_settings');
+    const { userId } = await requireCan(id, 'edit_group_settings');
 
     const body = await req.json().catch(() => ({}));
+
+    // Letting confirmed drafts help train our model (2026-10-25). Off until a
+    // Manager turns it on, agreeing to the wording of this consent version;
+    // turning it off deletes every example the team gave.
+    if (typeof body.aiTrainingOptIn === 'boolean') {
+      if (body.aiTrainingOptIn && body.consentVersion !== TRAINING_CONSENT_VERSION) {
+        return NextResponse.json({ error: 'อ่านและยอมรับเงื่อนไขก่อนเปิด' }, { status: 400 });
+      }
+      const { deleted } = await setTrainingOptIn({ workspaceId: id, actorUserId: userId, on: body.aiTrainingOptIn });
+      return NextResponse.json({ ok: true, aiTrainingOptIn: body.aiTrainingOptIn, deleted });
+    }
 
     // Turning AI help on or off for this team. The key itself is a
     // server-only env var; this only says whether this workspace may use it.

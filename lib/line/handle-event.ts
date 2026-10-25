@@ -7,7 +7,7 @@
 // the raw body, and after() to outlive the response.
 
 import 'server-only';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import {
   lineEvent,
@@ -52,6 +52,10 @@ import { mostUrgent, mySections } from '../tasks/my-tasks.ts';
 import { can } from '../permissions.ts';
 import { groupFacts, managerLeftGroup } from '../auth/roles.ts';
 import { ensurePersonalWorkspace } from '../auth/membership.ts';
+import { readMessageWithModel } from '../ai/assist.ts';
+import { mergeReadings, needsModel } from '../ai/read-message.ts';
+import { forgetMessage, recordConfirmedDraft } from '../ai/training.ts';
+import { DRAFT_CONTENT_CLEARED } from '../retention.ts';
 
 export type LineSource = {
   type?: 'user' | 'group' | 'room';
@@ -627,7 +631,7 @@ async function handlePostback(event: LineEventPayload) {
   if (action === 'dismiss') {
     await db()
       .update(inboxItem)
-      .set({ state: 'dismissed', rawMessage: null })
+      .set({ state: 'dismissed', ...DRAFT_CONTENT_CLEARED })
       .where(and(eq(inboxItem.id, inboxId), eq(inboxItem.state, 'pending')));
     if (event.replyToken) {
       await replyMessage(event.replyToken, [{ type: 'text', text: 'ปิดข้อความนี้แล้ว ไม่ได้สร้างงาน' }],
@@ -650,7 +654,7 @@ async function handlePostback(event: LineEventPayload) {
   // to insert a task, so a double tap cannot produce two.
   const claimed = await db()
     .update(inboxItem)
-    .set({ state: 'created', rawMessage: null })
+    .set({ state: 'created', ...DRAFT_CONTENT_CLEARED })
     .where(and(eq(inboxItem.id, inboxId), eq(inboxItem.state, 'pending')))
     .returning({ id: inboxItem.id });
   if (!claimed.length) return;
@@ -678,6 +682,15 @@ async function handlePostback(event: LineEventPayload) {
     throw error;
   }
   const taskId = made.ids[0];
+  // `item` was read before the claim cleared its text: opted-in teams keep it.
+  await recordConfirmedDraft({
+    draft: item,
+    confirmed: {
+      title: item.suggestedTitle || 'งานจาก LINE',
+      assigneeUserIds: item.assignAll ? [] : [item.suggestedAssigneeUserId].filter((u): u is string => Boolean(u)),
+      dueAt: item.suggestedDueAt,
+    },
+  });
 
   if (made.batchId && event.replyToken) {
     // Everyone has their own copy, so one set of status buttons would only
@@ -734,10 +747,13 @@ async function handlePostback(event: LineEventPayload) {
 async function handleUnsend(event: LineEventPayload) {
   const messageId = event.unsend?.messageId;
   if (!messageId) return;
+  // Every draft the message made, not only the first (2026-10-25: the
+  // others used to keep their text), and any training example made from it.
   await db()
     .update(inboxItem)
-    .set({ rawMessage: null })
-    .where(eq(inboxItem.lineMessageId, messageId));
+    .set(DRAFT_CONTENT_CLEARED)
+    .where(or(eq(inboxItem.lineMessageId, messageId), eq(inboxItem.sourceMessageId, messageId)));
+  await forgetMessage(messageId);
   // The webhook event holds the same text verbatim. Clearing only the inbox
   // copy left it readable for up to seven more days after the person took
   // the message back.
@@ -907,7 +923,7 @@ async function handleMessage(event: LineEventPayload) {
       : await ensureUserKnown(m.lineUserId);
     if (await isAssignable(resolved.workspaceId, userId)) people.push({ userId, text: m.text });
   }
-  const drafts = applyMentions(extracted, people);
+  let drafts = applyMentions(extracted, people);
   // @All (LINE's mention-everyone): the work is everyone's. Confirming makes
   // one copy per person, so each ticks off their own. It wins over a person
   // named in the same message: tagging everyone is the more deliberate act.
@@ -917,6 +933,53 @@ async function handleMessage(event: LineEventPayload) {
   const everyoneCount = mentionsAll
     ? (await everyoneAssignable(resolved.workspaceId, await actorFor(event))).length
     : 0;
+
+  // AI reading (2026-10-25): only when the rules could not read it, only if
+  // the team has AI on and allowance left (spent before the call, once per
+  // message), and never for @All. It proposes; the card is still confirmed by
+  // a person. Any failure leaves the rules reading exactly as it was.
+  const rulesReadings = drafts.map((d) => ({ title: d.title, assigneeUserId: d.assigneeUserId, dueAt: d.dueAt }));
+  const aiNotes: Array<{ reason: string | null; reading: { title: string; assigneeUserId: string | null; dueAt: string | null } } | null> =
+    drafts.map(() => null);
+  if (!mentionsAll && rulesReadings.some(needsModel)) {
+    const modelTasks = await readMessageWithModel({
+      workspaceId: resolved.workspaceId,
+      sourceId: event.message?.id ?? event.webhookEventId ?? crypto.randomUUID(),
+      text: sourceText,
+      members: resolved.members,
+      senderUserId: resolved.senderUserId ?? null,
+      cutoff: resolved.cutoff,
+    }).catch(() => null);
+    const merged = modelTasks ? mergeReadings(rulesReadings, modelTasks) : [];
+    if (merged.some((m) => m.fromModel)) {
+      drafts = merged.map((m, i) => {
+        const base = drafts[i] ?? drafts[0];
+        return {
+          ...base,
+          title: m.title,
+          assigneeUserId: m.assigneeUserId,
+          dueAt: m.dueAt,
+          // Say where each part came from: the rules' own words, or "AI".
+          dueSource: base.dueAt && m.dueAt === base.dueAt ? base.dueSource : m.dueAt ? 'AI' : null,
+          assigneeSource:
+            base.assigneeUserId && m.assigneeUserId === base.assigneeUserId ? base.assigneeSource : m.assigneeUserId ? 'AI' : null,
+          confidence: base.dueAt ? base.confidence : m.dueAt ? 'inferred' : base.confidence,
+        };
+      });
+      aiNotes.length = 0;
+      merged.forEach((m) =>
+        aiNotes.push({
+          reason: m.reason,
+          reading: {
+            title: m.title,
+            assigneeUserId: m.assigneeUserId,
+            dueAt: m.dueAt ? m.dueAt.toISOString() : null,
+          },
+        }),
+      );
+      while (rulesReadings.length < drafts.length) rulesReadings.push(rulesReadings[0]);
+    }
+  }
 
   // A private message for yourself is a personal task — "no group", seen by
   // nobody else (2026-10-17). One that names a teammate, or @All, goes to the
@@ -933,7 +996,7 @@ async function handleMessage(event: LineEventPayload) {
       : resolved.workspaceId;
 
   const draftIds: string[] = [];
-  for (const d of drafts) {
+  for (const [i, d] of drafts.entries()) {
     const rowId = crypto.randomUUID();
     draftIds.push(rowId);
     await db()
@@ -948,6 +1011,7 @@ async function handleMessage(event: LineEventPayload) {
         // Only the first row can carry the LINE message id: the column is
         // unique, which is what makes a redelivered message a no-op.
         lineMessageId: draftIds.length === 1 ? (event.message?.id ?? null) : null,
+        sourceMessageId: event.message?.id ?? null,
         suggestedTitle: d.title,
         // A personal task is the maker's own: theirs to do, unless they said
         // otherwise.
@@ -958,6 +1022,18 @@ async function handleMessage(event: LineEventPayload) {
         assignAll: mentionsAll,
         suggestedDueAt: d.dueAt,
         confidence: d.confidence,
+        // What the rules read and what the model read, kept beside what is
+        // shown so a confirmed draft can become a training example (opt-in).
+        aiAssisted: Boolean(aiNotes[i]),
+        aiReason: aiNotes[i]?.reason ?? null,
+        rulesReading: rulesReadings[i]
+          ? {
+              title: rulesReadings[i].title,
+              assigneeUserId: rulesReadings[i].assigneeUserId,
+              dueAt: rulesReadings[i].dueAt?.toISOString() ?? null,
+            }
+          : null,
+        aiReading: aiNotes[i]?.reading ?? null,
         replyToken: event.replyToken ?? null,
         state: 'pending',
       })
@@ -1005,6 +1081,7 @@ async function handleMessage(event: LineEventPayload) {
               ? `ทุกคน · ${everyoneCount} คน`
               : nameOf(d.assigneeUserId),
             assigneeSource: mentionsAll ? '@All' : d.assigneeSource,
+            notice: aiNotes[i] ? 'AI ช่วยอ่าน · ตรวจก่อนยืนยัน' : null,
             workspaceName:
               !isGroup && destinationOf(d) === resolved.personalWorkspaceId
                 ? 'งานส่วนตัว'

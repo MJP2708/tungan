@@ -39,6 +39,8 @@ export const tasks = { tasks: [
 export const inbox = { items: [
   { id: 'i1', workspaceId: 'w1', senderName: 'ศุภวัฒน์ เจริญพงศ์ไพศาล', rawMessage: '@ทันงาน @เมย์ ส่งใบเสนอราคาให้ ABC พรุ่งนี้ 16:00 แล้วก็โทรหาลูกค้าบ่าย 3 ด้วยนะครับ ขอบคุณครับ', suggestedTitle: 'ส่งใบเสนอราคาให้ ABC', suggestedAssigneeUserId: 'u3', suggestedDueAt: iso(26), confidence: 'explicit' },
   { id: 'i2', workspaceId: 'w1', senderName: 'เมย์', rawMessage: '@ทันงาน เช็คของ', suggestedTitle: 'เช็คของ', suggestedAssigneeUserId: null, suggestedDueAt: null, confidence: 'fallback' },
+  // Read with the model's help (AI=1 only shows it as such; the flag is data).
+  { id: 'i3', workspaceId: 'w1', senderName: 'นนท์', rawMessage: '@ทันงาน ฝากดูเรื่องป้ายหน้าร้านให้เรียบร้อยก่อนประชุมลูกค้าด้วยนะครับ เดี๋ยวลูกค้าจะมาดูหน้างานกัน', suggestedTitle: 'ดูเรื่องป้ายหน้าร้านให้เรียบร้อย', suggestedAssigneeUserId: null, suggestedDueAt: iso(20), confidence: 'inferred', aiAssisted: true, aiReason: 'ข้อความบอกว่าก่อนประชุมลูกค้า ซึ่งนัดไว้พรุ่งนี้สิบโมงเช้า จึงตั้งกำหนดส่งเป็นพรุ่งนี้ 10:00' },
 ] };
 const fixed = {
   // งานฉัน (2026-10-17): one of each section, across a group and personal.
@@ -63,9 +65,15 @@ const fixed = {
   ] },
   '/api/usage': {
     month: '2026-09', used: 212, cap: 300, remaining: 88,
-    // A key exists on the server, but this team has not turned AI on yet.
-    ai: { configured: true, enabled: false, remaining: 50, allowance: 50, usedToday: 0, dailyCap: 20 },
+    // A key exists on the server, but this team has not turned AI on yet —
+    // unless AI=1, which shows every AI panel (2026-10-25).
+    ai: { configured: true, enabled: process.env.AI === '1', remaining: 50, allowance: 50, usedToday: 3, dailyCap: 20 },
+    training: { optIn: process.env.AI === '1', consentAt: null, consentVersion: '2026-10-25', currentVersion: '2026-10-25', examples: 128 },
   },
+  '/api/me/priorities': { suggestions: [
+    { taskId: 't3', reason: 'เลยกำหนดมาสองวันแล้ว และติดรอลูกค้าอยู่ ควรโทรตามลูกค้าก่อนเพื่อให้งานอื่นเดินต่อได้' },
+    { taskId: 't1', reason: 'ถูกส่งกลับให้แก้ และกำหนดส่งใหม่คืออีกสามชั่วโมง' },
+  ] },
 };
 const bySuffix = {
   schedule: { startsAt: '09:00', endsAt: '18:00', source: 'learned', note: 'เรียนรู้จากเวลาที่คุณอัปเดตงาน' },
@@ -77,6 +85,13 @@ const bySuffix = {
   questions: { questions: [] },
   workspace: { workspaceId: 'w3', name: 'ลูกค้า ABC x Agency', membersGranted: 2 },
   'confirm-batch': { created: 2, skipped: 0 },
+  // Both summaries answer from one fixture: each screen reads its own fields.
+  'ai-summary': {
+    range: 'week',
+    summary: 'สัปดาห์นี้ทีมปิดงานไป 7 งาน มีงานใหม่ 5 งาน งานที่ต้องตามคือใบเสนอราคาของลูกค้า ABC ซึ่งเลยกำหนดมาแล้วสองวันและยังรอลูกค้าตอบกลับ ส่วนงานออกแบบป้ายหน้างานเดินตามแผน',
+    nextStep: 'โทรตามลูกค้า ABC เรื่องขนาดบูธ แล้วส่งใบเสนอราคาฉบับแก้',
+    highlights: ['โทรหาลูกค้า เลยกำหนด 2 วัน · รอลูกค้า', 'สรุปงบประมาณอีเวนต์ รอตรวจ'],
+  },
   events: { events: [
     { id: 'e1', workspaceId: 'w1', title: 'ประชุมลูกค้า ABC', note: 'ห้องประชุมชั้น 3', link: 'https://meet.google.com/abc-defg-hij',
       startsAt: iso(3), endsAt: iso(4), allDay: false, audience: 'everyone', notifyMinutes: 30,

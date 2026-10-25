@@ -81,6 +81,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { TaskEntryDialog } from '@/components/task-entry-dialog';
+import { AiPeriodSummary, AiPriorities, AiTaskSummary } from '@/components/ai-panels';
 import {
   validateTaskEntry,
   type EntryError,
@@ -215,6 +216,9 @@ type Capture = {
   /** Tagged @All: everyone gets their own copy when it is confirmed. */
   assignAll?: boolean;
   confidence: 'explicit' | 'inferred' | 'fallback';
+  /** The model helped read it (rules alone were not enough). */
+  aiAssisted?: boolean;
+  aiReason?: string | null;
   state: 'pending' | 'created' | 'dismissed';
 };
 type Reminder = {
@@ -1223,6 +1227,21 @@ export default function Home() {
       await api.setWorkspaceAi(selectedProject.id, on);
       await refreshUsage(selectedProject.id);
       setNotice(on ? t('เปิดให้ AI ช่วยอ่านแล้ว') : t('ปิด AI แล้ว · ระบบยังอ่านด้วยกฎเหมือนเดิม'));
+    } catch (error) {
+      reportError(error, t('เปลี่ยนการตั้งค่า AI ไม่สำเร็จ'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Let this team's confirmed drafts help train our model, or stop. Off deletes them. */
+  async function setTrainingOptIn(on: boolean) {
+    if (!usage?.training) return;
+    setBusy(true);
+    try {
+      const res = await api.setTrainingOptIn(selectedProject.id, on, on ? usage.training.currentVersion : null);
+      await refreshUsage(selectedProject.id);
+      setNotice(on ? t('เปิดแล้ว · ขอบคุณที่ช่วยพัฒนา') : t('ปิดแล้ว · ลบตัวอย่างของทีม {0} รายการ', res.deleted));
     } catch (error) {
       reportError(error, t('เปลี่ยนการตั้งค่า AI ไม่สำเร็จ'));
     } finally {
@@ -3348,6 +3367,17 @@ export default function Home() {
               </div>
               <div className="line-read">
                 <h4>{t('ทันงานอ่านได้ว่า')}</h4>
+                {/* The model helped: say so, and why, so the person checks
+                    rather than trusts. Its reason is shown as it wrote it. */}
+                {capture.aiAssisted && (
+                  <p className="line-ai-note">
+                    <Sparkles />
+                    <span>
+                      <strong>{t('AI ช่วยอ่าน · ตรวจก่อนยืนยัน')}</strong>
+                      {capture.aiReason && <small>{capture.aiReason}</small>}
+                    </span>
+                  </p>
+                )}
                 <div className="line-fields">
                   <button
                     type="button"
@@ -3450,6 +3480,18 @@ export default function Home() {
               ))}
             </SelectContent>
           </Select>
+        )}
+        {/* A suggestion beside the list, never a new order for it. */}
+        {usage?.ai?.enabled && list.length > 0 && (
+          <AiPriorities
+            key={selectedProject.id}
+            workspaceId={selectedProject.id}
+            titleOf={(id) => list.find((task) => task.id === id)?.title ?? null}
+            onOpen={(id) => {
+              const found = list.find((task) => task.id === id);
+              if (found) void openMyTask(found.workspaceId, found.id);
+            }}
+          />
         )}
         {myTaskList === null ? (
           <SkeletonList rows={3} />
@@ -3842,6 +3884,7 @@ export default function Home() {
               <small>{t('ส่งแล้ว รอคนสั่งงานตรวจ')}</small>
             </article>
           </section>
+          {usage?.ai?.enabled && <AiPeriodSummary key={selectedProject.id} workspaceId={selectedProject.id} />}
           <section className="panel overview-attention">
             <div className="panel-heading">
               <div>
@@ -4237,7 +4280,7 @@ export default function Home() {
           </h3>
           <p>
             {usage?.ai?.enabled
-              ? t('ใช้เมื่อระบบอ่านข้อความไม่ออกเท่านั้น และให้คุณยืนยันก่อนสร้างงานทุกครั้ง')
+              ? t('อ่านข้อความที่ระบบอ่านไม่ออก แนะนำว่าควรทำอะไรก่อน และสรุปงานเมื่อคุณกด · เสนอเท่านั้น คุณตัดสินใจเองทุกครั้ง')
               : t('AI จะช่วยอ่านเฉพาะข้อความที่ระบบอ่านไม่ออก แล้วให้คุณยืนยันก่อนสร้างงานทุกครั้ง')}
           </p>
           {usage?.ai?.configured && isWorkspaceManager() && (
@@ -4254,6 +4297,40 @@ export default function Home() {
                 onCheckedChange={(on) => void setWorkspaceAi(Boolean(on))}
               />
             </label>
+          )}
+          {/* Training on confirmed drafts (approved 2026-10-25): per team, off
+              until a Manager turns it on next to the exact wording below. */}
+          {usage?.training && (
+            <div className="ai-training">
+              <strong>{t('ช่วยพัฒนา AI ของทันงาน')}</strong>
+              <p>
+                {t(
+                  'เก็บเฉพาะข้อความที่แท็ก @ทันงาน และยืนยันเป็นงานแล้ว คู่กับสิ่งที่ระบบอ่านได้และสิ่งที่ทีมแก้ ใช้ฝึก AI ของทันงานเองเท่านั้น ไม่ส่งให้บริษัทอื่น ข้อความที่ยกเลิกใน LINE จะถูกลบ และปิดเมื่อไรก็ได้ ตัวอย่างทั้งหมดของทีมจะถูกลบทันที',
+                )}{' '}
+                <a href="/privacy" target="_blank" rel="noopener noreferrer">
+                  {t('นโยบายความเป็นส่วนตัว')}
+                </a>
+              </p>
+              {isWorkspaceManager() ? (
+                <label className="share-toggle-row ai-toggle-row">
+                  <span>
+                    <strong>{t('ยินยอมให้ใช้ตัวอย่างของทีมนี้')}</strong>
+                    <small>{t('ตัวอย่างที่เก็บไว้ {0} รายการ', usage.training.examples)}</small>
+                  </span>
+                  <Switch
+                    checked={usage.training.optIn}
+                    disabled={busy}
+                    onCheckedChange={(on) => void setTrainingOptIn(Boolean(on))}
+                  />
+                </label>
+              ) : (
+                <small>
+                  {usage.training.optIn
+                    ? t('ทีมนี้เปิดให้ใช้ตัวอย่างอยู่ · {0} รายการ', usage.training.examples)
+                    : t('ทีมนี้ยังไม่ได้เปิด · ผู้จัดการเปิดได้')}
+                </small>
+              )}
+            </div>
           )}
           {usage?.ai?.enabled && (
             <div className="connection-row">
@@ -6184,6 +6261,9 @@ export default function Home() {
               )}
               <section className="detail-section">
                 <h3>{t('กิจกรรม')}</h3>
+                {usage?.ai?.enabled && selectedTask && (
+                  <AiTaskSummary key={selectedTask.id} taskId={selectedTask.id} />
+                )}
                 {history.length === 0 && (
                   <div className="activity-row">
                     <i />
