@@ -88,16 +88,53 @@ export type ResolvedDeadline = {
   /** The exact words the reading came from, so a person can check it
    *  rather than trust it. */
   sourcePhrase: string | null;
+  /** The same words one by one, so a title can be cleaned of them. */
+  phrases: string[];
 };
 
+/** Hours said as words: "บ่ายสาม", "หกโมงเย็น", "สองทุ่ม". Longest first. */
+const THAI_NUMBERS: Array<[string, number]> = [
+  ['สิบเอ็ด', 11], ['สิบสอง', 12], ['สิบ', 10], ['หนึ่ง', 1], ['สอง', 2], ['สาม', 3],
+  ['สี่', 4], ['ห้า', 5], ['หก', 6], ['เจ็ด', 7], ['แปด', 8], ['เก้า', 9],
+];
+const NUM = `(\\d{1,2}|${THAI_NUMBERS.map(([w]) => w).join('|')})`;
+function toNumber(value: string): number {
+  if (/^\d+$/.test(value)) return Number(value);
+  return THAI_NUMBERS.find(([w]) => w === value)?.[1] ?? NaN;
+}
+
+/** Monday 1 … Saturday 6, Sunday 0 — as zonedDateParts counts them. The
+ *  bare word อาทิตย์ also means "week", so Sunday needs its วัน. */
+const WEEKDAYS: Array<[string, number]> = [
+  ['(?:วัน)?จันทร์', 1], ['(?:วัน)?อังคาร', 2], ['(?:วัน)?พุธ', 3],
+  ['(?:วัน)?พฤหัส(?:บดี)?', 4], ['(?:วัน)?ศุกร์', 5], ['(?:วัน)?เสาร์', 6], ['วันอาทิตย์', 0],
+];
+
+/** Month names, full and short, with or without dots. */
+const MONTHS: Array<[string, number]> = [
+  ['มกราคม|มกรา|ม\\.?ค\\.?', 1], ['กุมภาพันธ์|กุมภา|ก\\.?พ\\.?', 2], ['มีนาคม|มีนา|มี\\.?ค\\.?', 3],
+  ['เมษายน|เมษา|เม\\.?ย\\.?', 4], ['พฤษภาคม|พฤษภา|พ\\.?ค\\.?', 5], ['มิถุนายน|มิถุนา|มิ\\.?ย\\.?', 6],
+  ['กรกฎาคม|กรกฎา|ก\\.?ค\\.?', 7], ['สิงหาคม|สิงหา|ส\\.?ค\\.?', 8], ['กันยายน|กันยา|ก\\.?ย\\.?', 9],
+  ['ตุลาคม|ตุลา|ต\\.?ค\\.?', 10], ['พฤศจิกายน|พฤศจิกา|พ\\.?ย\\.?', 11], ['ธันวาคม|ธันวา|ธ\\.?ค\\.?', 12],
+];
+
+/** A written year: Buddhist (2569, 69) or Christian (2026, 26). */
+function toYear(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const n = Number(value);
+  if (value.length === 4) return n > 2400 ? n - 543 : n;
+  return n >= 50 ? 2500 + n - 543 : 2000 + n;
+}
+
 const HOUR_WORDS: Array<[RegExp, (n: number) => number]> = [
-  // "ก่อนบ่าย 3" -> 15:00. Guard the nonsensical "ก่อนบ่าย 12" -> 12:00,
-  // which the prototype turned into 24:00.
-  [/ก่อนบ่าย\s*(\d{1,2})/, (n) => (n < 12 ? n + 12 : n)],
-  [/บ่าย\s*(\d{1,2})\s*โมง/, (n) => (n < 12 ? n + 12 : n)],
-  [/(\d{1,2})\s*โมงเย็น/, (n) => (n < 12 ? n + 12 : n)],
-  [/(\d{1,2})\s*โมงเช้า/, (n) => n],
-  [/(\d{1,2})\s*ทุ่ม/, (n) => (n + 18 <= 23 ? n + 18 : 23)],
+  // "บ่ายโมง" is 13:00 — one o'clock in the afternoon, with no number said.
+  [/บ่าย\s*โมง()/, () => 13],
+  // "ก่อนบ่าย 3", "บ่าย 3", "บ่ายสาม", "บ่าย 3 โมง" -> 15:00. Guard the
+  // nonsensical "ก่อนบ่าย 12" -> 12:00, which the prototype turned into 24:00.
+  [new RegExp(`(?:ก่อน)?บ่าย\\s*${NUM}(?:\\s*โมง)?`), (n) => (n < 12 ? n + 12 : n)],
+  [new RegExp(`${NUM}\\s*โมงเย็น`), (n) => (n < 12 ? n + 12 : n)],
+  [new RegExp(`${NUM}\\s*โมงเช้า`), (n) => n],
+  [new RegExp(`${NUM}\\s*ทุ่ม`), (n) => (n + 18 <= 23 ? n + 18 : 23)],
 ];
 
 /**
@@ -120,66 +157,112 @@ export function resolveDeadline(
   let dayOffset = 0;
   let matchedDay: string | null = null;
   const phrases: string[] = [];
+  const daysUntil = (year: number, month: number, day: number) =>
+    Math.round((Date.UTC(year, month - 1, day) - Date.UTC(today.year, today.month - 1, today.day)) / 86400000);
+  /** A date said without a year that has already passed means next year's. */
+  const ahead = (month: number, day: number, year?: number) =>
+    year !== undefined || daysUntil(today.year, month, day) >= 0
+      ? daysUntil(year ?? today.year, month, day)
+      : daysUntil(today.year + 1, month, day);
+  const validDay = (month: number, day: number) => month >= 1 && month <= 12 && day >= 1 && day <= 31;
 
-  const dayRules: Array<[RegExp, number, string]> = [
-    [/มะรืน(นี้)?/, 2, 'มะรืนนี้'],
-    [/พรุ่งนี้/, 1, 'พรุ่งนี้'],
-    [/ภายในวันนี้|ก่อนเลิกงาน|วันนี้/, 0, 'วันนี้'],
-    [/(วัน)?ศุกร์/, (5 - today.weekday + 7) % 7 || 7, 'วันศุกร์'],
+  // First match wins, most specific first: a written date beats a weekday,
+  // and "วันศุกร์หน้า" beats "ศุกร์".
+  const dayRules: Array<[RegExp, (m: RegExpMatchArray) => number | null]> = [
+    // 30/10, 30/10/69, 30/10/2026
+    [/(?<![\d:.])(\d{1,2})\s*\/\s*(\d{1,2})(?:\s*\/\s*(\d{2}|\d{4}))?(?![\d:])/, (m) => {
+      const [day, month] = [Number(m[1]), Number(m[2])];
+      if (!validDay(month, day)) return null;
+      return ahead(month, day, m[3] ? toYear(m[3], today.year) : undefined);
+    }],
+    // 5 พ.ย., วันที่ 5 พฤศจิกายน 2569
+    ...MONTHS.map(([names, month]): [RegExp, (m: RegExpMatchArray) => number | null] => [
+      new RegExp(`(?:วันที่\\s*)?(\\d{1,2})\\s*(?:${names})(?:\\s*(\\d{4}|\\d{2})(?!\\s*(?:โมง|ทุ่ม|:|\\.)))?`),
+      (m) => (validDay(month, Number(m[1])) ? ahead(month, Number(m[1]), m[2] ? toYear(m[2], today.year) : undefined) : null),
+    ]),
+    // "วันที่ 5": this month's, or next month's once it has passed.
+    [/วันที่\s*(\d{1,2})(?!\s*\/)/, (m) => {
+      const day = Number(m[1]);
+      if (day < 1 || day > 31) return null;
+      if (day >= today.day) return daysUntil(today.year, today.month, day);
+      return today.month === 12 ? daysUntil(today.year + 1, 1, day) : daysUntil(today.year, today.month + 1, day);
+    }],
+    [/สิ้นเดือนหน้า/, () => daysUntil(today.year, today.month + 2, 0)],
+    [/สิ้นเดือน(นี้)?/, () => daysUntil(today.year, today.month + 1, 0)],
+    [/สิ้นปี(นี้)?/, () => daysUntil(today.year, 12, 31)],
+    [/มะรืน(นี้)?/, () => 2],
+    [/พรุ่งนี้/, () => 1],
+    [/ภายในวันนี้|ก่อนเลิกงาน|วันนี้/, () => 0],
+    [new RegExp(`อีก\\s*${NUM}\\s*วัน`), (m) => {
+      const n = toNumber(m[1]);
+      return n >= 1 && n <= 60 ? n : null;
+    }],
+    // วันศุกร์หน้า: next week's Friday. วันศุกร์นี้: this week's, today
+    // included. A bare ศุกร์: the coming one, never today (it is said about
+    // work still to do — "ศุกร์" on a Friday means next Friday).
+    ...WEEKDAYS.map(([names, target]): [RegExp, (m: RegExpMatchArray) => number | null] => [
+      new RegExp(`(?:${names})(\\s*(?:นี้|หน้า))?`),
+      (m) => {
+        const which = (m[1] ?? '').trim();
+        if (which === 'หน้า') {
+          const toMonday = today.weekday === 0 ? 1 : 8 - today.weekday;
+          return toMonday + ((target + 6) % 7);
+        }
+        const until = (target - today.weekday + 7) % 7;
+        return which === 'นี้' ? until : until || 7;
+      },
+    ]),
+    // ภายในสัปดาห์นี้: the end of this working week (Friday); at the weekend,
+    // Sunday.
+    [/(?:สัปดาห์|อาทิตย์)นี้/, () => (today.weekday === 0 ? 0 : today.weekday === 6 ? 1 : 5 - today.weekday)],
   ];
-  for (const [pattern, offset, label] of dayRules) {
+  for (const [pattern, toOffset] of dayRules) {
     const found = value.match(pattern);
-    if (found) {
-      dayOffset = offset;
-      matchedDay = label;
-      phrases.push(found[0]);
-      break;
-    }
+    if (!found) continue;
+    const offset = toOffset(found);
+    if (offset === null) continue;
+    dayOffset = offset;
+    const said = found[0].trim();
+    // The label shown on the card: the words said, with the old fixed names
+    // kept for the ways of saying today and the day after tomorrow.
+    matchedDay = /วันนี้|ก่อนเลิกงาน/.test(said) ? 'วันนี้' : /มะรืน/.test(said) ? 'มะรืนนี้' : said;
+    phrases.push(said);
+    break;
   }
 
   let hour: number | null = null;
   let minute = 0;
   let matchedTime: string | null = null;
 
-  const explicit = value.match(/(\d{1,2})[:.](\d{2})/);
-  if (explicit) {
-    const h = Number(explicit[1]);
-    const m = Number(explicit[2]);
-    if (h <= 23 && m <= 59) {
-      hour = h;
-      minute = m;
-      matchedTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-      phrases.push(explicit[0]);
-    }
+  // Every way a time can be said, and the one said FIRST wins: in "พรุ่งนี้
+  // 9 โมง … ส่วนนนท์ตอนบ่ายสาม" the deadline is 9:00. (Each kind used to be
+  // tried in turn, so a later "บ่าย" won over an earlier "9 โมง".)
+  const times: Array<{ index: number; text: string; hour: number; minute: number }> = [];
+  const explicit = value.match(/(?<![\d/])(\d{1,2})[:.](\d{2})(?![\d/])/);
+  if (explicit && Number(explicit[1]) <= 23 && Number(explicit[2]) <= 59) {
+    times.push({ index: explicit.index ?? 0, text: explicit[0], hour: Number(explicit[1]), minute: Number(explicit[2]) });
   }
-
-  if (hour === null) {
-    for (const [pattern, toHour] of HOUR_WORDS) {
-      const found = value.match(pattern);
-      if (found) {
-        const candidate = toHour(Number(found[1]));
-        if (candidate >= 0 && candidate <= 23) {
-          hour = candidate;
-          matchedTime = `${String(candidate).padStart(2, '0')}:00`;
-          phrases.push(found[0]);
-        }
-        break;
-      }
-    }
+  for (const [pattern, toHour] of HOUR_WORDS) {
+    const found = value.match(pattern);
+    if (!found) continue;
+    const candidate = toHour(toNumber(found[1] ?? ''));
+    if (candidate >= 0 && candidate <= 23) times.push({ index: found.index ?? 0, text: found[0], hour: candidate, minute: 0 });
   }
-
-  if (hour === null) {
-    const bare = value.match(/(\d{1,2})\s*โมง/);
-    if (bare) {
-      let candidate = Number(bare[1]);
-      // "บ่าย"/"เย็น" anywhere in the phrase pushes a bare hour into the PM.
-      if (/บ่าย|เย็น|ค่ำ/.test(value) && candidate < 12) candidate += 12;
-      if (candidate >= 0 && candidate <= 23) {
-        hour = candidate;
-        matchedTime = `${String(candidate).padStart(2, '0')}:00`;
-        phrases.push(bare[0]);
-      }
-    }
+  const bare = value.match(new RegExp(`${NUM}\\s*โมง`));
+  if (bare && !times.some((t) => t.index <= (bare.index ?? 0) && (bare.index ?? 0) < t.index + t.text.length)) {
+    let candidate = toNumber(bare[1]);
+    // "บ่าย"/"เย็น" said just before a bare hour puts it in the PM
+    // ("เย็นนี้ 6 โมง"); one said elsewhere in the message does not.
+    const before = value.slice(Math.max(0, (bare.index ?? 0) - 8), bare.index ?? 0);
+    if (/บ่าย|เย็น|ค่ำ/.test(before) && candidate < 12) candidate += 12;
+    if (candidate >= 0 && candidate <= 23) times.push({ index: bare.index ?? 0, text: bare[0], hour: candidate, minute: 0 });
+  }
+  const first = times.sort((a, b) => a.index - b.index)[0];
+  if (first) {
+    hour = first.hour;
+    minute = first.minute;
+    matchedTime = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    phrases.push(first.text.trim());
   }
 
   if (hour === null) {
@@ -189,7 +272,7 @@ export function resolveDeadline(
     if (/เที่ยง/.test(value)) {
       hour = 12;
       matchedTime = '12:00';
-    } else if (/เช้า/.test(value)) {
+    } else if (/เช้า(?!ไป|มา)/.test(value)) {
       hour = 9;
       matchedTime = '09:00';
     } else if (/บ่าย/.test(value)) {
@@ -226,6 +309,7 @@ export function resolveDeadline(
     confidence,
     matched: { day: matchedDay, time: matchedTime },
     sourcePhrase: phrases.length ? phrases.join(' ').trim() : null,
+    phrases,
   };
 }
 

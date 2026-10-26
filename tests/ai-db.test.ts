@@ -129,6 +129,16 @@ describe('ai: reading, charging once, training consent', { skip: !URL_ ? 'TEST_D
     assert.equal((await usageRows()).length, 1);
   });
 
+  test('the model finding no task marks the draft — it does not remove it', async () => {
+    modelAnswer = { tasks: [] };
+    await say('@ทันงาน ขอบคุณครับ');
+    const [draft] = await db().select().from(schema.inboxItem);
+    assert.ok(draft, 'the draft stays: AI proposes, never acts');
+    assert.equal(draft.aiAssisted, true);
+    assert.equal(draft.aiReading, null);
+    assert.match(JSON.stringify(sent), /อาจไม่ใช่งาน/);
+  });
+
   test('a message the rules read fine never reaches the model', async () => {
     await say('@ทันงาน เมย์ ส่งรายงาน พรุ่งนี้ 10 โมง');
     assert.equal(modelCalls, 0);

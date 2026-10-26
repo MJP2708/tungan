@@ -140,6 +140,7 @@ export type UiCapture = {
   assignAll?: boolean;
   aiAssisted?: boolean;
   aiReason?: string | null;
+  aiNotATask?: boolean;
   state: 'pending' | 'created' | 'dismissed';
 };
 
@@ -166,6 +167,7 @@ export function toUiCapture(item: ApiInboxItem): UiCapture {
     assignAll: Boolean(item.assignAll),
     aiAssisted: Boolean(item.aiAssisted),
     aiReason: item.aiReason ?? null,
+    aiNotATask: Boolean(item.aiNotATask),
     state: 'pending',
   };
 }

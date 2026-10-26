@@ -87,7 +87,7 @@ export async function readMessageWithModel(params: {
       call: { task: 'read_message', system: req.system, user: req.user, schema: READ_SCHEMA, maxTokens: 500, timeoutMs: 15_000 },
       fetchImpl: params.fetchImpl,
     },
-    (data) => parseReadResponse(data, { refs: req.refs, cutoff: params.cutoff }),
+    (data) => parseReadResponse(data, { refs: req.refs, cutoff: params.cutoff, text: params.text, members: params.members, now: params.now ?? new Date() }),
   );
   return out.ok ? out.value : null;
 }

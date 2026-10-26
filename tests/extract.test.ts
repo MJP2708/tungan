@@ -148,3 +148,11 @@ test('LINE\u2019s @All addresses the group and never becomes part of the task na
   const named = extractDraft('@ทันงาน @Allison ส่งรายงาน', { members: [{ userId: 'u-a', names: ['Allison'] }], now: NOW, isGroup: true });
   assert.equal(named.assigneeUserId, 'u-a');
 });
+
+test('the title loses exactly the words the deadline was read from', () => {
+  const now = new Date('2026-09-01T03:00:00.000Z');
+  const members = [{ userId: 'u-may', names: ['เมย์'] }];
+  assert.equal(extractDraft('@ทันงาน เมย์ อัปเดตเว็บไซต์ 30/9 บ่ายสอง', { members, now }).title, 'เมย์ อัปเดตเว็บไซต์');
+  assert.equal(extractDraft('@ทันงาน ส่งใบเสนอราคา ภายในพรุ่งนี้ 17:00', { members, now }).title, 'ส่งใบเสนอราคา');
+  assert.equal(extractDraft('@ทันงาน ต่อประกันรถ ก่อนสิ้นปี', { members, now }).title, 'ต่อประกันรถ');
+});

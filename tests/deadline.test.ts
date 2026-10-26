@@ -181,3 +181,47 @@ test('time-in-state reads as a duration', () => {
   assert.equal(relativeSince(fromZonedWallClock(2026, 8, 31, 12, 0), now), '3 วัน');
   assert.equal(relativeSince(fromZonedWallClock(2026, 9, 3, 9, 0), now), '3 ชม.');
 });
+
+// Found by tools/ml/eval.ts (2026-10-26): every weekday but Friday, written
+// dates, "บ่าย N" without โมง and hours said as words were not read at all,
+// and a weekday with a time landed on today. NOW is Tuesday 1 Sep 10:00.
+test('weekdays, written dates, month ends and Thai number words', () => {
+  const at = (text: string) => bangkok(resolveDeadline(text, { now: NOW, cutoff: '17:00' }).at);
+  for (const [text, want] of [
+    ['บ่าย 3', '2026-09-01 15:00'],
+    ['บ่ายสาม', '2026-09-01 15:00'],
+    ['บ่ายโมง', '2026-09-01 13:00'],
+    ['หกโมงเย็น', '2026-09-01 18:00'],
+    ['สองทุ่ม', '2026-09-01 20:00'],
+    ['วันพุธ 11 โมง', '2026-09-02 11:00'],
+    ['ก่อนเที่ยงวันพฤหัส', '2026-09-03 12:00'],
+    ['วันจันทร์', '2026-09-07 17:00'],
+    ['วันอังคาร', '2026-09-08 17:00'],
+    ['วันอังคารนี้', '2026-09-01 17:00'],
+    ['วันศุกร์หน้า', '2026-09-11 17:00'],
+    ['วันอาทิตย์', '2026-09-06 17:00'],
+    ['30/9 บ่ายสอง', '2026-09-30 14:00'],
+    ['15/8', '2027-08-15 17:00'],
+    ['5/10/2569', '2026-10-05 17:00'],
+    ['5 ต.ค.', '2026-10-05 17:00'],
+    ['วันที่ 20 กันยายน', '2026-09-20 17:00'],
+    ['วันที่ 20', '2026-09-20 17:00'],
+    ['สิ้นเดือน', '2026-09-30 17:00'],
+    ['สิ้นปี', '2026-12-31 17:00'],
+    ['อีกสามวัน', '2026-09-04 17:00'],
+    ['อีก 2 วัน', '2026-09-03 17:00'],
+    ['ภายในสัปดาห์นี้', '2026-09-04 17:00'],
+    ['15.30', '2026-09-01 15:30'],
+  ]) assert.equal(at(text), want, text);
+});
+
+test('the first time said wins, and a far-off บ่าย does not move a bare hour', () => {
+  const r = resolveDeadline('พรุ่งนี้ 9 โมง เมย์เตรียมของ ส่วนนนท์รับป้ายตอนบ่ายสาม', { now: NOW });
+  assert.equal(bangkok(r.at), '2026-09-02 09:00');
+  assert.equal(bangkok(resolveDeadline('เย็นนี้ 6 โมง', { now: NOW }).at), '2026-09-01 18:00');
+});
+
+test('"อาทิตย์หน้า" (next week) is not Sunday, and a bad date is not a date', () => {
+  assert.equal(resolveDeadline('อาทิตย์หน้า', { now: NOW }).confidence, 'fallback');
+  assert.equal(resolveDeadline('32/13', { now: NOW }).confidence, 'fallback');
+});

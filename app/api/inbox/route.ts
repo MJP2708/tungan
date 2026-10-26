@@ -20,7 +20,11 @@ export async function GET(req: Request) {
     // What the rules and the model each read stays on the server: it is kept
     // for training (opt-in), not for the screen.
     return NextResponse.json({
-      items: rows.map(({ rulesReading: _rules, aiReading: _ai, ...row }) => row),
+      items: rows.map(({ rulesReading: _rules, aiReading, ...row }) => ({
+        ...row,
+        // The model looked and found no task: said so, the draft stays.
+        aiNotATask: row.aiAssisted && aiReading === null,
+      })),
     });
   } catch (error) {
     return errorResponse(error);

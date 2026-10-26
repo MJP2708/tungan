@@ -53,7 +53,7 @@ import { can } from '../permissions.ts';
 import { groupFacts, managerLeftGroup } from '../auth/roles.ts';
 import { ensurePersonalWorkspace } from '../auth/membership.ts';
 import { readMessageWithModel } from '../ai/assist.ts';
-import { mergeReadings, needsModel } from '../ai/read-message.ts';
+import { mergeReadings, shouldAskModel } from '../ai/read-message.ts';
 import { forgetMessage, recordConfirmedDraft } from '../ai/training.ts';
 import { DRAFT_CONTENT_CLEARED } from '../retention.ts';
 
@@ -939,9 +939,13 @@ async function handleMessage(event: LineEventPayload) {
   // message), and never for @All. It proposes; the card is still confirmed by
   // a person. Any failure leaves the rules reading exactly as it was.
   const rulesReadings = drafts.map((d) => ({ title: d.title, assigneeUserId: d.assigneeUserId, dueAt: d.dueAt }));
-  const aiNotes: Array<{ reason: string | null; reading: { title: string; assigneeUserId: string | null; dueAt: string | null } } | null> =
+  const aiNotes: Array<{
+    notice: string;
+    reason: string | null;
+    reading: { title: string; assigneeUserId: string | null; dueAt: string | null } | null;
+  } | null> =
     drafts.map(() => null);
-  if (!mentionsAll && rulesReadings.some(needsModel)) {
+  if (!mentionsAll && shouldAskModel(rulesReadings, sourceText, resolved.members)) {
     const modelTasks = await readMessageWithModel({
       workspaceId: resolved.workspaceId,
       sourceId: event.message?.id ?? event.webhookEventId ?? crypto.randomUUID(),
@@ -951,7 +955,13 @@ async function handleMessage(event: LineEventPayload) {
       cutoff: resolved.cutoff,
     }).catch(() => null);
     const merged = modelTasks ? mergeReadings(rulesReadings, modelTasks) : [];
-    if (merged.some((m) => m.fromModel)) {
+    if (modelTasks && modelTasks.length === 0) {
+      // The model read it as not a task ("ขอบคุณครับ"). AI proposes, never
+      // acts: the draft stays, marked, one tap from ไม่ใช่งาน.
+      for (let i = 0; i < aiNotes.length; i += 1) {
+        aiNotes[i] = { notice: 'AI: อาจไม่ใช่งาน', reason: 'AI อ่านแล้วไม่พบงานในข้อความนี้ · ถ้าไม่ใช่งาน กด ไม่ใช่งาน', reading: null };
+      }
+    } else if (merged.some((m) => m.fromModel)) {
       drafts = merged.map((m, i) => {
         const base = drafts[i] ?? drafts[0];
         return {
@@ -969,6 +979,7 @@ async function handleMessage(event: LineEventPayload) {
       aiNotes.length = 0;
       merged.forEach((m) =>
         aiNotes.push({
+          notice: 'AI ช่วยอ่าน · ตรวจก่อนยืนยัน',
           reason: m.reason,
           reading: {
             title: m.title,
@@ -1081,7 +1092,7 @@ async function handleMessage(event: LineEventPayload) {
               ? `ทุกคน · ${everyoneCount} คน`
               : nameOf(d.assigneeUserId),
             assigneeSource: mentionsAll ? '@All' : d.assigneeSource,
-            notice: aiNotes[i] ? 'AI ช่วยอ่าน · ตรวจก่อนยืนยัน' : null,
+            notice: aiNotes[i]?.notice ?? null,
             workspaceName:
               !isGroup && destinationOf(d) === resolved.personalWorkspaceId
                 ? 'งานส่วนตัว'

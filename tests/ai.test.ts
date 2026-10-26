@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildReadRequest, mergeReadings, needsModel, parseReadResponse } from '../lib/ai/read-message.ts';
+import { buildReadRequest, mergeReadings, needsModel, parseReadResponse, shouldAskModel } from '../lib/ai/read-message.ts';
 import { buildPrioritizeRequest, parsePrioritizeResponse } from '../lib/ai/prioritize.ts';
 import { parsePeriodSummary, parseTaskSummary, buildPeriodSummaryRequest } from '../lib/ai/summarize.ts';
 import { fromZonedWallClock } from '../lib/deadline.ts';
@@ -109,4 +109,37 @@ test('summaries: empty or malformed answers are refused; lists are capped', () =
     created: [], overdue: [], blocked: [], inReview: [],
   });
   assert.equal(JSON.parse(req.user).closed.length, 40);
+});
+
+test('a person the message never names, or a deadline already past, is refused', () => {
+  const refs = new Map([['M1', 'u-may'], ['M2', 'u-nont']]);
+  const out = parseReadResponse({ tasks: [
+    { title: 'ส่งของ', assignee: 'M1', dueDate: '2026-10-01', dueTime: null, reason: '' },
+    { title: 'นนท์ โทรหาลูกค้า', assignee: 'M2', dueDate: '2026-10-12', dueTime: null, reason: '' },
+  ] }, { refs, cutoff: '17:00', text: '@ทันงาน ส่งของ แล้วนนท์โทรหาลูกค้า', members, now: NOW })!;
+  assert.equal(out[0].assigneeUserId, null, 'เมย์ is not in the message');
+  assert.equal(out[0].dueAt, null, '1 October is before 9 October');
+  assert.equal(out[1].assigneeUserId, 'u-nont');
+  assert.ok(out[1].dueAt);
+});
+
+test('the model is given the next two weeks, so it never counts days itself', () => {
+  const req = buildReadRequest({ text: 'x', members, now: NOW });
+  const { calendar } = JSON.parse(req.user);
+  assert.equal(calendar.length, 15);
+  assert.match(calendar[0], /^2026-10-09 วันศุกร์ \(วันนี้\)$/);
+  assert.match(calendar[3], /^2026-10-12 วันจันทร์$/);
+});
+
+test('two people named in one message are worth asking about, and each task keeps the deadline', () => {
+  const due = fromZonedWallClock(2026, 10, 10, 9, 0);
+  const rules = [{ title: 'เมย์เตรียมของแจก ส่วนนนท์ไปรับป้าย', assigneeUserId: null, dueAt: due }];
+  assert.equal(shouldAskModel(rules, '@ทันงาน พรุ่งนี้ 9 โมงเมย์เตรียมของแจก ส่วนนนท์ไปรับป้าย', members), true);
+  assert.equal(shouldAskModel([{ title: 'ส่งรายงาน', assigneeUserId: 'u-may', dueAt: due }], 'เมย์ ส่งรายงาน พรุ่งนี้', members), false);
+  const split = mergeReadings(rules, [
+    { title: 'เตรียมของแจก', assigneeUserId: 'u-may', dueAt: null, reason: '' },
+    { title: 'ไปรับป้าย', assigneeUserId: 'u-nont', dueAt: fromZonedWallClock(2026, 10, 10, 15, 0), reason: '' },
+  ]);
+  assert.equal(split[0].dueAt?.getTime(), due.getTime(), 'the message\'s deadline covers the task the model left without');
+  assert.equal(split[1].dueAt?.getTime(), fromZonedWallClock(2026, 10, 10, 15, 0).getTime());
 });

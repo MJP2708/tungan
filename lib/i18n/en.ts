@@ -750,6 +750,7 @@ export const en: Record<string, Entry> = {
   // AI (2026-10-25)
   "เปิดแล้ว · ขอบคุณที่ช่วยพัฒนา": "Turned on · thank you for helping",
   "ปิดแล้ว · ลบตัวอย่างของทีม {0} รายการ": "Turned off · {0} of this team's examples deleted",
+  "AI: อาจไม่ใช่งาน": "AI: may not be a task",
   "AI ช่วยอ่าน · ตรวจก่อนยืนยัน": "Read with AI help · check before confirming",
   "อ่านข้อความที่ระบบอ่านไม่ออก แนะนำว่าควรทำอะไรก่อน และสรุปงานเมื่อคุณกด · เสนอเท่านั้น คุณตัดสินใจเองทุกครั้ง": "Reads messages the rules can't, suggests what to do first, and summarises work when you ask · it only suggests; you always decide",
   "ช่วยพัฒนา AI ของทันงาน": "Help improve Tungan's AI",

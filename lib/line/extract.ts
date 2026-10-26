@@ -36,9 +36,12 @@ export type Extraction = {
 const BOT_MENTION = /@ทันงาน|@tungan/i;
 
 /** Strip mentions, commands and time phrases to leave the actual instruction. */
-function cleanTitle(text: string, names: string[]): string {
+function cleanTitle(text: string, names: string[], deadlinePhrases: string[] = []): string {
   let out = text;
   out = out.replace(BOT_MENTION, ' ');
+  // Exactly the words the deadline was read from ("30/10", "วันพุธหน้า",
+  // "บ่ายสาม"), so the list below need not know every way to say a day.
+  for (const phrase of deadlinePhrases) out = out.replace(phrase, ' ');
   // LINE's mention-everyone arrives as the literal text "@All" (any case).
   // It addresses the group, not a person, and is never part of the task.
   out = out.replace(/@all(?![\p{L}\p{N}_])/giu, ' ');
@@ -57,6 +60,9 @@ function cleanTitle(text: string, names: string[]): string {
     .replace(/\d{1,2}[:.]\d{2}\s*(น\.)?/g, ' ')
     .replace(/(ตอน)?(เช้า|บ่าย|เย็น|ค่ำ|เที่ยง)/g, ' ')
     .replace(/\s+/g, ' ')
+    .trim()
+    // What was left pointing at a deadline that is now gone: "… ภายใน".
+    .replace(/\s*(ภายใน|ก่อน|ถึง|ตอน|ให้เสร็จ(ก่อน)?)$/u, '')
     .trim();
   return out;
 }
@@ -125,7 +131,7 @@ export function extractDraft(
   // every list, and pasted verbatim into the LINE confirmation, which has its
   // own length limits. The full text is kept separately as the raw message,
   // which is what the record shows.
-  const title = (cleanTitle(raw, allNames) || raw).slice(0, TITLE_MAX_LENGTH).trim();
+  const title = (cleanTitle(raw, allNames, namedATime ? deadline.phrases : []) || raw).slice(0, TITLE_MAX_LENGTH).trim();
 
   return {
     title,

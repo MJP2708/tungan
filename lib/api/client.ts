@@ -83,6 +83,8 @@ export type ApiInboxItem = {
   /** The model helped read it; the reason is the model's, for the person confirming. */
   aiAssisted?: boolean;
   aiReason?: string | null;
+  /** The model read it as not a task. */
+  aiNotATask?: boolean;
 };
 
 /** Something everyone in a workspace needs to know. */

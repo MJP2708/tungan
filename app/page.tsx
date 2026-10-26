@@ -219,6 +219,7 @@ type Capture = {
   /** The model helped read it (rules alone were not enough). */
   aiAssisted?: boolean;
   aiReason?: string | null;
+  aiNotATask?: boolean;
   state: 'pending' | 'created' | 'dismissed';
 };
 type Reminder = {
@@ -3373,7 +3374,9 @@ export default function Home() {
                   <p className="line-ai-note">
                     <Sparkles />
                     <span>
-                      <strong>{t('AI ช่วยอ่าน · ตรวจก่อนยืนยัน')}</strong>
+                      <strong>
+                        {capture.aiNotATask ? t('AI: อาจไม่ใช่งาน') : t('AI ช่วยอ่าน · ตรวจก่อนยืนยัน')}
+                      </strong>
                       {capture.aiReason && <small>{capture.aiReason}</small>}
                     </span>
                   </p>
