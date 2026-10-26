@@ -5307,7 +5307,8 @@ export default function Home() {
                 <Icon />
                 <span>{mobileNavLabels[item] ?? label}</span>
                 {item === 'inbox' && projectCaptures.length > 0 && (
-                  <i aria-label={t('{0} ข้อความรอตรวจ', projectCaptures.length)}>
+                  // Keyed by the count, so a new message makes it pop again.
+                  <i key={projectCaptures.length} aria-label={t('{0} ข้อความรอตรวจ', projectCaptures.length)}>
                     {projectCaptures.length > 99 ? '99+' : projectCaptures.length}
                   </i>
                 )}

@@ -226,3 +226,122 @@
     animation: motion-fade var(--motion-slow) var(--motion-ease) 600ms backwards;
   }
 }
+
+/* ══ Moments (2026-10-26) ═════════════════════════════════════════════════
+   Movement that answers what the person just did: switching screens, a new
+   LINE message arriving, a task moving a step, a day picked. Same rules as
+   above — opacity and transform only, at most 420ms, played once when a
+   state begins (a class or element appearing restarts it), nothing held
+   afterwards, and none of it with reduced motion or ลดภาพเคลื่อนไหว. */
+
+@keyframes motion-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes motion-settle {
+  from {
+    transform: scale(0.88);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes motion-lift {
+  0% {
+    transform: translateY(3px) scale(0.86);
+  }
+  60% {
+    transform: translateY(-2px) scale(1.06);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+@keyframes motion-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Bottom bar: the active pill settles in under the finger and its icon
+     lifts — on every switch, since the class is newly applied each time. */
+  .mobile-nav button.active,
+  .desktop-sidebar nav > button.active {
+    animation: motion-settle var(--motion-base) var(--motion-ease) backwards;
+  }
+  .mobile-nav button.active svg,
+  .desktop-sidebar nav > button.active svg {
+    animation: motion-lift var(--motion-slow) var(--motion-ease) backwards;
+  }
+  /* The red count pops in — and again when the count changes (keyed). */
+  .mobile-nav button i {
+    animation: motion-pop var(--motion-slow) var(--motion-ease) backwards;
+  }
+
+  /* The Swiss index line above a title slides in from the left. */
+  .welcome-block h2[data-kicker]::before,
+  .section-intro h2[data-kicker]::before {
+    animation: motion-slide-in var(--motion-slow) var(--motion-ease) 60ms backwards;
+  }
+
+  /* Task sheet: the progress bar fills step by step when the sheet opens,
+     and the step a task has just reached fills when it is reached. */
+  .sheet-step.is-done::before,
+  .sheet-step.is-now::before {
+    transform-origin: left center;
+    animation: motion-grow var(--motion-slow) var(--motion-ease) backwards;
+  }
+  .sheet-step:nth-child(2)::before { animation-delay: 70ms; }
+  .sheet-step:nth-child(3)::before { animation-delay: 140ms; }
+  .sheet-step:nth-child(4)::before { animation-delay: 210ms; }
+
+  /* "Nothing left" is a small reward: the tick pops. */
+  .empty-state > svg {
+    animation: motion-pop var(--motion-slow) var(--motion-ease) 120ms backwards;
+  }
+
+  /* A picked day answers. */
+  .month-day.is-selected {
+    animation: motion-settle var(--motion-base) var(--motion-ease) backwards;
+  }
+
+  /* ภาพรวม's numbers rise in one after another. */
+  .report-metrics article strong {
+    animation: motion-rise var(--motion-slow) var(--motion-ease) 80ms backwards;
+  }
+  .report-metrics article:nth-child(2) strong { animation-delay: 140ms; }
+  .report-metrics article:nth-child(3) strong { animation-delay: 200ms; }
+
+  /* More lists join the staggered entrance: LINE drafts, งานฉัน, the AI's
+     answers. First four only, so nobody waits on a long list. */
+  .capture-list > *,
+  .mine-list > *,
+  .ai-picks > *,
+  .ai-highlights > *,
+  .line-ai-note,
+  .ai-panel-text {
+    animation: motion-fade-up var(--motion-slow) var(--motion-ease) backwards;
+  }
+  :is(.capture-list, .mine-list, .ai-picks, .ai-highlights) > :nth-child(2) { animation-delay: 50ms; }
+  :is(.capture-list, .mine-list, .ai-picks, .ai-highlights) > :nth-child(3) { animation-delay: 100ms; }
+  :is(.capture-list, .mine-list, .ai-picks, .ai-highlights) > :nth-child(n + 4) { animation-delay: 150ms; }
+}
