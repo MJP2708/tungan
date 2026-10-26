@@ -357,7 +357,27 @@ Auto-scan of all messages, native apps, calendar sync, file storage, public
 signup, annual plans, per-group add-ons, public leaderboards, custom roles,
 tags.
 
-## AI scope — updated 2026-10-02
+## AI scope — updated 2026-10-26
+
+**For now: Jev + Typhoon's hosted API (decided by the user 2026-10-26).**
+This reverses "no third-party AI" below for the beta, until our own server
+exists. Jev (TypeSafe, `TYPESAFE_API_KEY`) makes the quick judgments on a
+tagged message — is it a task, who, which day — as typed questions; it
+cannot write. The writing model (Typhoon 2.5 via api.opentyphoon.ai, the
+same `ML_SERVICE_URL`/`ML_SERVICE_TOKEN`/`ML_MODEL` env, with
+`ML_RESPONSE_FORMAT=prompt` because that API does not document
+`response_format`) writes titles, splits messages, summarises and gives
+reasons. Order in `lib/ai/route.ts`: rules → Jev (one draft missing a
+person or day) → writing model (paragraph, 2+ people named, or still
+unread). Jev questions and thresholds (0.7/0.3) live only in
+`lib/ai/jev-questions.ts`; code does the calendar math. Each provider
+charges 1 per call (`check:` / `read:` source ids). With only Jev, the
+summary and ควรทำอะไรก่อน panels are hidden (`ai.writes`). /privacy, the AI
+page and the bot's join message name both providers; consent version
+`2026-10-26`. Measured with `tools/ml/eval.ts` (40 messages): rules alone
+75% fully right, rules + Typhoon 2.5 4B 83%; Jev not measured yet. The
+TypeSafe skill is installed (`typesafe@typesafe-ai`) — follow it for Jev
+work, including asking before sending test data to the live API.
 
 **Our own model, no third-party AI API.** Decided by the user 2026-10-02. Jev
 (TypeSafe) is removed. No other hosted AI API is to be added.

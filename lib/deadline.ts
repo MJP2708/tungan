@@ -138,6 +138,21 @@ const HOUR_WORDS: Array<[RegExp, (n: number) => number]> = [
 ];
 
 /**
+ * Days from today to a weekday (0 Sunday … 6 Saturday). `next`: that day in
+ * next week (Monday-start). `this`: this week's, today included. `bare`: the
+ * coming one, never today — "ศุกร์" said on a Friday is about next Friday.
+ * Shared with the AI's reading (lib/ai/jev-questions.ts) so both agree.
+ */
+export function weekdayOffset(todayWeekday: number, target: number, which: 'this' | 'next' | 'bare'): number {
+  if (which === 'next') {
+    const toMonday = todayWeekday === 0 ? 1 : 8 - todayWeekday;
+    return toMonday + ((target + 6) % 7);
+  }
+  const until = (target - todayWeekday + 7) % 7;
+  return which === 'this' ? until : until || 7;
+}
+
+/**
  * Resolve Thai deadline text against a reference instant.
  *
  * `cutoff` is the workspace's end-of-day ("17:00") and is used only when the
@@ -204,12 +219,7 @@ export function resolveDeadline(
       new RegExp(`(?:${names})(\\s*(?:นี้|หน้า))?`),
       (m) => {
         const which = (m[1] ?? '').trim();
-        if (which === 'หน้า') {
-          const toMonday = today.weekday === 0 ? 1 : 8 - today.weekday;
-          return toMonday + ((target + 6) % 7);
-        }
-        const until = (target - today.weekday + 7) % 7;
-        return which === 'นี้' ? until : until || 7;
+        return weekdayOffset(today.weekday, target, which === 'หน้า' ? 'next' : which === 'นี้' ? 'this' : 'bare');
       },
     ]),
     // ภายในสัปดาห์นี้: the end of this working week (Friday); at the weekend,

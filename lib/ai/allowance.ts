@@ -3,7 +3,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import { aiUsage, workspace } from '../db/schema.ts';
 import { zonedDateParts } from '../deadline.ts';
-import { aiConfigured } from './model.ts';
+import { aiConfigured, jevConfigured, mlConfigured } from './model.ts';
 import { isUniqueViolation } from '../db/errors.ts';
 
 /**
@@ -89,6 +89,11 @@ export type AiAllowance = {
   configured: boolean;
   /** Configured AND this team turned it on. */
   enabled: boolean;
+  /** The writing model is there: summaries and ควรทำอะไรก่อน can be offered.
+   *  Jev alone reads messages but cannot write them. */
+  writes: boolean;
+  /** Who reads what is sent, by name, for the screen that says so. */
+  providers: string[];
   /** Reads left in the whole allowance, never below zero. */
   remaining: number;
   allowance: number;
@@ -101,7 +106,7 @@ export async function aiAllowanceFor(workspaceId: string, now = new Date()): Pro
   // Answer without touching the database when AI is off. It also means this
   // code is safe to deploy before the migration that adds its columns.
   if (!aiConfigured()) {
-    return { configured: false, enabled: false, remaining: 0, allowance: 0, usedToday: 0, dailyCap: 0 };
+    return { configured: false, enabled: false, writes: false, providers: [], remaining: 0, allowance: 0, usedToday: 0, dailyCap: 0 };
   }
   const [ws] = await db()
     .select({
@@ -126,6 +131,11 @@ export async function aiAllowanceFor(workspaceId: string, now = new Date()): Pro
   return {
     configured: true,
     enabled: Boolean(ws?.enabled),
+    writes: mlConfigured(),
+    providers: [
+      ...(jevConfigured() ? ['Jev (TypeSafe AI)'] : []),
+      ...(mlConfigured() ? [process.env.ML_PROVIDER_NAME || 'Typhoon (SCB 10X)'] : []),
+    ],
     allowance,
     remaining: Math.max(0, allowance - Number(totals?.spent ?? 0)),
     usedToday: Number(totals?.today ?? 0),

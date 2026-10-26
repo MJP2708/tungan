@@ -52,8 +52,8 @@ import { mostUrgent, mySections } from '../tasks/my-tasks.ts';
 import { can } from '../permissions.ts';
 import { groupFacts, managerLeftGroup } from '../auth/roles.ts';
 import { ensurePersonalWorkspace } from '../auth/membership.ts';
-import { readMessageWithModel } from '../ai/assist.ts';
-import { mergeReadings, shouldAskModel } from '../ai/read-message.ts';
+import { checkMessageWithJev, readMessageWithModel } from '../ai/assist.ts';
+import { routeReading } from '../ai/route.ts';
 import { forgetMessage, recordConfirmedDraft } from '../ai/training.ts';
 import { DRAFT_CONTENT_CLEARED } from '../retention.ts';
 
@@ -934,59 +934,62 @@ async function handleMessage(event: LineEventPayload) {
     ? (await everyoneAssignable(resolved.workspaceId, await actorFor(event))).length
     : 0;
 
-  // AI reading (2026-10-25): only when the rules could not read it, only if
-  // the team has AI on and allowance left (spent before the call, once per
-  // message), and never for @All. It proposes; the card is still confirmed by
-  // a person. Any failure leaves the rules reading exactly as it was.
+  // AI reading (2026-10-25, routed 2026-10-26): the rules first; Jev for a
+  // missing person or day; the writing model only when words are needed
+  // (lib/ai/route.ts). Only if the team has AI on and allowance left (spent
+  // before each call, once per message), and never for @All. It proposes;
+  // the card is still confirmed by a person. Any failure leaves the rules
+  // reading exactly as it was.
   const rulesReadings = drafts.map((d) => ({ title: d.title, assigneeUserId: d.assigneeUserId, dueAt: d.dueAt }));
-  const aiNotes: Array<{
+  let aiNotes: Array<{
     notice: string;
     reason: string | null;
     reading: { title: string; assigneeUserId: string | null; dueAt: string | null } | null;
-  } | null> =
-    drafts.map(() => null);
-  if (!mentionsAll && shouldAskModel(rulesReadings, sourceText, resolved.members)) {
-    const modelTasks = await readMessageWithModel({
-      workspaceId: resolved.workspaceId,
-      sourceId: event.message?.id ?? event.webhookEventId ?? crypto.randomUUID(),
-      text: sourceText,
-      members: resolved.members,
-      senderUserId: resolved.senderUserId ?? null,
-      cutoff: resolved.cutoff,
-    }).catch(() => null);
-    const merged = modelTasks ? mergeReadings(rulesReadings, modelTasks) : [];
-    if (modelTasks && modelTasks.length === 0) {
-      // The model read it as not a task ("ขอบคุณครับ"). AI proposes, never
-      // acts: the draft stays, marked, one tap from ไม่ใช่งาน.
-      for (let i = 0; i < aiNotes.length; i += 1) {
-        aiNotes[i] = { notice: 'AI: อาจไม่ใช่งาน', reason: 'AI อ่านแล้วไม่พบงานในข้อความนี้ · ถ้าไม่ใช่งาน กด ไม่ใช่งาน', reading: null };
-      }
-    } else if (merged.some((m) => m.fromModel)) {
-      drafts = merged.map((m, i) => {
+  } | null> = drafts.map(() => null);
+  if (!mentionsAll) {
+    const sourceId = event.message?.id ?? event.webhookEventId ?? crypto.randomUUID();
+    const routed = await routeReading(
+      {
+        text: sourceText,
+        members: resolved.members,
+        senderUserId: resolved.senderUserId ?? null,
+        drafts: rulesReadings,
+        now: new Date(),
+        cutoff: resolved.cutoff,
+      },
+      {
+        jev: (request) =>
+          checkMessageWithJev({ workspaceId: resolved.workspaceId, sourceId, request }).catch(() => null),
+        write: () =>
+          readMessageWithModel({
+            workspaceId: resolved.workspaceId,
+            sourceId,
+            text: sourceText,
+            members: resolved.members,
+            senderUserId: resolved.senderUserId ?? null,
+            cutoff: resolved.cutoff,
+          }).catch(() => null),
+      },
+    ).catch(() => null);
+    if (routed?.notice) {
+      const notice = routed.notice;
+      drafts = routed.drafts.map((r, i) => {
         const base = drafts[i] ?? drafts[0];
         return {
           ...base,
-          title: m.title,
-          assigneeUserId: m.assigneeUserId,
-          dueAt: m.dueAt,
+          title: r.title,
+          assigneeUserId: r.assigneeUserId,
+          dueAt: r.dueAt,
           // Say where each part came from: the rules' own words, or "AI".
-          dueSource: base.dueAt && m.dueAt === base.dueAt ? base.dueSource : m.dueAt ? 'AI' : null,
-          assigneeSource:
-            base.assigneeUserId && m.assigneeUserId === base.assigneeUserId ? base.assigneeSource : m.assigneeUserId ? 'AI' : null,
-          confidence: base.dueAt ? base.confidence : m.dueAt ? 'inferred' : base.confidence,
+          dueSource: r.dueFrom === 'rules' ? base.dueSource : r.dueFrom ? 'AI' : null,
+          assigneeSource: r.assigneeFrom === 'rules' ? base.assigneeSource : r.assigneeFrom ? 'AI' : null,
+          confidence: r.dueFrom === 'rules' ? base.confidence : r.dueFrom ? 'inferred' : base.confidence,
         };
       });
-      aiNotes.length = 0;
-      merged.forEach((m) =>
-        aiNotes.push({
-          notice: 'AI ช่วยอ่าน · ตรวจก่อนยืนยัน',
-          reason: m.reason,
-          reading: {
-            title: m.title,
-            assigneeUserId: m.assigneeUserId,
-            dueAt: m.dueAt ? m.dueAt.toISOString() : null,
-          },
-        }),
+      // A draft is marked only if an AI read it, or read it as not a task —
+      // the inbox tells "not a task" apart by its missing reading.
+      aiNotes = routed.drafts.map((r) =>
+        r.reading || routed.notATask ? { notice, reason: r.reason, reading: r.reading } : null,
       );
       while (rulesReadings.length < drafts.length) rulesReadings.push(rulesReadings[0]);
     }

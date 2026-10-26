@@ -754,7 +754,7 @@ export const en: Record<string, Entry> = {
   "AI ช่วยอ่าน · ตรวจก่อนยืนยัน": "Read with AI help · check before confirming",
   "อ่านข้อความที่ระบบอ่านไม่ออก แนะนำว่าควรทำอะไรก่อน และสรุปงานเมื่อคุณกด · เสนอเท่านั้น คุณตัดสินใจเองทุกครั้ง": "Reads messages the rules can't, suggests what to do first, and summarises work when you ask · it only suggests; you always decide",
   "ช่วยพัฒนา AI ของทันงาน": "Help improve Tungan's AI",
-  "เก็บเฉพาะข้อความที่แท็ก @ทันงาน และยืนยันเป็นงานแล้ว คู่กับสิ่งที่ระบบอ่านได้และสิ่งที่ทีมแก้ ใช้ฝึก AI ของทันงานเองเท่านั้น ไม่ส่งให้บริษัทอื่น ข้อความที่ยกเลิกใน LINE จะถูกลบ และปิดเมื่อไรก็ได้ ตัวอย่างทั้งหมดของทีมจะถูกลบทันที": "Keeps only messages that tagged @ทันงาน and were confirmed as tasks, with what was read and what your team corrected. Used only to train Tungan's own AI, never given to another company. A message unsent in LINE is deleted, and you can turn this off at any time — every example from this team is deleted at once.",
+  "เก็บเฉพาะข้อความที่แท็ก @ทันงาน และยืนยันเป็นงานแล้ว คู่กับสิ่งที่ระบบอ่านได้และสิ่งที่ทีมแก้ เก็บไว้ที่ทันงาน ใช้พัฒนา AI ของทันงานเองเท่านั้น ไม่ขายหรือส่งให้บริษัทอื่นเอาไปฝึก ข้อความที่ยกเลิกใน LINE จะถูกลบ และปิดเมื่อไรก็ได้ ตัวอย่างทั้งหมดของทีมจะถูกลบทันที": "Keeps only messages that tagged @ทันงาน and were confirmed as tasks, with what was read and what your team corrected. Kept by Tungan and used only to improve Tungan's own AI — never sold or given to another company to train on. A message unsent in LINE is deleted, and you can turn this off at any time — every example from this team is deleted at once.",
   "นโยบายความเป็นส่วนตัว": "Privacy policy",
   "ยินยอมให้ใช้ตัวอย่างของทีมนี้": "Allow this team's examples to be used",
   "ตัวอย่างที่เก็บไว้ {0} รายการ": "{0} examples kept",
@@ -779,4 +779,6 @@ export const en: Record<string, Entry> = {
   "วันนี้ใช้ AI ครบแล้ว · ลองใหม่พรุ่งนี้": "Today's AI use is used up · try again tomorrow",
   "ใช้ AI ครบตามแพ็กเกจแล้ว": "Your plan's AI use is used up",
   "อ่านและยอมรับเงื่อนไขก่อนเปิด": "Read and accept the terms before turning this on",
+  "อ่านโดย {0}": "Read by {0}",
+  "ส่งเฉพาะข้อความที่แท็ก @ทันงาน ไปให้ {0} อ่าน · คุณยืนยันก่อนสร้างงานเสมอ": "Only messages that tag @ทันงาน are sent, to {0} · you always confirm before a task is created",
 };

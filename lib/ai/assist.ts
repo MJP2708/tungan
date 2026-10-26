@@ -2,7 +2,9 @@ import 'server-only';
 import { and, eq } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import { aiUsage } from '../db/schema.ts';
-import { callModel, type Fetch, type ModelCall } from './client.ts';
+import { callModel, type Fetch } from './client.ts';
+import { askJev, type JevAnswers } from './jev.ts';
+import type { JevRequest } from './jev-questions.ts';
 import { refundAiRead, spendAiRead } from './allowance.ts';
 import { buildReadRequest, parseReadResponse, READ_SCHEMA, type Member, type ModelTask } from './read-message.ts';
 import { buildPrioritizeRequest, parsePrioritizeResponse, PRIORITIZE_SCHEMA, type Suggestion } from './prioritize.ts';
@@ -37,7 +39,11 @@ export type AiRefusal = 'off' | 'over_daily' | 'over_allowance' | 'failed';
  * stored one alike, so both are checked the same way.
  */
 async function answerOnce<T>(
-  params: { workspaceId: string; sourceId: string; call: ModelCall; fetchImpl?: Fetch },
+  params: {
+    workspaceId: string;
+    sourceId: string;
+    run: () => Promise<{ ok: true; data: unknown } | { ok: false }>;
+  },
   parse: (data: unknown) => T | null,
 ): Promise<{ ok: true; value: T } | { ok: false; reason: AiRefusal }> {
   const spent = await spendAiRead({ workspaceId: params.workspaceId, sourceId: params.sourceId });
@@ -53,7 +59,7 @@ async function answerOnce<T>(
     return value ? { ok: true, value } : { ok: false, reason: 'failed' };
   }
   if (spent !== 'ok') return { ok: false, reason: spent };
-  const res = await callModel(params.call, params.fetchImpl);
+  const res = await params.run();
   const value = res.ok ? parse(res.data) : null;
   if (!res.ok || !value) {
     await refundAiRead(params.workspaceId, params.sourceId);
@@ -65,6 +71,27 @@ async function answerOnce<T>(
     .where(and(eq(aiUsage.workspaceId, params.workspaceId), eq(aiUsage.sourceId, params.sourceId)))
     .catch(() => {});
   return { ok: true, value };
+}
+
+/** Jev's quick judgments on a tagged message (lib/ai/jev-questions.ts). */
+export async function checkMessageWithJev(params: {
+  workspaceId: string;
+  sourceId: string;
+  request: JevRequest;
+  fetchImpl?: Fetch;
+}): Promise<JevAnswers | null> {
+  const out = await answerOnce(
+    {
+      workspaceId: params.workspaceId,
+      sourceId: `check:${params.sourceId}`,
+      run: async () => {
+        const res = await askJev({ state: params.request.state, questions: params.request.questions }, params.fetchImpl);
+        return res.ok ? { ok: true, data: res.answers } : { ok: false };
+      },
+    },
+    (data) => (data && typeof data === 'object' && !Array.isArray(data) ? (data as JevAnswers) : null),
+  );
+  return out.ok ? out.value : null;
 }
 
 /** A tagged message the rules could not read well. */
@@ -84,8 +111,7 @@ export async function readMessageWithModel(params: {
       workspaceId: params.workspaceId,
       sourceId: `read:${params.sourceId}`,
       // The reply token lasts about a minute; leave room for the card.
-      call: { task: 'read_message', system: req.system, user: req.user, schema: READ_SCHEMA, maxTokens: 500, timeoutMs: 15_000 },
-      fetchImpl: params.fetchImpl,
+      run: () => callModel({ task: 'read_message', system: req.system, user: req.user, schema: READ_SCHEMA, maxTokens: 500, timeoutMs: 15_000 }, params.fetchImpl),
     },
     (data) => parseReadResponse(data, { refs: req.refs, cutoff: params.cutoff, text: params.text, members: params.members, now: params.now ?? new Date() }),
   );
@@ -107,8 +133,7 @@ export async function suggestPriorities(params: {
     {
       workspaceId: params.workspaceId,
       sourceId: `prio:${params.idempotencyKey}`,
-      call: { task: 'prioritize', system: req.system, user: req.user, schema: PRIORITIZE_SCHEMA, maxTokens: 400 },
-      fetchImpl: params.fetchImpl,
+      run: () => callModel({ task: 'prioritize', system: req.system, user: req.user, schema: PRIORITIZE_SCHEMA, maxTokens: 400 }, params.fetchImpl),
     },
     (data) => parsePrioritizeResponse(data, req.refs),
   );
@@ -126,8 +151,7 @@ export async function summarizeTask(params: {
     {
       workspaceId: params.workspaceId,
       sourceId: `sum:${params.idempotencyKey}`,
-      call: { task: 'summarize', system: req.system, user: req.user, schema: TASK_SUMMARY_SCHEMA, maxTokens: 500 },
-      fetchImpl: params.fetchImpl,
+      run: () => callModel({ task: 'summarize', system: req.system, user: req.user, schema: TASK_SUMMARY_SCHEMA, maxTokens: 500 }, params.fetchImpl),
     },
     parseTaskSummary,
   );
@@ -145,8 +169,7 @@ export async function summarizePeriod(params: {
     {
       workspaceId: params.workspaceId,
       sourceId: `sum:${params.idempotencyKey}`,
-      call: { task: 'summarize', system: req.system, user: req.user, schema: PERIOD_SUMMARY_SCHEMA, maxTokens: 700 },
-      fetchImpl: params.fetchImpl,
+      run: () => callModel({ task: 'summarize', system: req.system, user: req.user, schema: PERIOD_SUMMARY_SCHEMA, maxTokens: 700 }, params.fetchImpl),
     },
     parsePeriodSummary,
   );

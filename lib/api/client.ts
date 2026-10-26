@@ -538,7 +538,7 @@ export const api = {
     request<{
       month: string; used: number; cap: number; remaining: number;
       ai?: {
-        configured: boolean; enabled: boolean; remaining: number;
+        configured: boolean; enabled: boolean; writes?: boolean; providers?: string[]; remaining: number;
         allowance: number; usedToday: number; dailyCap: number;
       };
       /** Training on confirmed drafts (opt-in). Null while AI is not set up. */

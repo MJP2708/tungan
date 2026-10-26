@@ -3485,7 +3485,7 @@ export default function Home() {
           </Select>
         )}
         {/* A suggestion beside the list, never a new order for it. */}
-        {usage?.ai?.enabled && list.length > 0 && (
+        {usage?.ai?.enabled && usage.ai.writes && list.length > 0 && (
           <AiPriorities
             key={selectedProject.id}
             workspaceId={selectedProject.id}
@@ -3887,7 +3887,7 @@ export default function Home() {
               <small>{t('ส่งแล้ว รอคนสั่งงานตรวจ')}</small>
             </article>
           </section>
-          {usage?.ai?.enabled && <AiPeriodSummary key={selectedProject.id} workspaceId={selectedProject.id} />}
+          {usage?.ai?.enabled && usage.ai.writes && <AiPeriodSummary key={selectedProject.id} workspaceId={selectedProject.id} />}
           <section className="panel overview-attention">
             <div className="panel-heading">
               <div>
@@ -4266,7 +4266,11 @@ export default function Home() {
           </span>
           <div>
             <strong>{t('ทันงาน AI')}</strong>
-            <small>{t('ยังไม่ส่งข้อมูลออกจากระบบ')}</small>
+            <small>
+              {usage?.ai?.enabled && usage.ai.providers?.length
+                ? t('อ่านโดย {0}', usage.ai.providers.join(', '))
+                : t('ยังไม่ส่งข้อมูลออกจากระบบ')}
+            </small>
           </div>
           <i />
         </div>
@@ -4291,7 +4295,9 @@ export default function Home() {
               <span>
                 <strong>{t('ให้ AI ช่วยอ่านข้อความที่กฎอ่านไม่ออก')}</strong>
                 <small>
-                  {t('ส่งเฉพาะข้อความที่แท็ก @ทันงาน · คุณยืนยันก่อนสร้างงานเสมอ')}
+                  {usage.ai.providers?.length
+                    ? t('ส่งเฉพาะข้อความที่แท็ก @ทันงาน ไปให้ {0} อ่าน · คุณยืนยันก่อนสร้างงานเสมอ', usage.ai.providers.join(', '))
+                    : t('ส่งเฉพาะข้อความที่แท็ก @ทันงาน · คุณยืนยันก่อนสร้างงานเสมอ')}
                 </small>
               </span>
               <Switch
@@ -4308,7 +4314,7 @@ export default function Home() {
               <strong>{t('ช่วยพัฒนา AI ของทันงาน')}</strong>
               <p>
                 {t(
-                  'เก็บเฉพาะข้อความที่แท็ก @ทันงาน และยืนยันเป็นงานแล้ว คู่กับสิ่งที่ระบบอ่านได้และสิ่งที่ทีมแก้ ใช้ฝึก AI ของทันงานเองเท่านั้น ไม่ส่งให้บริษัทอื่น ข้อความที่ยกเลิกใน LINE จะถูกลบ และปิดเมื่อไรก็ได้ ตัวอย่างทั้งหมดของทีมจะถูกลบทันที',
+                  'เก็บเฉพาะข้อความที่แท็ก @ทันงาน และยืนยันเป็นงานแล้ว คู่กับสิ่งที่ระบบอ่านได้และสิ่งที่ทีมแก้ เก็บไว้ที่ทันงาน ใช้พัฒนา AI ของทันงานเองเท่านั้น ไม่ขายหรือส่งให้บริษัทอื่นเอาไปฝึก ข้อความที่ยกเลิกใน LINE จะถูกลบ และปิดเมื่อไรก็ได้ ตัวอย่างทั้งหมดของทีมจะถูกลบทันที',
                 )}{' '}
                 <a href="/privacy" target="_blank" rel="noopener noreferrer">
                   {t('นโยบายความเป็นส่วนตัว')}
@@ -6264,7 +6270,7 @@ export default function Home() {
               )}
               <section className="detail-section">
                 <h3>{t('กิจกรรม')}</h3>
-                {usage?.ai?.enabled && selectedTask && (
+                {usage?.ai?.enabled && usage.ai.writes && selectedTask && (
                   <AiTaskSummary key={selectedTask.id} taskId={selectedTask.id} />
                 )}
                 {history.length === 0 && (

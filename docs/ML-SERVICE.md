@@ -1,5 +1,28 @@
 # The model service
 
+**Now (2026-10-26): two hosted providers, until our own server exists.**
+
+| | Jev (TypeSafe AI) | Writing model: Typhoon's hosted API |
+|---|---|---|
+| Does | is it a task, who, which day — typed answers | titles, splitting, summaries, reasons |
+| Env | `TYPESAFE_API_KEY` (opt. `TYPESAFE_MODEL`, default `jev-latest`) | `ML_SERVICE_URL=https://api.opentyphoon.ai`, `ML_SERVICE_TOKEN=<key>`, `ML_MODEL=typhoon-v2.5-30b-a3b-instruct`, `ML_RESPONSE_FORMAT=prompt` |
+| Code | `lib/ai/jev.ts`, `lib/ai/jev-questions.ts` | `lib/ai/client.ts` |
+
+Either one alone works. Which is asked when: `lib/ai/route.ts`. Check the
+live model id at `GET https://api.opentyphoon.ai/v1/models` before setting
+`ML_MODEL`. Measure before switching a team on:
+
+```
+TYPESAFE_API_KEY=… ML_SERVICE_URL=https://api.opentyphoon.ai ML_SERVICE_TOKEN=… \
+ML_MODEL=typhoon-v2.5-30b-a3b-instruct ML_RESPONSE_FORMAT=prompt VERBOSE=1 \
+node --experimental-strip-types --conditions=react-server tools/ml/eval.ts
+```
+
+(That sends the 40 made-up test messages in `tools/ml/eval-set.json` to both
+services.) The rest of this page is the plan for our own server.
+
+---
+
 ทันงาน's AI is our own open Thai model, run as a private inference service.
 This is the one exception to "no second service" in CLAUDE.md: it does model
 inference and nothing else. Every prompt, rule, permission check and charge

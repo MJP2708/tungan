@@ -113,7 +113,7 @@ await step('the group’s week, summarised on ภาพรวม', boss.page, as
 });
 
 await step('training: a Member cannot opt in; a Manager must accept the wording; a confirmed draft is kept, unsend and opt-out delete', boss.page, async () => {
-  const no = await may.page.request.patch(BASE + '/api/workspaces/ws-team', { data: { aiTrainingOptIn: true, consentVersion: '2026-10-25' } });
+  const no = await may.page.request.patch(BASE + '/api/workspaces/ws-team', { data: { aiTrainingOptIn: true, consentVersion: '2026-10-26' } });
   expect(no.status() === 403, `member ${no.status()}`);
   const noConsent = await boss.page.request.patch(BASE + '/api/workspaces/ws-team', { data: { aiTrainingOptIn: true } });
   expect(noConsent.status() === 400, `without consent ${noConsent.status()}`);
@@ -124,10 +124,10 @@ await step('training: a Member cannot opt in; a Manager must accept the wording;
   await sleep(1500);
   expect((await q('select count(*)::int n from ai_training_example'))[0].n === 0, 'kept without consent');
 
-  const yes = await boss.page.request.patch(BASE + '/api/workspaces/ws-team', { data: { aiTrainingOptIn: true, consentVersion: '2026-10-25' } });
+  const yes = await boss.page.request.patch(BASE + '/api/workspaces/ws-team', { data: { aiTrainingOptIn: true, consentVersion: '2026-10-26' } });
   expect(yes.ok(), `opt in ${yes.status()}`);
   const [ws] = await q("select ai_training_opt_in, ai_training_consent_by, ai_training_consent_version from workspace where id='ws-team'");
-  expect(ws.ai_training_opt_in && ws.ai_training_consent_by === 'u-boss' && ws.ai_training_consent_version === '2026-10-25', JSON.stringify(ws));
+  expect(ws.ai_training_opt_in && ws.ai_training_consent_by === 'u-boss' && ws.ai_training_consent_version === '2026-10-26', JSON.stringify(ws));
 
   const mid = await say('@ทันงาน ช่วยนับของในคลังก่อนประชุมนะ');
   const [d] = await q('select id from inbox_item where source_message_id=$1', [mid]);

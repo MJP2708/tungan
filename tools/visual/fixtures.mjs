@@ -67,8 +67,8 @@ const fixed = {
     month: '2026-09', used: 212, cap: 300, remaining: 88,
     // A key exists on the server, but this team has not turned AI on yet —
     // unless AI=1, which shows every AI panel (2026-10-25).
-    ai: { configured: true, enabled: process.env.AI === '1', remaining: 50, allowance: 50, usedToday: 3, dailyCap: 20 },
-    training: { optIn: process.env.AI === '1', consentAt: null, consentVersion: '2026-10-25', currentVersion: '2026-10-25', examples: 128 },
+    ai: { configured: true, enabled: process.env.AI === '1', writes: true, remaining: 50, allowance: 50, usedToday: 3, dailyCap: 20 },
+    training: { optIn: process.env.AI === '1', consentAt: null, consentVersion: '2026-10-26', currentVersion: '2026-10-26', examples: 128 },
   },
   '/api/me/priorities': { suggestions: [
     { taskId: 't3', reason: 'เลยกำหนดมาสองวันแล้ว และติดรอลูกค้าอยู่ ควรโทรตามลูกค้าก่อนเพื่อให้งานอื่นเดินต่อได้' },

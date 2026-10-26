@@ -13,12 +13,18 @@
  *   ML_MODEL=hf.co/typhoon-ai/typhoon2.5-qwen3-4b-gguf:Q4_K_M \
  *   node --experimental-strip-types --conditions=react-server tools/ml/eval.ts
  *
- * Ollama, vLLM or any OpenAI-compatible server works. Nothing is stored and
- * no database is touched. VERBOSE=1 prints every miss.
+ * Ollama, vLLM or any OpenAI-compatible server works. With TYPESAFE_API_KEY
+ * set, the pipeline also asks Jev, exactly as the webhook does
+ * (lib/ai/route.ts). Nothing is stored and no database is touched — but the
+ * messages ARE sent to whichever services are configured. VERBOSE=1 prints
+ * every miss.
  */
 import { readFileSync } from 'node:fs';
 import { extractDraft, splitInstructions } from '../../lib/line/extract.ts';
-import { buildReadRequest, mergeReadings, parseReadResponse, READ_SCHEMA, shouldAskModel } from '../../lib/ai/read-message.ts';
+import { buildReadRequest, parseReadResponse, READ_SCHEMA } from '../../lib/ai/read-message.ts';
+import { routeReading } from '../../lib/ai/route.ts';
+import { askJev } from '../../lib/ai/jev.ts';
+import { jevConfigured, mlConfigured } from '../../lib/ai/model.ts';
 import { callModel } from '../../lib/ai/client.ts';
 import { fromZonedWallClock, zonedDateParts } from '../../lib/deadline.ts';
 
@@ -115,20 +121,33 @@ const add = (way: string, kind: string, s: ReturnType<typeof score>) => {
 
 const times: number[] = [];
 let failures = 0;
-let asked = 0;
+const asked = { jev: 0, model: 0 };
 for (const c of set.cases) {
   const rules = rulesReading(c.text);
-  const { tasks: model, ms } = await modelReading(c.text);
+  const { tasks: model, ms } = mlConfigured() ? await modelReading(c.text) : { tasks: null, ms: 0 };
   times.push(ms);
   if (!model) failures += 1;
-  // What the webhook does: ask only when the rules could not read it.
-  const askModel = shouldAskModel(rules, c.text, set.members);
-  if (askModel) asked += 1;
-  // Flagged "AI: อาจไม่ใช่งาน": the person sees the model found no task.
-  const flagged = askModel && model !== null && model.length === 0;
-  const pipeline = flagged ? [] : askModel && model
-    ? mergeReadings(rules, model.map((x) => ({ ...x, reason: '' }))).map((x) => ({ title: x.title, assigneeUserId: x.assigneeUserId, dueAt: x.dueAt }))
-    : rules;
+  // What the webhook does (lib/ai/route.ts): the rules, then Jev, then the
+  // writing model only when words are needed. The writing model's answer is
+  // the one already fetched above, so it is not asked twice.
+  const routed = await routeReading(
+    { text: c.text, members: set.members, senderUserId: set.sender, drafts: rules, now: NOW, cutoff: set.cutoff },
+    {
+      jev: jevConfigured()
+        ? async (request) => {
+            const res = await askJev({ state: request.state, questions: request.questions });
+            return res.ok ? res.answers : null;
+          }
+        : undefined,
+      write: mlConfigured() ? async () => model?.map((x) => ({ ...x, reason: '' })) ?? null : undefined,
+    },
+  );
+  if (routed.asked.jev) asked.jev += 1;
+  if (routed.asked.model) asked.model += 1;
+  const askModel = routed.asked.jev || routed.asked.model;
+  // Flagged "AI: อาจไม่ใช่งาน": the person sees no task was found.
+  const flagged = routed.notATask;
+  const pipeline = flagged ? [] : routed.drafts;
   const scored = { rules: score(rules, c), model: score(model ?? [], c), pipeline: score(pipeline, c) };
   for (const [way, s] of Object.entries(scored)) add(way, c.kind, s);
   process.stdout.write(scored.pipeline.allRight ? '.' : 'x');
@@ -138,7 +157,7 @@ for (const c of set.cases) {
 }
 
 const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%`.padStart(4) : '  - ');
-console.log(`\n\nmodel ${process.env.ML_MODEL ?? '(default)'} · ${set.cases.length} messages · model asked by the pipeline for ${asked}`);
+console.log(`\n\nwriting model ${mlConfigured() ? (process.env.ML_MODEL ?? '(default)') : 'none'} · Jev ${jevConfigured() ? (process.env.TYPESAFE_MODEL ?? 'jev-latest') : 'none'} · ${set.cases.length} messages · the pipeline asked Jev ${asked.jev}, the writing model ${asked.model}`);
 console.log('way       kind         all-right  title  person  deadline');
 for (const way of ['rules', 'model', 'pipeline']) {
   for (const [kind, x] of Object.entries(tallies[way]).sort(([a], [b]) => (a === 'ALL' ? 1 : b === 'ALL' ? -1 : a.localeCompare(b)))) {

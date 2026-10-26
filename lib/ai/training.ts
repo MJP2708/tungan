@@ -16,7 +16,7 @@ import { aiTrainingExample, inboxItem, workspace } from '../db/schema.ts';
  */
 
 /** Bump when the wording people agree to changes (app/privacy, ตั้งค่า AI). */
-export const TRAINING_CONSENT_VERSION = '2026-10-25';
+export const TRAINING_CONSENT_VERSION = '2026-10-26';
 
 export async function setTrainingOptIn(params: {
   workspaceId: string;
