@@ -17,6 +17,9 @@ import './motion.css';
 // Liquid glass (2026-10-09): our own refraction and specular glass on the
 // nav, top bar, sidebar and popups. Last; removing it restores the old glass.
 import './liquid.css';
+// The three accents and the dot (2026-10-31). Imported last; removing this
+// line restores the previous look exactly.
+import './brand.css';
 
 const prompt = Prompt({
   variable: '--font-prompt',

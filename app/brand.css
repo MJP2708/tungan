@@ -1,0 +1,271 @@
+/* ══ The three accents and the dot (2026-10-31) ═══════════════════════════
+   Sky #0593c6 · White #FCFFFF · Hot pink #D83995. Imported LAST; removing
+   the import in app/layout.tsx restores the previous look exactly.
+
+   What the colours mean, everywhere:
+   - Sky: yours, on track, the way forward. Selected, focused, in progress.
+   - Hot pink: needs you now. Late, waiting on you, the count on the bar.
+   - White: the surface they sit on.
+   The sign is the logo's dot, a pink centre in a sky ring. It closes every
+   screen title as it closes the wordmark, and the in-progress mark is it.
+
+   Reading rules (WCAG AA, 4.5:1 for small text):
+   - Sky and pink at full strength are for fills, icons and lines. White on
+     them is 3.48 and 4.23, so small text on either is ink (5.68 and 4.68).
+   - Small coloured text uses --sky-ink / --pink-ink, the same hues deepened
+     to pass on every surface. They are never used as fills.
+   - Sky against pink is only 1.21:1: never rely on telling them apart.
+     Late work also says so in words. */
+
+:root {
+  --sky: #0593c6;
+  --pink: #d83995;
+  --white: #fcffff;
+  --sky-rgb: 5, 147, 198;
+  --pink-rgb: 216, 57, 149;
+  --sky-ink: #046f96;
+  --pink-ink: #b8247a;
+
+  --blue: var(--sky);
+  --blue-deep: var(--sky);
+  --blue-rgb: var(--sky-rgb);
+  --ring: var(--sky);
+  --card: var(--white);
+  --popover: var(--white);
+  --primary-foreground: var(--white);
+  --badge-red: var(--pink);
+  --alert-text: var(--pink-ink);
+  --caution: var(--pink-ink);
+  --gradient-brand: linear-gradient(135deg, var(--sky), var(--pink));
+  --gradient-soft: linear-gradient(135deg, rgba(var(--sky-rgb), 0.12), rgba(var(--sky-rgb), 0.05) 58%, rgba(252, 255, 255, 0.92));
+  --gradient-border: linear-gradient(135deg, var(--sky), var(--pink));
+  --shadow-blue: 0 18px 50px rgba(var(--sky-rgb), 0.24);
+  --shadow-outline-glow: 0 0 12px rgba(var(--sky-rgb), 0.2), 0 14px 34px rgba(var(--sky-rgb), 0.1);
+  --shadow-outline-glow-hover: 0 0 16px rgba(var(--sky-rgb), 0.3), 0 18px 42px rgba(var(--sky-rgb), 0.14);
+  /* Black pill, sky to one side and pink to the other. */
+  --brand-glow: -7px 9px 20px -8px rgba(var(--sky-rgb), 0.85), 7px 9px 20px -8px rgba(var(--pink-rgb), 0.85);
+}
+
+/* ── Atmosphere ─────────────────────────────────────────────────────────── */
+body {
+  background: #f7f7f5;
+}
+
+.app-shell::before,
+.auth-page::before {
+  background:
+    radial-gradient(38vmax 30vmax at 100% 0%, rgba(var(--pink-rgb), 0.34), transparent 66%),
+    radial-gradient(52vmax 42vmax at -12% 50%, rgba(var(--sky-rgb), 0.3), transparent 66%),
+    radial-gradient(44vmax 34vmax at 96% 104%, rgba(var(--pink-rgb), 0.2), transparent 64%),
+    radial-gradient(40vmax 28vmax at 8% 2%, var(--white), transparent 72%),
+    #f7f7f5;
+}
+
+.app-shell::after,
+.auth-page::after {
+  background-image: radial-gradient(rgba(var(--pink-rgb), 0.3) 1px, transparent 1.4px);
+}
+
+/* ── The dot ────────────────────────────────────────────────────────────── */
+.welcome-block h2::after,
+.section-intro h2::after {
+  content: '';
+  display: inline-block;
+  width: 0.19em;
+  height: 0.19em;
+  margin-inline-start: 0.14em;
+  border-radius: 50%;
+  background: var(--pink);
+  box-shadow: 0 0 0 0.055em var(--white), 0 0 0 0.11em var(--sky);
+}
+
+/* The in-progress mark is the dot: a sky ring round a pink centre. */
+.status-dot.is-progress {
+  box-shadow: inset 0 0 0 1.6px var(--sky);
+}
+
+.status-dot.is-progress::after {
+  background: var(--pink);
+}
+
+/* Links: ink with a sky underline, which reads better than sky text. */
+.today-label-row button,
+.today-more {
+  color: var(--sky-ink);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.primary-action,
+.line-decide > [data-slot='button']:last-child,
+.auth-line-button {
+  box-shadow: var(--brand-glow);
+}
+
+:is(.welcome-block, .section-intro) [data-slot='button'].primary-action,
+[data-slot='button'].primary-action {
+  border-radius: 999px;
+  box-shadow: var(--brand-glow);
+}
+
+/* The next step on a row: sky, ink words. */
+.today-action:not([data-variant='outline']) {
+  border-color: transparent;
+  background: var(--sky);
+  box-shadow: none;
+  color: #090909;
+}
+
+/* ── วันนี้'s tiles ─────────────────────────────────────────────────────── */
+.today-tile.is-yours,
+.today-tile.is-alert {
+  border-color: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.today-tile.is-yours {
+  background: var(--sky);
+}
+
+.today-tile.is-alert {
+  background: var(--pink);
+}
+
+.today-tile:is(.is-yours, .is-alert) :is(b, span) {
+  color: #090909;
+}
+
+/* ภาพรวม: work to chase is pink too. */
+.report-metrics article.is-alert {
+  border-color: transparent;
+  background: var(--pink);
+  box-shadow: none;
+}
+
+.report-metrics article.is-alert :is(span, strong, small) {
+  color: #090909;
+}
+
+/* ── Late work ──────────────────────────────────────────────────────────── */
+.task-group.is-late .task-list {
+  box-shadow: 0 0 0 1.5px var(--pink);
+}
+
+/* ── Bottom bar ─────────────────────────────────────────────────────────── */
+@media (max-width: 760px) {
+  .mobile-nav button i {
+    border-color: var(--white);
+    color: #090909;
+  }
+}
+
+/* ── Task sheet ─────────────────────────────────────────────────────────── */
+.sheet-step.is-done::before {
+  background: var(--sky);
+}
+
+.sheet-step.is-now::before {
+  background: var(--pink);
+}
+
+/* ── LINE drafts ────────────────────────────────────────────────────────── */
+.line-bubble mark {
+  border-radius: 4px;
+  background: rgba(var(--sky-rgb), 0.18);
+  color: #090909;
+  font-weight: 500;
+}
+
+/* ── Colours globals.css writes out in full ────────────────────────────── */
+.bell-button i {
+  background: var(--pink);
+  box-shadow: none;
+}
+
+.ai-chat-shell {
+  border-color: rgba(var(--sky-rgb), 0.24);
+  background:
+    radial-gradient(circle at 50% 25%, rgba(var(--pink-rgb), 0.1), transparent 32%),
+    var(--white);
+  box-shadow: 0 24px 70px rgba(var(--sky-rgb), 0.12);
+}
+
+/* Small words on a colour are ink. */
+.month-day.is-selected,
+.month-day.is-selected > span {
+  color: #090909;
+}
+
+.month-day.is-selected.has-event > span {
+  box-shadow: inset 0 -2px 0 #090909;
+}
+
+.desktop-sidebar nav > button b,
+.desktop-sidebar nav > button.active b {
+  color: #090909;
+}
+
+.mobile-project .workspace-trigger-icon,
+.settings-button[aria-current='page'],
+.next-reminder-label [data-slot='badge'] {
+  background: rgba(var(--sky-rgb), 0.08);
+}
+
+.reminder-intro [data-slot='badge'],
+.next-reminder-label [data-slot='badge'] {
+  border-color: rgba(var(--sky-rgb), 0.24);
+}
+
+.ai-chat-header > span {
+  box-shadow: 0 8px 20px rgba(var(--sky-rgb), 0.28);
+}
+
+.task-detail {
+  background:
+    radial-gradient(circle at 100% 0, rgba(var(--pink-rgb), 0.08), transparent 28%),
+    var(--white) !important;
+}
+
+/* The share card keeps its ink, and takes the dot as its light. */
+.story-card {
+  background:
+    radial-gradient(circle at 82% 18%, rgba(var(--pink-rgb), 0.42), transparent 25%),
+    radial-gradient(circle at 82% 18%, rgba(var(--sky-rgb), 0.3), transparent 42%),
+    #090909;
+}
+
+/* ── Waiting ────────────────────────────────────────────────────────────── */
+.activity-bar span {
+  background: var(--gradient-brand);
+}
+
+/* ── Sign-in: the dot, as a poster ──────────────────────────────────────── */
+.auth-page::before {
+  background:
+    radial-gradient(circle 62vmin at 84% 18%, var(--pink) 0 64%, var(--white) 64.3% 69%, var(--sky) 69.3% 99.6%, transparent 100%),
+    radial-gradient(52vmax 42vmax at -12% 60%, rgba(var(--sky-rgb), 0.24), transparent 66%),
+    #f7f7f5;
+}
+
+.auth-page::after {
+  display: none;
+}
+
+/* Solid white: frosted over the poster it turns to a smear. */
+.auth-card {
+  background: var(--white);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.auth-line-button {
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .welcome-block h2::after,
+  .section-intro h2::after {
+    animation: motion-pop var(--motion-slow) var(--motion-ease) 180ms backwards;
+  }
+}

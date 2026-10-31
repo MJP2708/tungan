@@ -16,7 +16,7 @@
  *   Liquid    — floating, translucent surfaces with a bright rim, a top
  *               sheen and an inner glow; pill-shaped controls.
  *
- * Colour rule unchanged: #0080ff is the only blue on anything interactive or
+ * Colour rule unchanged: var(--blue) is the only blue on anything interactive or
  * stateful; pastels are decoration only. No new fonts: Prompt + Geist Mono.
  * Every backdrop-filter has a solid fallback. Ease-of-use rules unchanged:
  * 44px targets, nothing important hidden behind hover.
@@ -160,7 +160,7 @@ body {
 
 .workspace-card > span {
   border-radius: 12px;
-  background: rgba(0, 128, 255, 0.08);
+  background: rgba(var(--blue-rgb, 0, 128, 255), 0.08);
   color: var(--blue);
 }
 
@@ -418,7 +418,7 @@ body {
 /* The cards that ask for attention keep a brand edge — a hairline of it. */
 .line-attention-card,
 .group-setup-card {
-  border-color: rgba(0, 128, 255, 0.42);
+  border-color: rgba(var(--blue-rgb, 0, 128, 255), 0.42);
 }
 
 /* Rows inside a panel are divided by hairlines, not stacked boxes. */
@@ -533,7 +533,7 @@ body {
 [data-slot='textarea']:focus-visible,
 .themed-field-trigger:focus-visible {
   border-color: var(--blue);
-  box-shadow: 0 0 0 3px rgba(0, 128, 255, 0.18);
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb, 0, 128, 255), 0.18);
 }
 
 /* ══ Sheets and dialogs: the same liquid rim ══════════════════════════════

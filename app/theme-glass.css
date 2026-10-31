@@ -5,7 +5,7 @@
  * order at equal specificity, so removing the import in app/layout.tsx
  * restores the previous look exactly.
  *
- * Colour rule: #0080ff is the only blue on anything interactive or stateful.
+ * Colour rule: var(--blue) is the only blue on anything interactive or stateful.
  * Pastel blues/violets appear only in decoration (backdrops, washes).
  *
  * Every backdrop-filter has a solid fallback: low-end Android LINE WebViews
@@ -234,7 +234,7 @@
   gap: 10px;
   margin: 0 0 14px;
   padding: 16px;
-  border-color: rgba(0, 128, 255, 0.35);
+  border-color: rgba(var(--blue-rgb, 0, 128, 255), 0.35);
 }
 
 .group-setup-card > div:first-child {
@@ -478,7 +478,7 @@
 /* The one card that asks for attention keeps its brand edge. */
 .line-attention-card,
 .group-setup-card {
-  border-color: rgba(0, 128, 255, 0.45);
+  border-color: rgba(var(--blue-rgb, 0, 128, 255), 0.45);
 }
 
 /* Rows inside a glass panel let the glass show instead of stacking whites. */
@@ -558,7 +558,7 @@
    brand edge it had before. (Its bottom placement on phones is deliberate —
    thumb reach — and stays.) */
 .auth-card {
-  border-color: rgba(0, 128, 255, 0.3);
+  border-color: rgba(var(--blue-rgb, 0, 128, 255), 0.3);
   background: rgba(255, 255, 255, 0.88);
 }
 
@@ -682,7 +682,7 @@
 .reminder-delete.armed,
 .reminder-delete-link.armed {
   background: rgba(229, 50, 45, 0.1);
-  color: #c4241f;
+  color: var(--alert-text, #c4241f);
 }
 
 .reminder-delete:focus-visible,

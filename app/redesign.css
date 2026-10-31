@@ -4,7 +4,7 @@
  * screens were restructured around "what do I do next", so removing this
  * import no longer restores the old app. Git keeps every earlier version.
  *
- * Same rules as the layers before it: #0080ff only on controls and state,
+ * Same rules as the layers before it: var(--blue) only on controls and state,
  * pastels only in decoration, Prompt + Geist Mono, 44px touch targets, a solid
  * fallback for every backdrop-filter, Thai labels never letter-spaced.
  */
@@ -146,7 +146,7 @@
 }
 
 .today-tile.is-alert b {
-  color: #c4241f;
+  color: var(--alert-text, #c4241f);
 }
 
 button.today-tile:focus-visible {
@@ -251,7 +251,7 @@ button.today-tile:focus-visible {
 }
 
 .today-row-text small.is-late {
-  color: #c4241f;
+  color: var(--alert-text, #c4241f);
 }
 
 .today-icon {
@@ -299,12 +299,12 @@ button.today-tile:focus-visible {
 }
 
 .status-dot.is-blocked {
-  box-shadow: inset 0 0 0 1.6px #b45309;
+  box-shadow: inset 0 0 0 1.6px var(--caution, #b45309);
 }
 
 .status-dot.is-blocked::after {
   content: '!';
-  color: #b45309;
+  color: var(--caution, #b45309);
   font-size: 12px;
   font-weight: 700;
   line-height: 1;
@@ -510,7 +510,7 @@ button.today-tile:focus-visible {
 }
 
 .task-group.is-late .task-group-label {
-  color: #c4241f;
+  color: var(--alert-text, #c4241f);
 }
 
 /* The list as one glass sheet with hairline rows (also on กำหนดส่ง). */
@@ -583,7 +583,7 @@ button.today-tile:focus-visible {
 }
 
 .task-line-text small.is-late {
-  color: #c4241f;
+  color: var(--alert-text, #c4241f);
 }
 
 .task-line-end {
@@ -658,11 +658,11 @@ button.today-tile:focus-visible {
 }
 
 .sheet-step.is-blocked {
-  color: #b45309;
+  color: var(--caution, #b45309);
 }
 
 .sheet-step.is-blocked::before {
-  background: #b45309;
+  background: var(--caution, #b45309);
 }
 
 .sheet-facts {
@@ -722,7 +722,7 @@ button.today-tile:focus-visible {
 
 .sheet-fact.is-due.is-late strong,
 .sheet-fact.is-due.is-late small {
-  color: #c4241f;
+  color: var(--alert-text, #c4241f);
 }
 
 [data-slot='button'].edit-task-button {
@@ -1042,7 +1042,7 @@ details.delegate-section > summary:focus-visible {
 }
 
 .line-field.is-missing strong {
-  color: #b45309;
+  color: var(--caution, #b45309);
 }
 
 .line-field:focus-visible {
@@ -1147,7 +1147,7 @@ details.delegate-section > summary:focus-visible {
   /* The blue ring is the focus indicator; the old ink outline doubled it. */
   outline: none;
   border-color: transparent;
-  box-shadow: 0 0 0 3px rgba(0, 128, 255, 0.35), 0 12px 24px -12px rgba(9, 9, 9, 0.6);
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb, 0, 128, 255), 0.35), 0 12px 24px -12px rgba(9, 9, 9, 0.6);
 }
 
 .announce-tab {
@@ -1283,7 +1283,7 @@ details.delegate-section > summary:focus-visible {
 }
 
 .batch-person.is-current {
-  background: rgba(0, 128, 255, 0.07);
+  background: rgba(var(--blue-rgb, 0, 128, 255), 0.07);
 }
 
 .batch-person:focus-visible {
@@ -1352,7 +1352,7 @@ details.delegate-section > summary:focus-visible {
 }
 
 .overview-group.is-late h4 {
-  color: #c4241f;
+  color: var(--alert-text, #c4241f);
 }
 
 .overview-more {
@@ -1361,7 +1361,7 @@ details.delegate-section > summary:focus-visible {
   padding: 0 4px;
   border: 0;
   background: none;
-  color: #0080ff;
+  color: var(--blue);
   font-size: 13px;
   font-weight: 500;
 }
@@ -1387,12 +1387,12 @@ details.delegate-section > summary:focus-visible {
 }
 
 .overview-person small .is-late {
-  color: #c4241f;
+  color: var(--alert-text, #c4241f);
   font-weight: 600;
 }
 
 .overview-person.is-heavy > strong {
-  color: #b45309;
+  color: var(--caution, #b45309);
 }
 
 .load-row.overview-person {
@@ -1428,7 +1428,7 @@ details.delegate-section > summary:focus-visible {
   min-height: 44px;
   margin: 6px 0;
   border-radius: 999px;
-  background: #0080ff;
+  background: var(--blue);
   padding: 0 18px;
   color: #ffffff;
   font-size: 14px;
@@ -1442,7 +1442,7 @@ details.delegate-section > summary:focus-visible {
 }
 
 .announce-link:focus-visible {
-  outline: 2px solid #0080ff;
+  outline: 2px solid var(--blue);
   outline-offset: 2px;
 }
 
@@ -1457,7 +1457,7 @@ details.delegate-section > summary:focus-visible {
   display: inline-flex;
   align-items: center;
   min-height: 44px;
-  color: #0080ff;
+  color: var(--blue);
   font-size: 12.5px;
   cursor: pointer;
 }
@@ -1524,8 +1524,8 @@ details.delegate-section > summary:focus-visible {
 .month-today {
   order: 4;
   padding: 0 12px;
-  background: rgba(0, 128, 255, 0.1);
-  color: #0080ff;
+  background: rgba(var(--blue-rgb, 0, 128, 255), 0.1);
+  color: var(--blue);
   font-size: 13px;
   font-weight: 500;
 }
@@ -1534,7 +1534,7 @@ details.delegate-section > summary:focus-visible {
 .month-today:focus-visible,
 .month-day:focus-visible,
 .calendar-undated:focus-visible {
-  outline: 2px solid #0080ff;
+  outline: 2px solid var(--blue);
   outline-offset: 2px;
 }
 
@@ -1578,7 +1578,7 @@ details.delegate-section > summary:focus-visible {
 }
 
 .month-day.has-late small {
-  background: #c4241f;
+  background: var(--alert-text, #c4241f);
   color: #ffffff;
 }
 
@@ -1588,12 +1588,12 @@ details.delegate-section > summary:focus-visible {
 }
 
 .month-day.is-today > span {
-  color: #0080ff;
+  color: var(--blue);
   font-weight: 600;
 }
 
 .month-day.is-selected {
-  background: #0080ff;
+  background: var(--blue);
   color: #ffffff;
 }
 
@@ -1608,7 +1608,7 @@ details.delegate-section > summary:focus-visible {
 
 .month-day.is-selected.has-late small {
   background: #ffffff;
-  color: #c4241f;
+  color: var(--alert-text, #c4241f);
 }
 
 .calendar-people {
@@ -1758,7 +1758,7 @@ details.delegate-section > summary:focus-visible {
   height: 100%;
   width: 100%;
   border-radius: 0 3px 3px 0;
-  background: #0080ff;
+  background: var(--blue);
 }
 
 .activity-bar[data-state='active'],
@@ -1824,7 +1824,7 @@ details.delegate-section > summary:focus-visible {
 }
 
 .calendar-add:focus-visible {
-  outline: 2px solid #0080ff;
+  outline: 2px solid var(--blue);
   outline-offset: 2px;
 }
 
@@ -1879,7 +1879,7 @@ details.delegate-section > summary:focus-visible {
 }
 
 .event-row:focus-visible {
-  outline: 2px solid #0080ff;
+  outline: 2px solid var(--blue);
   outline-offset: -2px;
 }
 
@@ -1887,7 +1887,7 @@ details.delegate-section > summary:focus-visible {
    event (it is something you go to), ink for a reminder. */
 .event-time {
   min-width: 64px;
-  border-left: 3px solid #0080ff;
+  border-left: 3px solid var(--blue);
   padding-left: 8px;
   color: #090909;
   font-family: var(--mono);
@@ -1921,7 +1921,7 @@ details.delegate-section > summary:focus-visible {
 
 /* A day with an event: a small blue line under the date. */
 .month-day.has-event > span {
-  box-shadow: inset 0 -2px 0 #0080ff;
+  box-shadow: inset 0 -2px 0 var(--blue);
 }
 
 .month-day.is-selected.has-event > span {
@@ -2025,8 +2025,8 @@ details.delegate-section > summary:focus-visible {
 }
 
 .event-people button.active {
-  border-color: #0080ff;
-  background: #0080ff;
+  border-color: var(--blue);
+  background: var(--blue);
   color: #ffffff;
 }
 
@@ -2062,7 +2062,7 @@ details.delegate-section > summary:focus-visible {
 
 .member-list > button.role-change:focus-visible,
 .no-manager-banner button:focus-visible {
-  outline: 2px solid #0080ff;
+  outline: 2px solid var(--blue);
   outline-offset: 2px;
 }
 
@@ -2125,7 +2125,7 @@ details.delegate-section > summary:focus-visible {
 
 .mine-section.is-overdue h3,
 .mine-section.is-revision h3 {
-  color: #c4241f;
+  color: var(--alert-text, #c4241f);
 }
 
 .mine-list {
@@ -2151,7 +2151,7 @@ details.delegate-section > summary:focus-visible {
 }
 
 .mine-row:focus-visible {
-  outline: 2px solid #0080ff;
+  outline: 2px solid var(--blue);
   outline-offset: -2px;
 }
 
@@ -2219,7 +2219,7 @@ details.delegate-section > summary:focus-visible {
 
 .ai-panel-error {
   margin: 0;
-  color: #c4241f;
+  color: var(--alert-text, #c4241f);
   font-size: 13px;
 }
 

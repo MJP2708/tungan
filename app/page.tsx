@@ -3046,7 +3046,11 @@ export default function Home() {
         </section>
 
         <div className="today-tiles" role="group" aria-label={t('สรุปวันนี้')}>
-          <button type="button" className="today-tile" onClick={() => navigate('tasks')}>
+          <button
+            type="button"
+            className={`today-tile ${mineToday ? 'is-yours' : ''}`}
+            onClick={() => navigate('tasks')}
+          >
             <b>{mineToday}</b>
             <span>{t('ของฉันวันนี้')}</span>
           </button>
@@ -3058,7 +3062,7 @@ export default function Home() {
             <b>{mineLate}</b>
             <span>{t('เลยกำหนด')}</span>
           </button>
-          <div className="today-tile">
+          <div className={`today-tile ${waitingCount ? 'is-alert' : ''}`}>
             <b>{waitingCount}</b>
             <span>{t('รอคุณ')}</span>
           </div>
@@ -3871,7 +3875,7 @@ export default function Home() {
       <div className="report-layout">
         <div className="report-data">
           <section className="report-metrics">
-            <article>
+            <article className={overview.attentionTotal ? 'is-alert' : ''}>
               <span>{t('ต้องตามตอนนี้')}</span>
               <strong>{overview.attentionTotal}</strong>
               <small>{t('จาก {0} งานที่ยังเปิดอยู่', overview.open)}</small>

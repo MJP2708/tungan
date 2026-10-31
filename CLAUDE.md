@@ -40,12 +40,24 @@ LINE channels, the Neon project, and all cloud resources, then hands over IDs.
 
 ## Visual constraints — treat any difference as a bug
 
-- Brand blue **#0080ff** is the only blue for anything interactive or stateful:
-  buttons, links, focus rings, active nav, selected states, badges' brand uses.
-  *Relaxed 2026-09-21:* pastel blues and violets are allowed in **decoration
-  only** — backdrop gradients, heat-map / airbrush washes, halftone, soft-focus
-  shapes. Never on text, controls or state.
-- bg `#f7f7f5`, fg `#090909`, card `#ffffff`, border `#deded9` remain the base
+- **Three accents (decided 2026-10-31, replaces brand blue #0080ff):** sky
+  **#0593c6**, white **#FCFFFF**, hot pink **#D83995**. All in `app/brand.css`,
+  imported **last** — removing that import restores the previous look exactly
+  (redesign/theme layers use variables that default to the old values).
+  **Sky** = yours, on track, the way forward (selected, focus, in progress,
+  next-step buttons). **Hot pink** = needs you now (late, waiting on you, count
+  badges). **White** = the surface. No red or amber: late and blocked are pink.
+  **The dot** is the signature, from the logo: pink centre in a sky ring. It
+  closes every screen title, it is the in-progress mark, and it is the poster
+  on the sign-in screen (CSS only).
+  **Reading rule:** white on sky is 3.48 and on pink 4.23, so full-strength sky
+  and pink are for fills, icons and lines; words on them are ink `#090909`
+  (5.68 / 4.68). Small coloured text uses `--sky-ink #046f96` / `--pink-ink
+  #b8247a`, never fills. Sky against pink is 1.21:1: never rely on telling them
+  apart; late work also says so in words. Primary buttons stay ink with the
+  two-colour glow (`--brand-glow`). Tints of sky and pink are allowed in
+  decoration. `tools/visual/palette.mjs` fails on any retired colour.
+- bg `#f7f7f5`, fg `#090909`, card `#FCFFFF`, border `#deded9` remain the base
   tokens. Glass surfaces are translucent versions of card over the backdrop.
 - Light `color-scheme` only. **No dark mode.**
 - **Glass redesign (decided 2026-09-21, shipped 2026-09-23):** frosted/liquid
@@ -577,6 +589,7 @@ node tools/visual/shots.mjs     # screenshots of the main screens
 node tools/visual/urls.mjs      # each screen's address, Back, reload,
                                 # start page
 node tools/visual/contrast.mjs  # light text left on a light surface
+node tools/visual/palette.mjs   # any retired colour left on any screen
 ```
 
 **End-to-end against a real backend** lives in `tools/e2e/` (README there):
