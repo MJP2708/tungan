@@ -270,17 +270,6 @@
   }
 }
 
-@keyframes motion-slide-in {
-  from {
-    opacity: 0;
-    transform: translateX(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
 @media (prefers-reduced-motion: no-preference) {
   /* Bottom bar: the active pill settles in under the finger and its icon
      lifts — on every switch, since the class is newly applied each time. */
@@ -295,12 +284,6 @@
   /* The red count pops in — and again when the count changes (keyed). */
   .mobile-nav button i {
     animation: motion-pop var(--motion-slow) var(--motion-ease) backwards;
-  }
-
-  /* The Swiss index line above a title slides in from the left. */
-  .welcome-block h2[data-kicker]::before,
-  .section-intro h2[data-kicker]::before {
-    animation: motion-slide-in var(--motion-slow) var(--motion-ease) 60ms backwards;
   }
 
   /* Task sheet: the progress bar fills step by step when the sheet opens,

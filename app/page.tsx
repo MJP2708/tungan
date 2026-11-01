@@ -125,7 +125,6 @@ import {
   defaultSettings,
   normalizeSettings,
   visibleInTaskList,
-  pageKicker,
   type AppSettings,
   type Page,
 } from '@/lib/app-preferences';
@@ -478,17 +477,6 @@ function pastTodayAt(now: Date, hhmm: string): boolean {
 
 /** "THU 01.10" in Bangkok, beside วันนี้'s index line. Latin on purpose: the
  *  line is letter-spaced, and spaced-out Thai letters fall apart. */
-const kickerDay = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok', weekday: 'short' });
-const kickerDayMonth = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'Asia/Bangkok',
-  day: '2-digit',
-  month: '2-digit',
-});
-const kickerDate = {
-  format: (at: Date) =>
-    `${kickerDay.format(at).toUpperCase()} ${kickerDayMonth.format(at).replace('/', '.')}`,
-};
-
 function useNow() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -3031,7 +3019,6 @@ export default function Home() {
         <section className="welcome-block">
           <div>
             <h2
-              data-kicker={`${pageKicker('home')} · ${kickerDate.format(now)}`}
             >
               {t('วันนี้')}
             </h2>
@@ -3048,7 +3035,7 @@ export default function Home() {
         <div className="today-tiles" role="group" aria-label={t('สรุปวันนี้')}>
           <button
             type="button"
-            className={`today-tile ${mineToday ? 'is-yours' : ''}`}
+            className="today-tile"
             onClick={() => navigate('tasks')}
           >
             <b>{mineToday}</b>
@@ -3330,7 +3317,6 @@ export default function Home() {
       <div className="section-intro">
         <div>
           <h2
-            data-kicker={`${pageKicker('inbox')}${projectCaptures.length ? ` · ${projectCaptures.length} TO CHECK` : ''}`}
           >
             {t('จาก LINE')}
           </h2>
@@ -3466,7 +3452,7 @@ export default function Home() {
       <section className="page-section mine-page">
         <div className="section-intro">
           <div>
-            <h2 data-kicker={pageKicker('mine')}>{t('งานฉัน')}</h2>
+            <h2>{t('งานฉัน')}</h2>
           </div>
         </div>
         {groups.length > 1 && (
@@ -3608,7 +3594,7 @@ export default function Home() {
       <section className="page-section tasks-screen">
         <div className="section-intro">
           <div>
-            <h2 data-kicker={`${pageKicker('tasks')} · ${counts.open} OPEN`}>{t('งาน')}</h2>
+            <h2>{t('งาน')}</h2>
           </div>
           <Button
             className="primary-action desktop-create"
@@ -3701,7 +3687,7 @@ export default function Home() {
       <section className="page-section calendar-page">
         <div className="section-intro">
           <div>
-            <h2 data-kicker={pageKicker('calendar')}>{t('ปฏิทิน')}</h2>
+            <h2>{t('ปฏิทิน')}</h2>
           </div>
         </div>
         <div className="panel month-calendar">
@@ -3869,7 +3855,7 @@ export default function Home() {
     <section className="page-section report-page">
       <div className="section-intro">
         <div>
-          <h2 data-kicker={pageKicker('reports')}>{t('ภาพรวม')}</h2>
+          <h2>{t('ภาพรวม')}</h2>
         </div>
       </div>
       <div className="report-layout">
@@ -3988,13 +3974,8 @@ export default function Home() {
           <div className="story-card">
             <div className="story-top">
               <Brand mobile />
-              <span>LIVE WORK STORY</span>
             </div>
-            <p>
-              {t('POV: งานจาก LINE')}
-              <br />
-              {t('ไม่หล่นแล้ว')}
-            </p>
+            <p>{t('สรุปงานจาก LINE')}</p>
             <strong>{totalTaskCount}</strong>
             <h3>{t('งานทั้งหมด')}</h3>
             <div className="story-stats">
@@ -4009,7 +3990,6 @@ export default function Home() {
             </div>
             <div className="story-footer">
               <span>{selectedProject.name}</span>
-              <small>{t('#ชีวิตคนทำงาน #งานกอง')}</small>
             </div>
           </div>
           <Button className="share-button" disabled={busy} onClick={shareSummary}>
@@ -4034,7 +4014,7 @@ export default function Home() {
       <section className="page-section reminder-page">
         <div className="section-intro reminder-intro">
           <div>
-            <h2 data-kicker={pageKicker('reminders')}>{t('เตือนฉัน')}</h2>
+            <h2>{t('เตือนฉัน')}</h2>
           </div>
           <Badge variant="outline">{t('ไม่เสียเงินเพิ่ม')}</Badge>
         </div>
@@ -4253,7 +4233,7 @@ export default function Home() {
     <section className="page-section ai-chat-page">
       <div className="section-intro">
         <div>
-          <h2 data-kicker={pageKicker('ai')}>AI</h2>
+          <h2>AI</h2>
         </div>
         <Badge variant="outline">
           {usage?.ai?.enabled
@@ -4391,7 +4371,7 @@ export default function Home() {
   const renderSettings = () => (
     <section className="page-section preferences-page">
       <div className="section-intro">
-        <h2 data-kicker={pageKicker('settings')}>{t('ตั้งค่า')}</h2>
+        <h2>{t('ตั้งค่า')}</h2>
         <Badge variant="outline">{t('บันทึกในอุปกรณ์นี้')}</Badge>
       </div>
       <div className="preferences-layout">
@@ -4649,7 +4629,7 @@ export default function Home() {
     <section className="page-section">
       <div className="section-intro">
         <div>
-          <h2 data-kicker={pageKicker('manage')}>{t('ทีม')}</h2>
+          <h2>{t('ทีม')}</h2>
         </div>
       </div>
       <div className="manage-tabs">

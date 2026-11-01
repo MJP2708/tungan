@@ -1,24 +1,17 @@
 import type { Metadata } from 'next';
 import { Geist_Mono, Prompt } from 'next/font/google';
 import { ActivityBar } from '@/components/activity-bar';
-import { LiquidGlass } from '@/components/liquid-glass';
 import './globals.css';
-// Glass theme layer. Must stay AFTER globals.css; removing it restores the old look.
+// Glass theme layer: the component layout it holds is still in use; its glass
+// tokens are set flat in brand.css. Must stay AFTER globals.css.
 import './theme-glass.css';
-// Atelier layer (Ethereal · luxury type · Swiss). Must stay AFTER theme-glass;
-// removing it restores the glass theme exactly.
-import './theme-atelier.css';
 // Redesign (2026-10-02): goes with restructured screens in app/page.tsx, so
 // unlike the two theme layers it cannot be removed on its own.
 import './redesign.css';
 // Motion (2026-10-09): subtle entrances and press feedback. Last; removing
 // it removes all of the new motion and nothing else.
 import './motion.css';
-// Liquid glass (2026-10-09): our own refraction and specular glass on the
-// nav, top bar, sidebar and popups. Last; removing it restores the old glass.
-import './liquid.css';
-// The three accents and the dot (2026-10-31). Imported last; removing this
-// line restores the previous look exactly.
+// The look (2026-10-31): flat, quiet, three accents. Imported last.
 import './brand.css';
 
 const prompt = Prompt({
@@ -70,7 +63,6 @@ export default function RootLayout({
     <html lang="th">
       <body className={`${prompt.variable} ${geistMono.variable} antialiased`}>
         <ActivityBar />
-        <LiquidGlass />
         {children}
       </body>
     </html>

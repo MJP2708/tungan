@@ -1,271 +1,618 @@
-/* ══ The three accents and the dot (2026-10-31) ═══════════════════════════
-   Sky #0593c6 · White #FCFFFF · Hot pink #D83995. Imported LAST; removing
-   the import in app/layout.tsx restores the previous look exactly.
+/* ══ The look (2026-10-31, colours changed 2026-11-01) ═════════════════════
+   Flat and quiet: white surfaces, a hairline where two things meet, no glow,
+   no glass. Imported last.
 
-   What the colours mean, everywhere:
-   - Sky: yours, on track, the way forward. Selected, focused, in progress.
-   - Hot pink: needs you now. Late, waiting on you, the count on the bar.
-   - White: the surface they sit on.
-   The sign is the logo's dot, a pink centre in a sky ring. It closes every
-   screen title as it closes the wordmark, and the in-progress mark is it.
-
-   Reading rules (WCAG AA, 4.5:1 for small text):
-   - Sky and pink at full strength are for fills, icons and lines. White on
-     them is 3.48 and 4.23, so small text on either is ink (5.68 and 4.68).
-   - Small coloured text uses --sky-ink / --pink-ink, the same hues deepened
-     to pass on every surface. They are never used as fills.
-   - Sky against pink is only 1.21:1: never rely on telling them apart.
-     Late work also says so in words. */
+   Controls, the logo and every state keep the original colours: ink
+   buttons, brand blue #0080ff for selected/focus/links, red for counts and
+   late work. The three accent colours the user chose, sky #0593c6, hot pink
+   #d83995 and white #fcffff, are BACKGROUND ONLY: a soft wash behind the
+   white cards. They never go on a button, text, a badge or a state, and
+   tools/visual/palette.mjs fails if they do. */
 
 :root {
-  --sky: #0593c6;
-  --pink: #d83995;
-  --white: #fcffff;
   --sky-rgb: 5, 147, 198;
   --pink-rgb: 216, 57, 149;
-  --sky-ink: #046f96;
-  --pink-ink: #b8247a;
+  --white: #fcffff;
+  --surface-hover: #f2f2ef;
+  --radius-card: 10px;
+  --radius-control: 8px;
 
-  --blue: var(--sky);
-  --blue-deep: var(--sky);
-  --blue-rgb: var(--sky-rgb);
-  --ring: var(--sky);
-  --card: var(--white);
-  --popover: var(--white);
-  --primary-foreground: var(--white);
-  --badge-red: var(--pink);
-  --alert-text: var(--pink-ink);
-  --caution: var(--pink-ink);
-  --gradient-brand: linear-gradient(135deg, var(--sky), var(--pink));
-  --gradient-soft: linear-gradient(135deg, rgba(var(--sky-rgb), 0.12), rgba(var(--sky-rgb), 0.05) 58%, rgba(252, 255, 255, 0.92));
-  --gradient-border: linear-gradient(135deg, var(--sky), var(--pink));
-  --shadow-blue: 0 18px 50px rgba(var(--sky-rgb), 0.24);
-  --shadow-outline-glow: 0 0 12px rgba(var(--sky-rgb), 0.2), 0 14px 34px rgba(var(--sky-rgb), 0.1);
-  --shadow-outline-glow-hover: 0 0 16px rgba(var(--sky-rgb), 0.3), 0 18px 42px rgba(var(--sky-rgb), 0.14);
-  /* Black pill, sky to one side and pink to the other. */
-  --brand-glow: -7px 9px 20px -8px rgba(var(--sky-rgb), 0.85), 7px 9px 20px -8px rgba(var(--pink-rgb), 0.85);
+  --blue: #0080ff;
+  --blue-deep: #0080ff;
+  --blue-rgb: 0, 128, 255;
+  --primary: #090909;
+  --primary-foreground: #fff;
+  --ring: #0080ff;
+  --card: #fff;
+  --popover: #fff;
+  --badge-red: #e5322d;
+  --alert-text: #c4241f;
+  --caution: #b45309;
+
+  --ink: #090909;
+  --ink-2: #3c3c38;
+  --ink-3: #6b6b66;
+  --mono: var(--font-geist-mono), monospace;
+  --hairline: var(--border);
+  --hairline-strong: #c9c9c3;
+
+  /* The glass and gradient tokens the older layers still read, set flat. */
+  --glass-fill: #fff;
+  --glass-fill-strong: #fff;
+  --glass-edge: var(--border);
+  --glass-shadow: 0 8px 24px rgba(9, 9, 9, 0.1);
+  --glass-highlight: 0 0 #0000;
+  --glass-blur: none;
+  --liquid-fill: #fff;
+  --liquid-blur: none;
+  --liquid-rim: 0 0 #0000;
+  --liquid-sheen: linear-gradient(transparent, transparent);
+  --ethereal-shadow: 0 0 #0000;
+  --ease-soft: ease;
+  --gradient-brand: linear-gradient(#0080ff, #0080ff);
+  --gradient-soft: linear-gradient(#fff, #fff);
+  --gradient-border: linear-gradient(var(--border), var(--border));
+  --shadow-blue: 0 0 #0000;
+  --shadow-outline-glow: 0 0 #0000;
+  --shadow-outline-glow-hover: 0 0 #0000;
+  --nav-float-gap: 0px;
+  --nav-height: 60px;
 }
 
-/* ── Atmosphere ─────────────────────────────────────────────────────────── */
 body {
-  background: #f7f7f5;
+  background: var(--background);
 }
 
+/* ── The background: the three accents, softly, behind everything ───────── */
 .app-shell::before,
 .auth-page::before {
   background:
-    radial-gradient(38vmax 30vmax at 100% 0%, rgba(var(--pink-rgb), 0.34), transparent 66%),
-    radial-gradient(52vmax 42vmax at -12% 50%, rgba(var(--sky-rgb), 0.3), transparent 66%),
-    radial-gradient(44vmax 34vmax at 96% 104%, rgba(var(--pink-rgb), 0.2), transparent 64%),
-    radial-gradient(40vmax 28vmax at 8% 2%, var(--white), transparent 72%),
+    radial-gradient(48vmax 38vmax at 100% 0%, rgba(var(--pink-rgb), 0.14), transparent 70%),
+    radial-gradient(56vmax 44vmax at 0% 100%, rgba(var(--sky-rgb), 0.16), transparent 70%),
+    radial-gradient(40vmax 30vmax at 55% 45%, var(--white), transparent 75%),
     #f7f7f5;
 }
 
 .app-shell::after,
 .auth-page::after {
-  background-image: radial-gradient(rgba(var(--pink-rgb), 0.3) 1px, transparent 1.4px);
+  display: none;
 }
 
-/* ── The dot ────────────────────────────────────────────────────────────── */
-.welcome-block h2::after,
-.section-intro h2::after {
-  content: '';
-  display: inline-block;
-  width: 0.19em;
-  height: 0.19em;
-  margin-inline-start: 0.14em;
-  border-radius: 50%;
-  background: var(--pink);
-  box-shadow: 0 0 0 0.055em var(--white), 0 0 0 0.11em var(--sky);
+/* ── Type ───────────────────────────────────────────────────────────────── */
+.welcome-block h2,
+.section-intro h2 {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.3;
 }
 
-/* The in-progress mark is the dot: a sky ring round a pink centre. */
-.status-dot.is-progress {
-  box-shadow: inset 0 0 0 1.6px var(--sky);
+.welcome-block,
+.section-intro {
+  align-items: center;
+  border-bottom: 0;
+  margin-bottom: 8px;
+  padding-bottom: 0;
 }
 
-.status-dot.is-progress::after {
-  background: var(--pink);
+.panel-heading h3,
+.group-setup-card h3 {
+  font-size: 16px;
+  font-weight: 600;
 }
 
-/* Links: ink with a sky underline, which reads better than sky text. */
-.today-label-row button,
-.today-more {
-  color: var(--sky-ink);
+/* ── Shell ──────────────────────────────────────────────────────────────── */
+.desktop-sidebar {
+  border-right: 1px solid var(--border);
+  background: #fff;
+  color: var(--ink);
 }
 
-/* ── Buttons ────────────────────────────────────────────────────────────── */
-.primary-action,
-.line-decide > [data-slot='button']:last-child,
-.auth-line-button {
-  box-shadow: var(--brand-glow);
+.desktop-sidebar .brand {
+  border-bottom: 0;
+  background: transparent;
 }
 
-:is(.welcome-block, .section-intro) [data-slot='button'].primary-action,
-[data-slot='button'].primary-action {
-  border-radius: 999px;
-  box-shadow: var(--brand-glow);
+.desktop-sidebar nav > button {
+  border-radius: var(--radius-control);
+  color: var(--ink-2);
+  font-size: 14px;
 }
 
-/* The next step on a row: sky, ink words. */
-.today-action:not([data-variant='outline']) {
-  border-color: transparent;
-  background: var(--sky);
-  box-shadow: none;
-  color: #090909;
+.desktop-sidebar nav > button:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
 }
 
-/* ── วันนี้'s tiles ─────────────────────────────────────────────────────── */
-.today-tile.is-yours,
-.today-tile.is-alert {
-  border-color: transparent;
-  box-shadow: none;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+.desktop-sidebar nav > button.active {
+  background: rgba(var(--blue-rgb), 0.08);
+  color: var(--ink);
+  font-weight: 600;
 }
 
-.today-tile.is-yours {
-  background: var(--sky);
-}
-
-.today-tile.is-alert {
-  background: var(--pink);
-}
-
-.today-tile:is(.is-yours, .is-alert) :is(b, span) {
-  color: #090909;
-}
-
-/* ภาพรวม: work to chase is pink too. */
-.report-metrics article.is-alert {
-  border-color: transparent;
-  background: var(--pink);
-  box-shadow: none;
-}
-
-.report-metrics article.is-alert :is(span, strong, small) {
-  color: #090909;
-}
-
-/* ── Late work ──────────────────────────────────────────────────────────── */
-.task-group.is-late .task-list {
-  box-shadow: 0 0 0 1.5px var(--pink);
-}
-
-/* ── Bottom bar ─────────────────────────────────────────────────────────── */
-@media (max-width: 760px) {
-  .mobile-nav button i {
-    border-color: var(--white);
-    color: #090909;
-  }
-}
-
-/* ── Task sheet ─────────────────────────────────────────────────────────── */
-.sheet-step.is-done::before {
-  background: var(--sky);
-}
-
-.sheet-step.is-now::before {
-  background: var(--pink);
-}
-
-/* ── LINE drafts ────────────────────────────────────────────────────────── */
-.line-bubble mark {
-  border-radius: 4px;
-  background: rgba(var(--sky-rgb), 0.18);
-  color: #090909;
-  font-weight: 500;
-}
-
-/* ── Colours globals.css writes out in full ────────────────────────────── */
-.bell-button i {
-  background: var(--pink);
-  box-shadow: none;
-}
-
-.ai-chat-shell {
-  border-color: rgba(var(--sky-rgb), 0.24);
-  background:
-    radial-gradient(circle at 50% 25%, rgba(var(--pink-rgb), 0.1), transparent 32%),
-    var(--white);
-  box-shadow: 0 24px 70px rgba(var(--sky-rgb), 0.12);
-}
-
-/* Small words on a colour are ink. */
-.month-day.is-selected,
-.month-day.is-selected > span {
-  color: #090909;
-}
-
-.month-day.is-selected.has-event > span {
-  box-shadow: inset 0 -2px 0 #090909;
+.desktop-sidebar nav > button.active svg {
+  color: var(--blue);
 }
 
 .desktop-sidebar nav > button b,
 .desktop-sidebar nav > button.active b {
-  color: #090909;
+  background: var(--badge-red);
+  color: #fff;
+  font-size: 11px;
+}
+
+.workspace-card,
+.themed-workspace-trigger {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: #fff;
+  box-shadow: none;
+  color: var(--ink);
+}
+
+.themed-workspace-trigger:hover {
+  border-color: var(--hairline-strong);
+  background: var(--surface-hover);
+}
+
+.themed-workspace-trigger:focus-visible {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.2);
+}
+
+.workspace-card > span {
+  background: var(--surface-hover);
+}
+
+.workspace-card > span svg {
+  color: var(--ink-2);
+}
+
+.workspace-card strong {
+  font-size: 13px;
+}
+
+.workspace-card small {
+  color: var(--ink-3);
+  font-size: 11px;
 }
 
 .mobile-project .workspace-trigger-icon,
 .settings-button[aria-current='page'],
 .next-reminder-label [data-slot='badge'] {
-  background: rgba(var(--sky-rgb), 0.08);
+  background: rgba(var(--blue-rgb), 0.1);
 }
 
-.reminder-intro [data-slot='badge'],
-.next-reminder-label [data-slot='badge'] {
-  border-color: rgba(var(--sky-rgb), 0.24);
+.sidebar-health {
+  border-top-color: var(--border);
 }
 
-.ai-chat-header > span {
-  box-shadow: 0 8px 20px rgba(var(--sky-rgb), 0.28);
+.sidebar-health > svg {
+  color: var(--ink-3);
 }
 
-.task-detail {
-  background:
-    radial-gradient(circle at 100% 0, rgba(var(--pink-rgb), 0.08), transparent 28%),
-    var(--white) !important;
+.sidebar-health strong {
+  color: var(--ink-2);
+  font-size: 12px;
 }
 
-/* The share card keeps its ink, and takes the dot as its light. */
-.story-card {
-  background:
-    radial-gradient(circle at 82% 18%, rgba(var(--pink-rgb), 0.42), transparent 25%),
-    radial-gradient(circle at 82% 18%, rgba(var(--sky-rgb), 0.3), transparent 42%),
-    #090909;
+.sidebar-health small {
+  color: var(--ink-3);
+  font-size: 11px;
 }
 
-/* ── Waiting ────────────────────────────────────────────────────────────── */
-.activity-bar span {
-  background: var(--gradient-brand);
-}
-
-/* ── Sign-in: the dot, as a poster ──────────────────────────────────────── */
-.auth-page::before {
-  background:
-    radial-gradient(circle 62vmin at 84% 18%, var(--pink) 0 64%, var(--white) 64.3% 69%, var(--sky) 69.3% 99.6%, transparent 100%),
-    radial-gradient(52vmax 42vmax at -12% 60%, rgba(var(--sky-rgb), 0.24), transparent 66%),
-    #f7f7f5;
-}
-
-.auth-page::after {
-  display: none;
-}
-
-/* Solid white: frosted over the poster it turns to a smear. */
-.auth-card {
-  background: var(--white);
+.topbar {
+  border-bottom: 1px solid var(--border);
+  background: #fff;
+  box-shadow: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
 
-.auth-line-button {
-  border-radius: 999px;
+.bell-button i {
+  background: var(--badge-red);
+  box-shadow: none;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .welcome-block h2::after,
-  .section-intro h2::after {
-    animation: motion-pop var(--motion-slow) var(--motion-ease) 180ms backwards;
+/* The bottom bar is a bar, edge to edge. */
+@media (max-width: 760px) {
+  .mobile-nav {
+    inset: auto 0 0;
+    height: calc(var(--nav-height) + env(safe-area-inset-bottom));
+    padding: 4px 8px env(safe-area-inset-bottom);
+    border: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 0;
+    background: #fff;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
+
+  .mobile-nav button {
+    min-height: 52px;
+    border-radius: var(--radius-control);
+    color: var(--ink-3);
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .mobile-nav button svg {
+    color: var(--ink-3);
+  }
+
+  .mobile-nav button.active {
+    background: transparent;
+    box-shadow: none;
+    color: var(--blue);
+    font-weight: 600;
+  }
+
+  .mobile-nav button.active svg {
+    color: var(--blue);
+  }
+
+  .mobile-nav button i {
+    border-color: #fff;
+  }
+}
+
+/* ── Surfaces ───────────────────────────────────────────────────────────── */
+.panel,
+.today-list,
+.today-tile,
+.today-team,
+.task-list,
+.capture-card,
+.report-metrics article,
+.next-reminder-card,
+.team-card,
+.group-setup-card,
+.elsewhere-card,
+.sheet-facts,
+.ai-chat-shell {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: #fff;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.task-detail {
+  background: #fff !important;
+}
+
+/* Older rules are more specific than the list above. */
+.app-main :is(
+  .task-list,
+  .event-list,
+  .capture-card.line-draft,
+  .reminder-composer,
+  .reminder-list,
+  .beta-strip,
+  .line-reminder-note,
+  .calendar-undated,
+  .share-toggle-row
+) {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: #fff;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* A list inside a panel is part of the panel, not a box in a box. */
+.app-main :is(.overview-attention, .calendar-agenda, .workload-panel) :is(.task-list, .event-list) {
+  border: 0;
+  border-radius: 0;
+}
+
+.overview-attention .task-group-label {
+  padding-inline: 22px;
+}
+
+.app-main .confirm-all-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: #fff;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.section-intro [data-slot='button'].forward-entry-button {
+  border: 1px solid var(--hairline-strong);
+  background: #fff;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.today-icon {
+  background: transparent;
+  box-shadow: none;
+}
+
+.line-field,
+.line-bubble,
+.month-day,
+.sheet-fact {
+  border-radius: var(--radius-control);
+  box-shadow: none;
+}
+
+/* ── Controls ───────────────────────────────────────────────────────────── */
+[data-slot='button'],
+[data-slot='input'],
+[data-slot='textarea'],
+[data-slot='select-trigger'] {
+  border-radius: var(--radius-control);
+}
+
+[data-slot='button'] {
+  box-shadow: none;
+}
+
+[data-slot='button'][data-variant='default'],
+:is(.welcome-block, .section-intro) [data-slot='button'].primary-action,
+.panel-heading > button.calendar-add,
+.line-decide > [data-slot='button']:last-child,
+.auth-card .auth-line-button,
+.share-button {
+  border-color: transparent;
+  border-radius: var(--radius-control);
+  background: #090909;
+  background-image: none;
+  box-shadow: none;
+  color: #fff;
+}
+
+[data-slot='button'][data-variant='default']:hover,
+:is(.welcome-block, .section-intro) [data-slot='button'].primary-action:hover,
+.panel-heading > button.calendar-add:hover,
+.line-decide > [data-slot='button']:last-child:hover,
+.auth-card .auth-line-button:hover,
+.share-button:hover {
+  background: #262626;
+}
+
+/* globals.css sets these two with !important. */
+[data-slot='button'].primary-action,
+.auth-card .auth-line-button {
+  background: #090909 !important;
+  border-radius: var(--radius-control) !important;
+}
+
+[data-slot='button'].primary-action {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+}
+
+[data-slot='button'].primary-action:hover,
+.auth-card .auth-line-button:hover {
+  background: #262626 !important;
+}
+
+/* Filters and search: squared off, the selected one in brand blue. */
+.search-box.task-search,
+.task-chip {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: #fff;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.task-chip.active,
+.task-chip.active b {
+  color: var(--blue);
+}
+
+.task-chip.active {
+  border-color: rgba(var(--blue-rgb), 0.45);
+  background: rgba(var(--blue-rgb), 0.1);
+}
+
+.bell-button,
+.topbar .bell-button,
+.topbar .top-actions > button,
+.settings-button {
+  border-radius: var(--radius-control);
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+@media (max-width: 760px) {
+  .mobile-project.themed-workspace-trigger {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    box-shadow: none;
+  }
+}
+
+.delegate-section summary {
+  border-radius: var(--radius-control);
+}
+
+/* The next step on a row is an ordinary button: one primary to a screen. */
+[data-slot='button'].today-action {
+  border: 1px solid var(--hairline-strong);
+  background: #fff;
+  color: var(--ink);
+}
+
+[data-slot='button'].today-action:hover {
+  background: var(--surface-hover);
+}
+
+.today-label-row button,
+.today-more {
+  color: var(--blue);
+}
+
+/* ── วันนี้ and ภาพรวม ───────────────────────────────────────────────────── */
+.today-tile b,
+.report-metrics article strong {
+  font-size: 26px;
+  font-weight: 600;
+}
+
+.today-tile.is-alert b,
+.report-metrics article.is-alert strong {
+  color: var(--alert-text);
+}
+
+/* ── Small text: 12px is the floor, Thai marks vanish below it ──────────── */
+.report-metrics article :is(span, small),
+.privacy-note,
+.story-stats span,
+.story-footer span,
+.next-reminder-label span,
+.next-reminder-time span,
+.next-reminder-copy p,
+.beta-copy small,
+.beta-unlock small,
+.ai-chat-header small,
+.line-reminder-note p,
+.info-strip p,
+.reminder-row small,
+.member-list button span,
+.advanced-reminder-link,
+.quick-day-switch button,
+.next-reminder-actions button,
+.panel-heading > button,
+button > div > span {
+  font-size: 12px;
+}
+
+[data-slot='badge'],
+.next-reminder-label [data-slot='badge'],
+.line-reminder-note [data-slot='badge'] {
+  font-size: 12px;
+}
+
+[data-slot='avatar-fallback'],
+.load-row [data-slot='avatar-fallback'] {
+  font-size: 11px;
+}
+
+/* ── Task sheet ─────────────────────────────────────────────────────────── */
+.sheet-step.is-done::before,
+.sheet-step.is-now::before {
+  background: var(--blue);
+}
+
+/* ── LINE drafts ────────────────────────────────────────────────────────── */
+.line-bubble mark {
+  border-radius: 4px;
+  background: rgba(var(--blue-rgb), 0.14);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* ── Calendar ───────────────────────────────────────────────────────────── */
+.month-day.is-selected {
+  border-radius: var(--radius-control);
+  background: var(--blue);
+}
+
+.month-day.is-selected,
+.month-day.is-selected > span {
+  color: #fff;
+}
+
+.month-day.is-selected.has-event > span {
+  box-shadow: inset 0 -2px 0 #fff;
+}
+
+/* ── Share card: a plain summary ────────────────────────────────────────── */
+.story-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: #fff;
+  box-shadow: none;
+  color: var(--ink);
+  min-height: 0;
+  aspect-ratio: auto;
+}
+
+.story-card .brand {
+  height: auto;
+  padding: 0;
+  background: transparent;
+}
+
+.story-card :is(p, strong, h3, b) {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.story-card > p {
+  color: var(--ink-3);
+  font-weight: 400;
+}
+
+.story-card strong {
+  font-size: 44px;
+}
+
+.story-stats {
+  margin-top: 20px;
+}
+
+.story-stats > div {
+  border-top-color: var(--border);
+}
+
+.story-card :is(.story-stats span, .story-footer span, small) {
+  color: var(--ink-3);
+}
+
+/* On a wide screen the button keeps its own width. */
+@media (min-width: 761px) {
+  .group-setup-card .connection-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .group-setup-card .connection-row button {
+    width: auto;
+    min-height: 44px;
+  }
+}
+
+/* ── Sign-in ────────────────────────────────────────────────────────────── */
+.auth-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* ── Colours globals.css writes out in full ────────────────────────────── */
+.reminder-intro [data-slot='badge'],
+.next-reminder-label [data-slot='badge'] {
+  border-color: rgba(var(--blue-rgb), 0.24);
+}
+
+.ai-chat-header > span {
+  box-shadow: none;
+}
+
+/* ── Waiting ────────────────────────────────────────────────────────────── */
+.activity-bar span {
+  background: var(--blue);
+}
+
+/* The logo file has an off-white field; multiply lets it sit on any white
+   or tinted surface without a visible box. The file itself is unchanged. */
+img[src*='tungan-logo-th'] {
+  mix-blend-mode: multiply;
 }

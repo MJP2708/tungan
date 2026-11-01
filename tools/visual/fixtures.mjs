@@ -128,7 +128,7 @@ export function answer(url) {
 export async function fixturePage(browser, base, { width = 390, height = 844, userAgent = process.env.UA } = {}) {
   const ctx = await browser.newContext({
     viewport: { width, height }, deviceScaleFactor: 2, isMobile: true, hasTouch: true,
-    // e.g. LINE on Android, to see the liquid-glass refraction level.
+    // e.g. LINE on Android.
     ...(userAgent ? { userAgent } : {}),
     // LOCALE=en-US runs the harness on the English app (the 'auto' setting
     // follows the browser's language).

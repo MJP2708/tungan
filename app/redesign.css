@@ -1,7 +1,6 @@
 /*
- * Redesign layer (decided 2026-10-02). Unlike theme-glass.css and
- * theme-atelier.css, this one goes with new markup in app/page.tsx: the
- * screens were restructured around "what do I do next", so removing this
+ * Redesign layer (decided 2026-10-02). It goes with new markup in
+ * app/page.tsx: the screens were restructured around "what do I do next", so removing this
  * import no longer restores the old app. Git keeps every earlier version.
  *
  * Same rules as the layers before it: var(--blue) only on controls and state,
@@ -80,12 +79,6 @@
   .welcome-block h2,
   .section-intro h2 {
     font-size: 40px;
-  }
-
-  .welcome-block h2[data-kicker]::before,
-  .section-intro h2[data-kicker]::before {
-    margin-bottom: 8px;
-    font-size: 10px;
   }
 
   .welcome-block [data-slot='button'].primary-action,

@@ -1,11 +1,13 @@
-// Anything on any screen still painted in a colour the brand retired
-// (2026-10-31): the old blue, the old reds, the old amber. Checks every
-// element's and pseudo-element's colours, borders, shadows and gradients.
+// The three accent colours (sky #0593c6, hot pink #d83995) belong to the
+// page background only (2026-11-01): any button, text, badge, border or
+// state painted in them — or in their deepened text shades — fails. Checks
+// every element's and pseudo-element's colours, borders, shadows and
+// gradients, except the backdrop itself (.app-shell / .auth-page ::before).
 // Usage: node tools/visual/palette.mjs  (AI=1 to include the AI panels)
 import { launch, BASE } from './pw.mjs';
 import { fixturePage } from './fixtures.mjs';
 
-const RETIRED = ['0, 128, 255', '196, 36, 31', '229, 50, 45', '180, 83, 9'];
+const RETIRED = ['5, 147, 198', '216, 57, 149', '4, 111, 150', '184, 36, 122'];
 const PROPS = ['color', 'backgroundColor', 'backgroundImage', 'borderTopColor', 'borderBottomColor', 'borderLeftColor', 'boxShadow', 'outlineColor', 'fill', 'stroke'];
 
 function scan(retired, props) {
@@ -13,6 +15,7 @@ function scan(retired, props) {
   const look = (el, pseudo) => {
     const cs = getComputedStyle(el, pseudo);
     if (pseudo && cs.content === 'none') return;
+    if (pseudo === '::before' && el.matches('.app-shell, .auth-page')) return;
     for (const p of props) {
       const v = cs[p];
       if (!v) continue;

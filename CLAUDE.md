@@ -40,47 +40,30 @@ LINE channels, the Neon project, and all cloud resources, then hands over IDs.
 
 ## Visual constraints — treat any difference as a bug
 
-- **Three accents (decided 2026-10-31, replaces brand blue #0080ff):** sky
-  **#0593c6**, white **#FCFFFF**, hot pink **#D83995**. All in `app/brand.css`,
-  imported **last** — removing that import restores the previous look exactly
-  (redesign/theme layers use variables that default to the old values).
-  **Sky** = yours, on track, the way forward (selected, focus, in progress,
-  next-step buttons). **Hot pink** = needs you now (late, waiting on you, count
-  badges). **White** = the surface. No red or amber: late and blocked are pink.
-  **The dot** is the signature, from the logo: pink centre in a sky ring. It
-  closes every screen title, it is the in-progress mark, and it is the poster
-  on the sign-in screen (CSS only).
-  **Reading rule:** white on sky is 3.48 and on pink 4.23, so full-strength sky
-  and pink are for fills, icons and lines; words on them are ink `#090909`
-  (5.68 / 4.68). Small coloured text uses `--sky-ink #046f96` / `--pink-ink
-  #b8247a`, never fills. Sky against pink is 1.21:1: never rely on telling them
-  apart; late work also says so in words. Primary buttons stay ink with the
-  two-colour glow (`--brand-glow`). Tints of sky and pink are allowed in
-  decoration. `tools/visual/palette.mjs` fails on any retired colour.
-- bg `#f7f7f5`, fg `#090909`, card `#FCFFFF`, border `#deded9` remain the base
-  tokens. Glass surfaces are translucent versions of card over the backdrop.
+- **Colours (decided 2026-10-31, changed by the user 2026-11-01):** the
+  three accent colours — sky **#0593c6**, hot pink **#D83995**, white
+  **#FCFFFF** — are **background only**: a soft wash behind the white cards
+  (`.app-shell::before` / `.auth-page::before` in `app/brand.css`). Buttons,
+  the logo and every control keep the original colours: ink `#090909`
+  primary buttons, brand blue **#0080ff** for selected, focus, links and in
+  progress, red for counts and late work. The logo and favicon are the
+  original files. `tools/visual/palette.mjs` fails if sky or pink lands on
+  anything but the backdrop.
+- bg `#f7f7f5`, fg `#090909`, card `#ffffff`, border `#deded9` remain the base
+  tokens.
 - Light `color-scheme` only. **No dark mode.**
-- **Glass redesign (decided 2026-09-21, shipped 2026-09-23):** frosted/liquid
-  glass surfaces, halftone, soft airbrush, soft-focus pastel, heat-map
-  gradients — built in **CSS/SVG only**, no image assets. Lives in
-  `app/theme-glass.css`, imported **after** `globals.css`; removing that import
-  must restore the old look exactly. Every `backdrop-filter` needs a solid
-  fallback (`@supports not (backdrop-filter: blur(1px))`) for low-end LINE
-  WebViews. Mobile nav: floating frosted capsule, icon over bold label, active
-  item on an inner pill, red count badges — the five items stay วันนี้ / LINE /
-  งาน / เตือน / เพิ่มเติม.
-- **Atelier layer (decided 2026-10-01):** Ethereal · luxury typography · Swiss,
-  over liquid and frosted glass. Lives in `app/theme-atelier.css`, imported
-  **after** `theme-glass.css`; removing that import restores the glass theme
-  exactly. Same rules as the glass layer (blue, fallbacks, no new fonts).
-  Display titles are Prompt **300**; each screen title carries a Swiss index
-  line from `data-kicker` (`pageKicker()` in `lib/app-preferences.ts`, e.g.
-  `03 — TASKS`), drawn only by that stylesheet. Kicker text stays **Latin**:
-  it is letter-spaced, and spaced-out Thai falls apart. The top bar and the
-  desktop sidebar float (margins + radius); task lists number their rows with
-  CSS counters; controls are pills. A glass fill must never land on a dark
-  element — scope it (`.status-chip.status-done` stays ink) and run
-  `tools/visual/contrast.mjs`, which caught exactly that.
+- **The look (decided 2026-10-31, the user's call: "professional"):** flat
+  and quiet. White surfaces, one hairline border, 10px cards, 8px controls,
+  no glow, no glass, no halftone, no floating bars; the only gradient is
+  the soft accent wash in the page background.
+  Titles are 26px weight 600; 12px is the floor for text. The sidebar is
+  white and the phone's bottom bar runs edge to edge, with the five items
+  วันนี้ / LINE / งาน / เตือน / เพิ่มเติม. It all lives in `app/brand.css`,
+  imported **last**. `app/theme-glass.css` stays because it still holds
+  component layout; its glass tokens are set flat in brand.css. The atelier
+  layer, liquid glass and the numbered index lines were removed. Do not
+  bring decoration back without being asked: the bullseye title dots, pink
+  blocks and poster sign-in of that morning read as "weird and funny".
 - **Redesign (decided 2026-10-02):** the screens were restructured around
   "what do I do next" — วันนี้ opens with รอคุณ (LINE drafts, work to review,
   hand-offs) and the person's own tasks, each with one next-step button; งาน
@@ -90,8 +73,7 @@ LINE channels, the Neon project, and all cloud resources, then hands over IDs.
   a bubble with tappable fields; the phone top bar is one row. Its styles live
   in `app/redesign.css`, imported last. **This goes with new markup in
   app/page.tsx, so the "remove the theme import to restore the old look" rule
-  no longer holds for the app as a whole** (theme-glass/atelier still layer
-  as before; git keeps every earlier version). Thai labels are never
+  no longer holds for the app as a whole** (git keeps every earlier version). Thai labels are never
   letter-spaced or set in mono.
 - **Motion (2026-10-09):** `app/motion.css`, imported **last**; removing
   that import removes all of it. Opacity and transform only, 160–420ms;
@@ -110,21 +92,6 @@ LINE channels, the Neon project, and all cloud resources, then hands over IDs.
   every `request()` is counted in `lib/api/activity.ts` except the app's own
   background checks (`/changes`, `/api/announcements` GET). Movement lives
   in motion.css, so with reduced motion it is a still line.
-- **Our own liquid glass (decided 2026-10-09):** Glass-HQ's liquid-glass
-  library was looked at and turned down (WebGPU-only, Safari/LINE-iOS
-  issues, refracts only its own scene). Ours is SVG + CSS: `app/liquid.css`
-  (imported **last**; removing it restores the previous glass),
-  `components/liquid-glass.tsx` (mounted in the layout) and
-  `lib/liquid-glass.ts` (pure, tested). `html[data-liquid]`: `refract` on
-  Chromium phones that are not low-end (LINE on Android included) — an SVG
-  displacement lens drawn per surface size, run as a backdrop-filter, so the
-  page behind bends at the rim; `frost` elsewhere (iPhone/LINE iOS, Firefox,
-  low-end, reduced motion) — clearer glass, specular highlight, lit rim.
-  Refracting surfaces: bottom nav, top bar, desktop sidebar, toast only.
-  Menus (select/popover) are firm frost, never lens: options must read.
-  Text straight on glass needs a firm tint (the top bar is .82/.68 with 9px
-  blur) — check with `UA=<LINE Android UA> node tools/visual/contrast.mjs`.
-  No position is set on the surfaces (sidebar is fixed, top bar sticky).
 - `app/globals.css` stays untouched: override order, specificity, layers and
   `!important` all matter. It is 5,663 lines with 127 `!important` and **zero
   `@layer`**, so the cascade rests entirely on source order and the three
@@ -278,7 +245,7 @@ workspace; unlinking on purpose is still in ตั้งค่า.
 
 ## Manager overview (2026-10-08)
 
-ผลงาน became **ภาพรวม** (`?p=reports`, kicker `05 — OVERVIEW`): what needs
+ผลงาน became **ภาพรวม** (`?p=reports`): what needs
 chasing, then each person's load; the share card moved below it. The rules
 are in `lib/tasks/overview.ts` (pure, tested), not in render code. Each open
 task lands in at most one list, first match wins: เลยกำหนด → ติดปัญหา →

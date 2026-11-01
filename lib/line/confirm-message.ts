@@ -59,9 +59,7 @@ function isoLocal(at: Date, timeZone = PRODUCT_TIME_ZONE): string {
 /** The site's palette, as LINE Flex colours (#RRGGBBAA where see-through). */
 const INK = '#090909';
 const INK_3 = '#5D5D57';
-const BLUE = '#0593C6';
-/** Sky deepened for small text on white: the exact sky is only 3.48:1. */
-const SKY_INK = '#046F96';
+const BLUE = '#0080FF';
 const AMBER = '#B45309';
 
 /** One fact on the card: a small label, the reading, and what produced it. */
@@ -170,14 +168,14 @@ export function confirmBubble(draft: ConfirmDraft, now = new Date()) {
                     type: 'box',
                     layout: 'vertical',
                     flex: 0,
-                    backgroundColor: '#0593C61F',
+                    backgroundColor: '#0080FF1F',
                     cornerRadius: '12px',
                     paddingTop: '4px',
                     paddingBottom: '4px',
                     paddingStart: '10px',
                     paddingEnd: '10px',
                     contents: [
-                      { type: 'text', text: `✓ ${draft.notice}`, size: 'xs', weight: 'bold', color: SKY_INK },
+                      { type: 'text', text: `✓ ${draft.notice}`, size: 'xs', weight: 'bold', color: BLUE },
                     ],
                   },
                 ],
