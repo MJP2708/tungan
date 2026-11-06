@@ -1,4 +1,5 @@
 import 'server-only';
+import { lookup } from 'node:dns/promises';
 import { isPrivateHost, isSafeHttpUrl } from '../url.ts';
 
 /**
@@ -24,9 +25,12 @@ export type LinkCheck = {
 
 const TIMEOUT_MS = 4000;
 
+type Lookup = (host: string) => Promise<Array<{ address: string }>>;
+const lookupAll: Lookup = (host) => lookup(host, { all: true, verbatim: true });
+
 export async function checkEvidenceLink(
   url: string,
-  options: { fetchImpl?: typeof fetch } = {},
+  options: { fetchImpl?: typeof fetch; lookupImpl?: Lookup } = {},
 ): Promise<LinkCheck> {
   if (!isSafeHttpUrl(url)) {
     return { ok: false, status: null, warning: 'ใช้ได้เฉพาะลิงก์ http หรือ https' };
@@ -35,6 +39,26 @@ export async function checkEvidenceLink(
   // Never let a submitted link make the server fetch its own network.
   if (isPrivateHost(parsed.hostname)) {
     return { ok: false, status: null, warning: 'ลิงก์ภายในเครื่อง คนอื่นเปิดไม่ได้' };
+  }
+  // The name, too: 127.0.0.1.nip.io, or any name someone points at a
+  // private address, passed the check above. Every address it resolves to
+  // must be public. (What is left: a name whose answer changes between this
+  // lookup and the fetch's own. The fetch only ever reports a status code
+  // back, never the page, so that is accepted rather than pinning the
+  // request to the address.)
+  const host = parsed.hostname.replace(/^\[|\]$/g, '');
+  if (!/^[\d.]+$/.test(host) && !host.includes(':')) {
+    let addresses: Array<{ address: string }>;
+    try {
+      addresses = await (options.lookupImpl ?? lookupAll)(host);
+    } catch {
+      // Does not resolve: nobody can open it, but say nothing, as when a
+      // fetch fails — this is a hint, not a verdict.
+      return { ok: true, status: null, warning: null };
+    }
+    if (addresses.some((a) => isPrivateHost(a.address))) {
+      return { ok: false, status: null, warning: 'ลิงก์ภายในเครื่อง คนอื่นเปิดไม่ได้' };
+    }
   }
 
   const doFetch = options.fetchImpl ?? fetch;
