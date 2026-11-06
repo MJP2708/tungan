@@ -11,8 +11,11 @@ fix "Right now" — keep it short, and never put secrets here.
 - **Live:** https://www.humanmatter.work = `origin/main` at `d58a636`
   (2026-11-01). Vercel deploys on push to `main`; it went live about a
   minute after the push. `/api/health` reports ready, database ok, 25 tables.
-- **Working tree:** clean apart from this file (and the untracked
-  `AGENTS.md`, which is always left out of commits).
+- **AGENTS.md** is committed and is a pointer to CLAUDE.md plus Next.js's
+  own managed block (since 16.4 `next dev` always keeps that block in
+  AGENTS.md and creates the file if it is missing). It must never again hold
+  a copy of the rules: the copy committed in `d19989d` described the removed
+  glass design. `tests/agents-md.test.ts` enforces it.
 - **AI is OFF in production.** No `TYPESAFE_API_KEY` / `ML_SERVICE_*` on
   Vercel. The code for Jev + Typhoon is shipped and waits for keys.
 
