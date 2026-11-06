@@ -125,6 +125,9 @@ test('no role is compared outside lib/permissions.ts', () => {
         const src = fs.readFileSync(full, 'utf8');
         if (/role\s*[!=]==?\s*['"]|['"](owner|admin|manager)['"]\s*[!=]==?\s*\w*role/i.test(src)) offenders.push(full);
         if (/roles:\s*\[\s*['"]/.test(src)) offenders.push(full);
+        // The roles before migration 0016. A type naming them is how an old
+        // role check comes back in (2026-11-06).
+        if (/['"](owner|admin)['"]\s*\|/.test(src) || /\|\s*['"](owner|admin)['"]/.test(src)) offenders.push(full);
       }
     }
   };

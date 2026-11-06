@@ -208,8 +208,9 @@ proves nothing here.
   → ภายหลัง → รอตรวจ (`lib/tasks/my-tasks.ts`, Bangkok days, week ends
   Sunday). In LINE: a private chat gets the 5 most urgent; a group gets only
   a short line and a button — never a list.
-- **Out of scope:** custom roles, tags. **Next planned change:** the manager
-  view/dashboard.
+- **Out of scope:** custom roles, tags. The manager view shipped as ภาพรวม
+  (2026-10-08, below). Still missing there: trends over weeks, a per-person
+  history, and anything sent to the Manager outside the app (a digest).
 
 ## Announcements and ทุกคน (decided 2026-10-08)
 
@@ -245,8 +246,8 @@ When the bot joins a LINE group, the group gets its own workspace at once,
 named after the group and bound to it (`ensureGroupWorkspace` in
 `lib/auth/membership.ts`) — nobody presses "link team". Everyone seen in the
 group is let in as a member as they appear (`admitToGroupWorkspace`). The
-workspace has no owner until the first person who **tags @ทันงาน** (or opens
-the app from the group) claims it; chatting never makes anyone owner.
+workspace has no Manager until the first person who **tags @ทันงาน** (or
+opens the app from the group) claims it; chatting never makes anyone Manager.
 A claim by tagging is said in the group, in the same free reply as the
 bot's answer ("<name> เป็นผู้จัดการของกลุ่มนี้ …"), and written to
 `audit_log` as `manager_claimed` (2026-11-06): the first to tag could be a
@@ -280,8 +281,8 @@ Calendar **sync** with Google/Outlook stays out of scope.
 - **Events (decided 2026-10-09):** for me, the whole workspace, or picked
   people. "Everyone" = members + people seen in the LINE group, the same as
   ทุกคน tasks (`everyoneAssignable`). Private events are seen by their maker
-  only — not even admins. Edit/delete: the maker, or an owner/admin for a
-  shared one. Data in `lib/calendar-events.ts`, rules in
+  only — not even Managers. Edit/delete: the maker, or a Manager for a
+  shared one (`can(…, 'edit_shared_event')`). Data in `lib/calendar-events.ts`, rules in
   `lib/calendar-event-rules.ts`, migration 0015.
 - **Notifications go by LINE and are counted (decided 2026-10-09):** one
   `reminder` row per person (kind `event`, `event_id`), so the dispatcher,
@@ -349,65 +350,72 @@ Auto-scan of all messages, native apps, calendar sync, file storage, public
 signup, annual plans, per-group add-ons, public leaderboards, custom roles,
 tags.
 
-## AI scope — updated 2026-10-26
+## AI scope — updated 2026-11-06
 
-**For now: Jev + Typhoon's hosted API (decided by the user 2026-10-26).**
-This reverses "no third-party AI" below for the beta, until our own server
-exists. Jev (TypeSafe, `TYPESAFE_API_KEY`) makes the quick judgments on a
-tagged message — is it a task, who, which day — as typed questions; it
-cannot write. The writing model (Typhoon 2.5 via api.opentyphoon.ai, the
-same `ML_SERVICE_URL`/`ML_SERVICE_TOKEN`/`ML_MODEL` env, with
-`ML_RESPONSE_FORMAT=prompt` because that API does not document
-`response_format`) writes titles, splits messages, summarises and gives
-reasons. Order in `lib/ai/route.ts`: rules → Jev (one draft missing a
-person or day) → writing model (paragraph, 2+ people named, or still
-unread). Jev questions and thresholds (0.7/0.3) live only in
-`lib/ai/jev-questions.ts`; code does the calendar math. Each provider
-charges 1 per call (`check:` / `read:` source ids). With only Jev, the
-summary and ควรทำอะไรก่อน panels are hidden (`ai.writes`). /privacy, the AI
-page and the bot's join message name both providers; consent version
-`2026-10-26`. Measured with `tools/ml/eval.ts` (40 messages): rules alone
-75% fully right, rules + Typhoon 2.5 4B 83%; Jev not measured yet. The
-TypeSafe skill is installed (`typesafe@typesafe-ai`) — follow it for Jev
-work, including asking before sending test data to the live API.
+**Now (in production):** AI is **off**. The code reads with two hosted
+providers and waits for their keys; none is set on Vercel. **Whether to use
+Jev at all is undecided** — the user is discussing it with the CEO. Do not
+wire keys or send test data to either service without the user saying so.
 
-**Our own model, no third-party AI API.** Decided by the user 2026-10-02. Jev
-(TypeSafe) is removed. No other hosted AI API is to be added.
+**What the code does when keys are set** (`lib/ai/route.ts`): rules first
+(free) → **Jev** (TypeSafe, `TYPESAFE_API_KEY`) for quick typed judgments on
+one draft missing a person or a day — is it a task, who, which day; it
+cannot write → the **writing model**, Typhoon 2.5 via api.opentyphoon.ai
+(`ML_SERVICE_URL`/`ML_SERVICE_TOKEN`/`ML_MODEL`, `ML_RESPONSE_FORMAT=prompt`
+because that API does not document `response_format`), for a paragraph, 2+
+people named, or a draft still unread. Either provider alone works. Jev
+questions and thresholds (0.7/0.3) live only in `lib/ai/jev-questions.ts`;
+code does the calendar math. Each provider charges 1 per call (`check:` /
+`read:` source ids). With only Jev, the summary and ควรทำอะไรก่อน panels are
+hidden (`ai.writes`). /privacy, the AI page and the bot's join message name
+both providers; consent version `2026-10-26`. If Jev is turned down: take
+it out of the chain, those three texts, and bump the consent version.
+Measured with `tools/ml/eval.ts` (40 made-up messages): rules alone 75%
+fully right, rules + Typhoon 2.5 4B 95% after the 2026-10-26 fixes; Jev not
+measured. The TypeSafe skill is installed (`typesafe@typesafe-ai`) — follow
+it for Jev work, including asking before sending test data to the live API.
 
-- **Where it runs:** a separate inference service, because a bigger model
-  will not fit inside a Vercel function. This is the ONE exception to "no
-  second service", and it covers model inference only: every product route,
-  rule and permission check stays in `app/api`. Only this app's server calls
-  it (`ML_SERVICE_URL` + `ML_SERVICE_TOKEN`, both server-only). Users never
-  reach it; they only ever use ทันงาน. `lib/ai/model.ts` → `aiConfigured()` is
-  false until both are set, so AI is off everywhere until the service exists.
-- **What it does:**
-  - Extract task, person and deadline from a tagged LINE message.
-  - Help with prioritising: it may *suggest* (with a reason a person can read).
-    The default order stays deterministic (deadline, time-in-state, blocked
-    status) and is never silently replaced.
-  - Summarise work in ทันงาน (a task and its history, a day, a week) for a
-    person to read. Not a chat surface.
-- **Training data — decided 2026-10-25 (user approved the proposal).**
-  Per-workspace opt-in, off by default, turned on only by a Manager next to
-  the consent wording (`TRAINING_CONSENT_VERSION` in `lib/ai/training.ts`;
-  the PATCH refuses without it; consent time/by/version stored). Kept per
-  confirmed draft only: the tagged message, rules reading, model reading,
-  what was confirmed, `corrected` (`ai_training_example`). Never raw chat.
-  Unsend deletes the example; opting out deletes all of the team's. This is
-  the one exception to the 7-day text rule, and /privacy says so. Nothing in
-  the app trains: export and training are a separate, later step.
-- **Built 2026-10-25 (against a stand-in; hosting not chosen yet):** see
-  `docs/ML-SERVICE.md`. Reading runs in the webhook only when `needsModel()`
-  (no deadline and no person, or a paragraph for a title), never for @All;
-  rules values win, the model fills gaps (`mergeReadings`); the card and the
-  inbox say "AI ช่วยอ่าน · ตรวจก่อนยืนยัน". ควรทำอะไรก่อน (งานฉัน), สรุปด้วย AI
-  (task sheet, history filtered by the reader's audience) and สรุปวันนี้ /
-  สัปดาห์นี้ (ภาพรวม) are one press each (`components/ai-panels.tsx`). Every
-  call goes through `answerOnce` in `lib/ai/assist.ts`: spend first, keep the
-  answer on `ai_usage.answer` (cleared at 7 days), a retry gets it back
-  unasked and uncharged, a failure is refunded. The model's reading/reason
-  on a draft is cleared with its text (`DRAFT_CONTENT_CLEARED`).
+**The goal, not the current state:** our own open Thai model as a private
+inference service, with no third-party AI API. This is the ONE exception to
+"no second service", and it covers model inference only: every product
+route, rule and permission check stays in `app/api`. Only this app's server
+calls it; users never reach it. Hosting is not chosen; `docs/ML-SERVICE.md`
+has the plan and `tools/ml/stand-in.mjs` the stand-in the e2e run uses.
+
+History: 2026-10-02 "own model only, Jev removed"; 2026-10-26 "Jev +
+Typhoon's hosted API for the beta, until our own server exists";
+2026-11-06 Jev pending the CEO, AI off in production.
+
+**What AI does** (both now and with our own model):
+- Extract task, person and deadline from a tagged LINE message.
+- Help with prioritising: it may *suggest* (with a reason a person can
+  read). The default order stays deterministic (deadline, time-in-state,
+  blocked status) and is never silently replaced.
+- Summarise work in ทันงาน (a task and its history, a day, a week) for a
+  person to read. Not a chat surface.
+
+**Training data — decided 2026-10-25 (user approved the proposal).**
+Per-workspace opt-in, off by default, turned on only by a Manager next to
+the consent wording (`TRAINING_CONSENT_VERSION` in `lib/ai/training.ts`;
+the PATCH refuses without it; consent time/by/version stored). Kept per
+confirmed draft only: the tagged message, rules reading, model reading,
+what was confirmed, `corrected` (`ai_training_example`). Never raw chat.
+Unsend deletes the example; opting out deletes all of the team's. This is
+the one exception to the 7-day text rule, and /privacy says so. Nothing in
+the app trains: export and training are a separate, later step.
+
+**How it is wired** (`docs/ML-SERVICE.md`): reading runs in the webhook
+only when `needsModel()` (no deadline and no person, or a paragraph for a
+title), never for @All; rules values win, the model fills gaps
+(`mergeReadings`); the card and the inbox say "AI ช่วยอ่าน · ตรวจก่อนยืนยัน".
+ควรทำอะไรก่อน (งานฉัน), สรุปด้วย AI (task sheet, history filtered by the
+reader's audience) and สรุปวันนี้ / สัปดาห์นี้ (ภาพรวม) are one press each
+(`components/ai-panels.tsx`). Every call goes through `answerOnce` in
+`lib/ai/assist.ts`: spend first, keep the answer on `ai_usage.answer`
+(cleared at 7 days), a retry gets it back unasked and uncharged, a failure
+is refunded. The model's reading/reason on a draft is cleared with its text
+(`DRAFT_CONTENT_CLEARED`). `lib/ai/model.ts`: `aiConfigured()` is false
+until a provider's keys are set.
 
 OUT of scope, unchanged:
 - AI chat, open-ended conversation, or a chat surface of any kind.
@@ -430,99 +438,10 @@ once. Voice is the most expensive and the least certain, so whether image and
 voice are worth their cost is decided from real beta usage, not from a guess
 made before any of it shipped.
 
-## Task 0 audit findings — the fix list
+## Task 0 audit (September 2026)
 
-Ranked P0 (blocks external users) / P1 (before beta) / P2 (later). Full report:
-https://claude.ai/code/artifact/9e52bb8a-29ef-44f7-944b-42ec432e2147
-
-### P0
-
-*Status reviewed 2026-09-27: every item below is annotated with what is true
-now. Nothing here is a pending task unless it says so.*
-
-- **SEC-1** Identity hardcoded. `assignmentIsMine` compares against a literal
-  list `['pim','pim-nami','me','me-view']` plus `id.startsWith('owner-')`.
-  Every permission decision derives from it. **FIXED** — `assignmentIsMine`
-  compares against the id the server put in the session.
-- **SEC-2** `loggedIn` / `lineConnected` restored from `localStorage`
-  unvalidated; the login button just flips booleans. **FIXED** — real LINE
-  Login and an httpOnly session cookie; nothing is restored from the browser.
-- **SEC-3** Approval had **no permission check at all**, not even the
-  client-side one every other mutation performs; the client review screen
-  called straight through. **FIXED** — `approveTask` / `requestRevision` now
-  require `canEditTask`.
-- **BUG-1** Status words were written over the deadline field
-  (`due: 'เสร็จเมื่อสักครู่'`, `'อนุมัติเมื่อสักครู่'`), destroying the original
-  time. **FIXED** — `Task.dueAt` is an ISO instant; status lives in `status`.
-- **BUG-2** "Overdue" was computed by searching for the word `เกินกำหนด` in a
-  display string, so a genuinely late task never counted. **FIXED** —
-  `isOverdue()` compares instants.
-
-### P1
-
-- **SEC-4** Restored `localStorage` is trusted wholesale: only `tasks` and
-  `settings` are normalized; `projects`, `captures`, `reminders` and `account`
-  are set raw. Empty/malformed `projects` crashes the app, and there is **no
-  error boundary** (`app/error.tsx` does not exist). **FIXED** — the server is
-  the only source; prototype `localStorage` is never imported, and
-  `app/error.tsx` exists. Device preferences are the only thing stored, under
-  their own key, through `normalizeSettings`.
-- **BUG-3/BUG-4** Natural-language deadlines never became timestamps;
-  `ก่อนบ่าย 12` produced `24:00`; `เช้า` only worked alongside `พรุ่งนี้`.
-  **FIXED** in `lib/deadline.ts` with tests.
-- **BUG-5** `nextTaskId(tasks)` reads a stale closure while the write uses a
-  functional updater — a fast double submit yields duplicate IDs. **FIXED** —
-  ids are server-side UUIDs; the function was dead code and is deleted.
-- **BUG-6** Capture dedup compares **titles**; editing the title creates a
-  duplicate, and two genuinely identical titles get silently swallowed. Real
-  fix is an idempotency key. **FIXED** — unique `inbox_line_message_key` on
-  the LINE message id, plus an idempotency key on every mutating route, and
-  confirming claims the draft row conditionally.
-- **BUG-7** `selectedTask` holds a **copy**, not an id; every mutation writes
-  the whole stale object back. **FIXED** — `selectedTaskId` with the task
-  derived from the current list.
-- **STR-1** All nine "pages" were `useState`, not routes — no URL, no deep
-  link, no back button. **FIXED** — every screen has an address (`/?p=tasks`;
-  วันนี้ stays at `/`), `navigate()` pushes it, `popstate` steps back, and a
-  reload stays put. Still one route: the address is a query string, not a file
-  per page. `pageFromSearch` / `pageUrl` live in `lib/deep-link.ts` and read
-  `liff.state` too, alongside the `?task=<id>` link. `main.app-main[data-page]`
-  is the harness's hook (`tools/visual/urls.mjs`). An open task sheet pushes a
-  step of its own (`history.state.task`), so Back closes the sheet rather than
-  the screen behind it. The `startPage` setting was offered but never applied
-  — it is now.
-- **STR-2** Business rules (permission, ranking, parsing, dedup) live in
-  render code and must move to a data layer. **MOSTLY DONE** — permission
-  (`lib/tasks/permissions.ts`, `lib/auth/assignable.ts`), transitions,
-  parsing, deadlines, reminders and dedup are all server-side modules. What
-  remains in render code is display logic.
-
-### P2
-
-- **BUG-8** Calendar dates were frozen at mount, so a WebView left open
-  overnight still called yesterday "today". **FIXED** via a ticking `useNow()`.
-  (This reproduced live during testing when the date rolled 31 Aug → 1 Sep.)
-- **BUG-9** `snoozeReminder` wraps modulo 24h: 23:55 + 10min → 00:05 the same
-  day, never tomorrow. **FIXED** — ten minutes added to an instant, and the
-  server caps snoozes at three.
-- **BUG-10** Workload bar shows the workspace total for every member in the
-  "งานของฉัน" workspace. **FIXED** — counted per person in every view.
-- **BUG-11** `useEffect` dep `[selectedTask?.id]` omits `selectedTask`; two
-  `useMemo`s keyed on a `projectTasks` array rebuilt every render never cache.
-  **FIXED** — `projectTasks` is memoised on its real inputs, and the selected
-  task is derived rather than copied.
-- **BUG-12** Task dialog reads `taskProject.members[0].id` without a guard.
-  **FIXED** — guarded at every call site.
-- **SEC-5** Two different URL validators for the same rule (`new URL()` +
-  protocol allowlist vs a regex). **FIXED** — one `isSafeHttpUrl` in
-  `lib/url.ts`, with `isPrivateHost` beside it for the link checker.
-- **SEC-6** Evidence links use `rel="noreferrer"`; add explicit `noopener`
-  once URLs come from the server. **FIXED**.
-- **SEC-7** `components/ui/chart.tsx` has a `dangerouslySetInnerHTML` CSS sink.
-  Currently unreachable — **49 of 60 `components/ui` files are dead code**,
-  including `native-select.tsx`, which this project forbids using. **FIXED** —
-  all 49 deleted; the 11 that are reachable remain. The `shadcn` and
-  `tw-animate-css` dependencies stay: `globals.css` imports them.
+Every finding is fixed. The list, and how each was fixed, is in
+`docs/AUDIT-2026-09.md`.
 
 ## Verification
 

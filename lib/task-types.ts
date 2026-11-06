@@ -12,8 +12,6 @@ export type TaskPriority = 'urgent' | 'high' | 'normal';
 export type ReviewState = 'working' | 'review' | 'approved' | 'revision';
 export type AssigneeType = 'member' | 'team';
 
-export type WorkspaceRole = 'owner' | 'admin' | 'member';
-
 export type Evidence = {
   label: string;
   url: string;
@@ -60,12 +58,4 @@ export type Member = {
   /** False when the member has not added the OA as a friend: they cannot
    *  receive reminder DMs and the UI must say so rather than dropping them. */
   canReceiveDirectMessages: boolean;
-};
-
-/** Server-side authorization result. A client-supplied workspace ID is never
- *  sufficient on its own — the API resolves membership before touching data. */
-export type Membership = {
-  workspaceId: string;
-  lineUserId: string;
-  role: WorkspaceRole;
 };
