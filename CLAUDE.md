@@ -16,7 +16,9 @@ route handlers.
 If Vite, Wrangler, or a separate API service ever appears in a plan, that is
 drift — stop and go back to this file. (It has happened once already.)
 
-- Framework: Next.js 16.3.3, React 19.2.6
+- Framework: Next.js 16.4.5, React 19.2.6 (16.3.3 → 16.4.5 on 2026-11-06 for
+  critical advisories; `shadcn` is a devDependency since then — Vercel
+  installs devDependencies for the build, and only `globals.css` uses it)
 - Database: **Neon Postgres**. Decided. Do not propose alternatives.
   - Route handlers use the **pooled** connection string (`-pooler` host).
     Serverless functions open many short-lived connections and exhaust a
@@ -100,8 +102,10 @@ LINE channels, the Neon project, and all cloud resources, then hands over IDs.
   `!important` all matter. It is 5,663 lines with 127 `!important` and **zero
   `@layer`**, so the cascade rests entirely on source order and the three
   `@import`s at the top. Changing how those resolve silently changes the UI.
-- **Do not remove `shadcn` or `tw-animate-css`** from dependencies. Nothing in
-  TypeScript imports them; `app/globals.css` imports them directly.
+- **Do not remove `shadcn` or `tw-animate-css`.** Nothing in TypeScript
+  imports them; `app/globals.css` imports them directly. `shadcn` lives in
+  devDependencies (it pulls express and an MCP SDK that production must not
+  ship); `npm audit --omit=dev` must stay at 0.
 - Breakpoints **1080, 1020, 760, 380, 360px**. Do not collapse into Tailwind `md`.
 - Logo: `public/tungan-logo-th.png` through the `Brand` component with
   `object-fit: cover`. **Never** replace it with `<h1>ทันงาน</h1>`. Keep
@@ -560,7 +564,8 @@ node tools/visual/shots.mjs     # screenshots of the main screens
 node tools/visual/urls.mjs      # each screen's address, Back, reload,
                                 # start page
 node tools/visual/contrast.mjs  # light text left on a light surface
-node tools/visual/palette.mjs   # any retired colour left on any screen
+node tools/visual/palette.mjs   # sky/pink anywhere but the background
+node tools/visual/dialog.mjs    # version 18 dialog on the production build
 ```
 
 **End-to-end against a real backend** lives in `tools/e2e/` (README there):

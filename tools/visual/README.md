@@ -15,6 +15,7 @@ node tools/visual/shots.mjs                  # viewport screenshots of the main 
 node tools/visual/urls.mjs                   # every screen's address, Back, reload, start page
 node tools/visual/contrast.mjs               # light text left on a light surface
 AI=1 node tools/visual/ai.mjs                # press every AI panel, check the answer fits
+node tools/visual/dialog.mjs                 # version 18: the task dialog pinned on phones, centred on desktop
 node tools/visual/palette.mjs                # the accent colours anywhere but the background
 ```
 
