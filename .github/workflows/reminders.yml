@@ -1,15 +1,20 @@
-# Deliver due reminders.
+# Deliver due reminders — the BACKUP scheduler, and the alarm (2026-11-06).
 #
-# Vercel's Hobby plan refuses any cron that runs more than once a day, and once
-# a day is the wrong shape for a nudge that has to arrive before a deadline. So
-# the real schedule lives here, where it costs nothing: GitHub gives public
-# repositories unlimited standard-runner minutes.
+# The primary is cron-job.org: every 15 minutes, 08:00–21:45 Bangkok, calling
+# /api/cron/reminders with the same CRON_SECRET (docs/BETA-RUNBOOK.md). This
+# workflow runs on the same schedule, so reminders still go out if the
+# primary stops, and it FAILS its run — GitHub then emails the repository's
+# owner — when the primary has been silent for 90 minutes inside its window,
+# or when reminders are overdue and nothing has been sent for a day
+# (lib/reminders/scheduler.ts). vercel.json's daily cron is the last resort.
 #
-# vercel.json still carries a daily cron. That is deliberate belt and braces —
-# if this workflow is ever disabled, reminders arrive late rather than never.
 # Two schedulers cannot double-send: the dispatcher claims rows with
-# `FOR UPDATE SKIP LOCKED` under a lease, so whichever run arrives first owns
-# the row and the other claims nothing.
+# `FOR UPDATE SKIP LOCKED` under a lease, and each message carries an
+# X-Line-Retry-Key, so whichever run arrives first owns the row.
+#
+# GitHub disables scheduled workflows in a public repository after 60 days
+# without a commit, and emails a warning first. If that email comes, re-enable
+# it under Actions -> reminders, or push any commit.
 
 name: reminders
 
@@ -65,6 +70,7 @@ jobs:
           http_code=$(curl -sS -o response.json -w '%{http_code}' \
             --max-time 120 \
             -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "X-Scheduler: github" \
             "${BASE_URL%/}/api/cron/reminders")
 
           echo "HTTP ${http_code}"
@@ -78,3 +84,15 @@ jobs:
             echo "::error::Reminder dispatch failed with HTTP ${http_code}."
             exit 1
           fi
+
+          # The run itself worked; now the alarm. Either flag fails the job,
+          # and a failed scheduled run is emailed to the owner.
+          if [ "$(jq -r '.scheduling.primarySilent // false' response.json)" = "true" ]; then
+            echo "::error::cron-job.org has not called /api/cron/reminders for 90 minutes. Check its job history (a 401 means CRON_SECRET differs from Vercel's)."
+            failed=1
+          fi
+          if [ "$(jq -r '.scheduling.stale // false' response.json)" = "true" ]; then
+            echo "::error::Reminders are overdue and none has been sent for over a day."
+            failed=1
+          fi
+          exit "${failed:-0}"

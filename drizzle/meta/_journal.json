@@ -148,6 +148,13 @@
       "when": 1793937336656,
       "tag": "0020_push_retry_key",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793937819633,
+      "tag": "0021_scheduler_heartbeat",
+      "breakpoints": true
     }
   ]
 }

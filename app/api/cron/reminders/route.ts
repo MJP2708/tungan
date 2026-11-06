@@ -3,6 +3,8 @@ import { recoverWebhookEvents } from '@/lib/line/recover.ts';
 import { safeErrorMessage } from '@/lib/log.ts';
 import { timingSafeEqual } from 'node:crypto';
 import { dispatchDueReminders } from '@/lib/reminders/dispatch.ts';
+import { schedulerCheckIn } from '@/lib/reminders/heartbeat.ts';
+import { schedulerOf } from '@/lib/reminders/scheduler.ts';
 import { purgeExpiredContent } from '@/lib/retention.ts';
 
 export const runtime = 'nodejs';
@@ -14,11 +16,10 @@ export const maxDuration = 60;
  * Deliver reminders that are due.
  *
  * Protected by CRON_SECRET rather than a session, because the caller is a
- * scheduler, not a person. Deliberately not tied to one scheduler: Vercel Cron
- * sends `Authorization: Bearer <CRON_SECRET>`, and any other caller can send
- * the same header or `?key=`, so the hosting decision stays open. Vercel's free
- * plan only allows one cron run per day, which is useless for reminders, so
- * this has to work from an external scheduler too.
+ * scheduler, not a person. Three call it (lib/reminders/scheduler.ts):
+ * cron-job.org every 15 minutes (the primary), GitHub Actions as the backup
+ * and alarm, and Vercel's once-a-day cron as a last resort. All send
+ * `Authorization: Bearer <CRON_SECRET>`.
  */
 function authorised(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
@@ -37,6 +38,22 @@ async function run(req: Request) {
     return NextResponse.json({ error: 'unauthorised' }, { status: 401 });
   }
   const result = await dispatchDueReminders();
+
+  // Which scheduler this was, and whether the scheduling is keeping up. The
+  // GitHub backup fails its run on either flag, and GitHub emails the owner:
+  // a dead scheduler reaches a person, not a user complaint.
+  let scheduling: Awaited<ReturnType<typeof schedulerCheckIn>> | null = null;
+  try {
+    scheduling = await schedulerCheckIn(schedulerOf(req.headers));
+    if (scheduling.stale) {
+      console.error('[cron][stale] reminders are overdue and nothing has been sent for over a day', JSON.stringify(scheduling));
+    }
+    if (scheduling.primarySilent) {
+      console.error('[cron][primary-silent] cron-job.org has not called in 90 minutes', JSON.stringify(scheduling));
+    }
+  } catch (error) {
+    console.error('[cron] scheduler check failed', safeErrorMessage(error));
+  }
 
   // Retention rides along on the same run. The free plan allows one scheduled
   // job, so a second endpoint would simply never be called — and a retention
@@ -65,7 +82,7 @@ async function run(req: Request) {
     'retention', JSON.stringify(retention),
     'webhook', JSON.stringify(webhook),
   );
-  return NextResponse.json({ ok: true, ...result, retention, webhook });
+  return NextResponse.json({ ok: true, ...result, retention, webhook, scheduling });
 }
 
 export const GET = run;

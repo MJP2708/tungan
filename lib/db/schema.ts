@@ -481,6 +481,16 @@ export const lineQuota = pgTable('line_quota', {
   exhaustedMonth: text('exhausted_month'),
 });
 
+/**
+ * When each scheduler last called /api/cron/reminders (2026-11-06). A
+ * scheduler that stops looks exactly like a quiet week; this is how the
+ * backup tells the primary has gone silent.
+ */
+export const schedulerHeartbeat = pgTable('scheduler_heartbeat', {
+  name: text('name').primaryKey(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+});
+
 export const messageUsage = pgTable(
   'message_usage',
   {
