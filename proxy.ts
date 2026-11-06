@@ -25,7 +25,9 @@ export function proxy(req: NextRequest) {
     pathname === '/api/health' ||
     // The scheduler is not a person and has no session. It authenticates with
     // CRON_SECRET inside the route itself.
-    pathname.startsWith('/api/cron/');
+    pathname.startsWith('/api/cron/') ||
+    // Browsers report CSP violations without a session, from any page.
+    pathname === '/api/csp-report';
 
   if (isPublic) return NextResponse.next();
 

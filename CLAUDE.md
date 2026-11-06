@@ -334,6 +334,16 @@ phrase, `t('{0} งาน', n)`, never `{n} {t('งาน')}`.
   never guess ambiguous legacy dates.
 - Every mutating route takes an **idempotency key** and is safe to retry.
 
+## Security headers (2026-11-06)
+
+`next.config.ts` sends HSTS (no includeSubDomains), nosniff,
+Referrer-Policy, Permissions-Policy and a Content-Security-Policy built from
+what the LIFF SDK actually loads. The CSP is **Report-Only** until a deploy
+has been used inside LINE on a phone with no `[csp]` lines in the Vercel
+log (reports go to `/api/csp-report`); then `CSP_ENFORCE = true` enforces it
+and adds X-Frame-Options, which has no report-only form. Any new outside
+host (a script, an image, an API the browser calls) must be added there.
+
 ## Secrets
 
 Channel secret, channel access token, Neon connection strings and any API key
