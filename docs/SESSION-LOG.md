@@ -8,15 +8,13 @@ fix "Right now" — keep it short, and never put secrets here.
 
 ## Right now (2026-11-06, after the risk and bug fix pass)
 
-- **Live:** https://www.humanmatter.work = `origin/main` at `5a6651a`
-  (the flat look, `d58a636`, plus this log). Vercel deploys on push to
-  `main`, about a minute after.
-- **Committed locally, NOT pushed or deployed:** 17 commits, `cd8c595` →
-  `c652d61`, the fix pass below. Migrations **0018–0021** come with them and
-  are **not applied on production**. Deploying means: push (SSH), then run
-  `drizzle-kit migrate` against production with the direct URL — say so
-  first, it writes to the live database. The new code needs the new
-  columns, so migrate as soon as the deploy is live (or just before).
+- **Live:** https://www.humanmatter.work = `origin/main` at `4e64d61`
+  (the 2026-11-06 fix pass), deployed 2026-11-06. Migrations 0018–0021
+  were applied to production first (22 applied; personal workspaces now
+  capped at 50), then the push; live about a minute later. Full
+  `/api/health` (with the cron secret): ready, database ok, 27 tables,
+  webhookUnprocessed 0. `oaQuotaUsed`/`oaQuotaLimit` stay null until the
+  first push after the deploy reads LINE's quota.
 - **AGENTS.md** is committed and is a pointer to CLAUDE.md plus Next.js's
   own managed block (since 16.4 `next dev` always keeps that block in
   AGENTS.md and creates the file if it is missing). It must never again hold
@@ -29,26 +27,25 @@ fix "Right now" — keep it short, and never put secrets here.
 
 ### Waiting on the user
 
-1. **Deploy the fix pass** (push + migrations 0018–0021, see above).
-2. **After it is live:** open the app inside LINE on a phone (Android and
+1. **Now that it is live:** open the app inside LINE on a phone (Android and
    iPhone if possible), then check the Vercel log for `[csp]`. None → set
    `CSP_ENFORCE = true` (adds X-Frame-Options too).
-3. **cron-job.org:** turn on its "notify on failure" email for the job. The
+2. **cron-job.org:** turn on its "notify on failure" email for the job. The
    GitHub backup now also fails — and GitHub emails you — when cron-job.org
    has been silent 90 minutes or reminders are stuck (lib/reminders/scheduler.ts).
-4. **Jev or not** (CEO). Until then, no keys. If no: take Jev out of
+3. **Jev or not** (CEO). Until then, no keys. If no: take Jev out of
    `lib/ai/route.ts`, /privacy, the AI page and the join message; bump the
    consent version.
-5. **API keys**, then permission and a budget, before `tools/ml/eval.ts`
+4. **API keys**, then permission and a budget, before `tools/ml/eval.ts`
    runs against live services.
-6. **Dev environment:** recommended before the beta — a Neon dev branch and
+5. **Dev environment:** recommended before the beta — a Neon dev branch and
    separate dev LINE channels, so a forgotten override cannot message real
    people. The user creates them; then `.env.local` points at them.
-7. **Public repo:** CLAUDE.md and this log describe how production works.
+6. **Public repo:** CLAUDE.md and this log describe how production works.
    Going private costs Actions minutes (reminders.yml ≈ 1,700 runs/month
    against 2,000 free) — decide together with the scheduler.
-8. **Vercel MCP sign-in:** `/mcp` → `plugin:vercel:vercel` → authenticate.
-9. Optional: `public/og.png` and the LINE rich menu image.
+7. **Vercel MCP sign-in:** `/mcp` → `plugin:vercel:vercel` → authenticate.
+8. Optional: `public/og.png` and the LINE rich menu image.
 
 ### Open, not done
 
@@ -70,7 +67,7 @@ history.
 
 ## History
 
-### 2026-11-06 — risk and bug fix pass (`cd8c595`…`c652d61`, not deployed)
+### 2026-11-06 — risk and bug fix pass (`cd8c595`…`c652d61`, deployed the same day)
 
 From an outside review of `5a6651a`. The user said "do what you think is
 best" on the four open questions: personal workspaces get a 50-message
