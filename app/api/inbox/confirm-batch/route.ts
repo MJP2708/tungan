@@ -7,7 +7,7 @@ import { errorResponse } from '@/lib/api/handler.ts';
 import { everyoneAssignable } from '@/lib/auth/assignable.ts';
 import { createTasks } from '@/lib/tasks/create.ts';
 import { recordConfirmedDraft } from '@/lib/ai/training.ts';
-import { DRAFT_CONTENT_CLEARED } from '@/lib/retention.ts';
+import { DRAFT_CONTENT_CLEARED, draftContentOf } from '@/lib/retention.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -72,7 +72,7 @@ export async function POST(req: Request) {
         });
       } catch (error) {
         // Hand this draft back rather than leave it claimed with no task.
-        await db().update(inboxItem).set({ state: 'pending' }).where(eq(inboxItem.id, item.id));
+        await db().update(inboxItem).set({ state: 'pending', ...draftContentOf(item) }).where(eq(inboxItem.id, item.id));
         throw error;
       }
     }

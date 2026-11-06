@@ -7,7 +7,7 @@ import { errorResponse, withIdempotency } from '@/lib/api/handler.ts';
 import { assertAssignable, everyoneAssignable } from '@/lib/auth/assignable.ts';
 import { createTasks } from '@/lib/tasks/create.ts';
 import { recordConfirmedDraft } from '@/lib/ai/training.ts';
-import { DRAFT_CONTENT_CLEARED } from '@/lib/retention.ts';
+import { DRAFT_CONTENT_CLEARED, draftContentOf } from '@/lib/retention.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -98,9 +98,10 @@ export async function POST(
           });
         } catch (error) {
           // Hand the draft back rather than leave it claimed with no task.
+          // With its message and readings: the claim cleared them.
           await db()
             .update(inboxItem)
-            .set({ state: 'pending' })
+            .set({ state: 'pending', ...draftContentOf(item) })
             .where(eq(inboxItem.id, id));
           throw error;
         }

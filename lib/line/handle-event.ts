@@ -55,7 +55,7 @@ import { ensurePersonalWorkspace } from '../auth/membership.ts';
 import { checkMessageWithJev, readMessageWithModel } from '../ai/assist.ts';
 import { routeReading } from '../ai/route.ts';
 import { forgetMessage, recordConfirmedDraft } from '../ai/training.ts';
-import { DRAFT_CONTENT_CLEARED } from '../retention.ts';
+import { DRAFT_CONTENT_CLEARED, draftContentOf } from '../retention.ts';
 import { isUniqueViolation } from '../db/errors.ts';
 import { safeErrorMessage } from '../log.ts';
 import { stableUuid } from '../stable-id.ts';
@@ -812,7 +812,7 @@ async function handlePostback(event: LineEventPayload) {
     });
   } catch (error) {
     // Hand the draft back rather than leave it claimed with no task behind it.
-    await db().update(inboxItem).set({ state: 'pending' }).where(eq(inboxItem.id, inboxId));
+    await db().update(inboxItem).set({ state: 'pending', ...draftContentOf(item) }).where(eq(inboxItem.id, inboxId));
     throw error;
   }
   const taskId = made.ids[0];

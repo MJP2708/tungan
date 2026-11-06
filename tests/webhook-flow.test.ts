@@ -311,6 +311,8 @@ describe('LINE flow: message to draft to task', { skip: !URL_ ? 'TEST_DATABASE_U
     assert.equal((await db().select().from(schema.task)).length, 0);
     const [still] = await db().select().from(schema.inboxItem);
     assert.equal(still.state, 'pending', 'the draft is handed back, not lost');
+    // P2-2: with its message, not an empty bubble (the claim had cleared it).
+    assert.match(still.rawMessage ?? '', /ส่งใบเสนอราคา/);
   });
 
   test('taking a message back in LINE removes what was stored', async () => {

@@ -35,6 +35,25 @@ export const DRAFT_CONTENT_CLEARED = {
   aiReading: null,
 } as const;
 
+/**
+ * What DRAFT_CONTENT_CLEARED took away, read from the draft as it was before
+ * the claim (2026-11-06). A confirm that fails hands the draft back with its
+ * message and readings, instead of an empty bubble.
+ */
+export function draftContentOf(draft: {
+  rawMessage: string | null;
+  aiReason: string | null;
+  rulesReading: unknown;
+  aiReading: unknown;
+}) {
+  return {
+    rawMessage: draft.rawMessage,
+    aiReason: draft.aiReason,
+    rulesReading: draft.rulesReading,
+    aiReading: draft.aiReading,
+  };
+}
+
 const ROW_DAYS = 30;
 
 export type RetentionResult = {
