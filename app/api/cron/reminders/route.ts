@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { recoverWebhookEvents } from '@/lib/line/recover.ts';
 import { safeErrorMessage } from '@/lib/log.ts';
-import { timingSafeEqual } from 'node:crypto';
+import { hasCronSecret } from '@/lib/auth/cron-secret.ts';
 import { dispatchDueReminders } from '@/lib/reminders/dispatch.ts';
 import { schedulerCheckIn } from '@/lib/reminders/heartbeat.ts';
 import { schedulerOf } from '@/lib/reminders/scheduler.ts';
@@ -19,21 +19,11 @@ export const maxDuration = 60;
  * scheduler, not a person. Three call it (lib/reminders/scheduler.ts):
  * cron-job.org every 15 minutes (the primary), GitHub Actions as the backup
  * and alarm, and Vercel's once-a-day cron as a last resort. All send
- * `Authorization: Bearer <CRON_SECRET>`.
+ * `Authorization: Bearer <CRON_SECRET>` (lib/auth/cron-secret.ts).
  */
-function authorised(req: Request): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const header = req.headers.get('authorization') ?? '';
-  // Header only. A ?key= fallback put the secret into URLs, and URLs end up
-  // in access logs and in the scheduler's run history.
-  const provided = header.startsWith('Bearer ') ? header.slice(7) : '';
-  if (provided.length !== secret.length) return false;
-  return timingSafeEqual(Buffer.from(provided), Buffer.from(secret));
-}
 
 async function run(req: Request) {
-  if (!authorised(req)) {
+  if (!hasCronSecret(req)) {
     console.warn('[cron][rejected] bad or missing CRON_SECRET');
     return NextResponse.json({ error: 'unauthorised' }, { status: 401 });
   }

@@ -18,6 +18,13 @@
 curl -s https://www.humanmatter.work/api/health
 ```
 
+ใครก็เรียกได้ แต่จะตอบแค่ `{"ready":true}` (ตั้งแต่ 6 พ.ย. 2569 ไม่บอกคนนอกว่าระบบมีงานมากแค่ไหน)
+ถ้าจะดูรายละเอียดทั้งหมด ส่ง `CRON_SECRET` ไปด้วย (ค่าเดียวกับใน Vercel — อย่าใส่ลงในไฟล์หรือแชต):
+
+```
+curl -s -H "Authorization: Bearer $CRON_SECRET" https://www.humanmatter.work/api/health
+```
+
 ต้องได้ `"ready":true` และ `"database":"ok"` ถ้าไม่ใช่:
 
 | ค่าที่เห็น | แปลว่า | ทำอะไร |
@@ -28,6 +35,10 @@ curl -s https://www.humanmatter.work/api/health
 
 `remindersLastSentAt` คือเวลาที่ส่งเตือนล่าสุด ถ้าเป็น `null` แปลว่ายังไม่เคยมีเตือนถึงกำหนดเลย
 (ไม่ใช่ความผิดพลาดถ้ายังไม่มีงานที่ตั้งเวลาไว้)
+
+`webhookUnprocessed` คือข้อความ LINE ที่ค้างทำไม่เสร็จเกิน 10 นาที ควรเป็น 0 —
+รอบ cron จะหยิบมาทำต่อเอง ถ้าตัวเลขค้างอยู่หลายรอบ ดู log ของ Vercel ที่ขึ้นต้นด้วย `[webhook]`
+`oaQuotaUsed` / `oaQuotaLimit` คือโควตาข้อความรวมของบัญชี LINE ที่ทุกทีมใช้ร่วมกัน
 
 ## เตือนไม่ออก
 

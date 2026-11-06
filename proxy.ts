@@ -20,8 +20,8 @@ export function proxy(req: NextRequest) {
     pathname.startsWith('/api/auth/line') ||
     // LINE calls this one with a signature, not a session.
     pathname.startsWith('/api/webhooks/') ||
-    // Reports presence booleans only, so it is safe unauthenticated and can
-    // still diagnose a login that fails before a session exists.
+    // Says only `ready` without the cron secret, so it is safe
+    // unauthenticated and can still be checked before anyone signs in.
     pathname === '/api/health' ||
     // The scheduler is not a person and has no session. It authenticates with
     // CRON_SECRET inside the route itself.
