@@ -300,6 +300,24 @@ describe('roles, permissions, personal tasks, งานฉัน', { skip: !URL_
     assert.equal(ws.monthlyMessageCap, 50);
   });
 
+  test('two first sign-ins at once make one person and one personal workspace', async () => {
+    // P2-1 (2026-11-06): this was three inserts after a select, and the
+    // second sign-in hit the unique index with a 500.
+    const { upsertLineUserOnSignIn } = await import('../lib/auth/membership.ts');
+    const identity = { lineUserId: 'U-twice', displayName: 'สองครั้ง' };
+    const ids = await Promise.all([upsertLineUserOnSignIn(identity), upsertLineUserOnSignIn(identity)]);
+    assert.equal(ids[0], ids[1]);
+    const people = await db().select().from(schema.lineUser).where(eq(schema.lineUser.lineUserId, 'U-twice'));
+    assert.equal(people.length, 1);
+    const own = await db().select().from(schema.workspace).where(eq(schema.workspace.createdByUserId, ids[0]));
+    assert.deepEqual(own.map((w) => [w.kind, w.monthlyMessageCap]), [['personal', 50]]);
+    // A later sign-in refreshes the name, and makes nothing new.
+    await upsertLineUserOnSignIn({ ...identity, displayName: 'ชื่อใหม่' });
+    const [after_] = await db().select().from(schema.lineUser).where(eq(schema.lineUser.lineUserId, 'U-twice'));
+    assert.equal(after_.displayName, 'ชื่อใหม่');
+    assert.equal((await db().select().from(schema.workspace).where(eq(schema.workspace.createdByUserId, ids[0]))).length, 1);
+  });
+
   test('งานฉัน never returns a task from a workspace I am not in', async () => {
     // Assigned to stranger in A, but stranger never joined A.
     await addTask('x', { assigneeUserId: stranger, status: 'progress', reviewState: 'working' });

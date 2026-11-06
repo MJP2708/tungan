@@ -1,12 +1,8 @@
 import { NextResponse } from 'next/server';
-import { MANAGER } from '@/lib/permissions.ts';
 import { cookies } from 'next/headers';
-import { eq } from 'drizzle-orm';
-import { db } from '@/lib/db/index.ts';
-import { lineUser, workspace, workspaceMember } from '@/lib/db/schema.ts';
 import { exchangeCode, verifyLineIdToken } from '@/lib/line/verify.ts';
 import { createSession } from '@/lib/auth/session.ts';
-import { syncGroupMemberships } from '@/lib/auth/membership.ts';
+import { syncGroupMemberships, upsertLineUserOnSignIn } from '@/lib/auth/membership.ts';
 import { callbackUrl, NEXT_COOKIE } from '../start/route.ts';
 import { safeNextPath } from '@/lib/deep-link.ts';
 import { safeErrorMessage } from '@/lib/log.ts';
@@ -88,41 +84,7 @@ async function upsertUserAndSession(identity: {
   displayName: string;
   pictureUrl?: string;
 }) {
-  const existing = await db()
-    .select({ id: lineUser.id })
-    .from(lineUser)
-    .where(eq(lineUser.lineUserId, identity.lineUserId))
-    .limit(1);
-
-  let userId = existing[0]?.id;
-  if (!userId) {
-    userId = crypto.randomUUID();
-    await db().insert(lineUser).values({
-      id: userId,
-      lineUserId: identity.lineUserId,
-      displayName: identity.displayName,
-      pictureUrl: identity.pictureUrl,
-    });
-    // First run: one personal workspace so the app is never empty-broken.
-    const workspaceId = crypto.randomUUID();
-    // Personal: "no group" — only this person ever sees its tasks.
-    await db().insert(workspace).values({ id: workspaceId, name: 'งานของฉัน', kind: 'personal', createdByUserId: userId });
-    await db().insert(workspaceMember).values({
-      workspaceId,
-      userId,
-      role: MANAGER,
-      nickname: identity.displayName,
-    });
-  } else {
-    await db()
-      .update(lineUser)
-      .set({
-        displayName: identity.displayName,
-        pictureUrl: identity.pictureUrl,
-        updatedAt: new Date(),
-      })
-      .where(eq(lineUser.id, userId));
-  }
+  const userId = await upsertLineUserOnSignIn(identity);
   // A group may have been connected while this person was away; joining the
   // LINE group is what grants access, so reconcile it at every sign-in.
   await syncGroupMemberships(userId);

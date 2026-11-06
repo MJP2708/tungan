@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { eq } from 'drizzle-orm';
-import { db } from '@/lib/db/index.ts';
-import { lineUser, workspace, workspaceMember } from '@/lib/db/schema.ts';
 import { verifyLineIdToken } from '@/lib/line/verify.ts';
 import { createSession } from '@/lib/auth/session.ts';
-import { PERSONAL_MESSAGE_CAP, syncGroupMemberships } from '@/lib/auth/membership.ts';
-import { MANAGER } from '@/lib/permissions.ts';
+import { syncGroupMemberships, upsertLineUserOnSignIn } from '@/lib/auth/membership.ts';
 import { safeErrorMessage } from '@/lib/log.ts';
 
 export const runtime = 'nodejs';
@@ -35,44 +31,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'ยืนยันตัวตนกับ LINE ไม่สำเร็จ' }, { status: 401 });
   }
 
-  const existing = await db()
-    .select({ id: lineUser.id })
-    .from(lineUser)
-    .where(eq(lineUser.lineUserId, identity.lineUserId))
-    .limit(1);
-
-  let userId = existing[0]?.id;
-  if (!userId) {
-    userId = crypto.randomUUID();
-    await db().insert(lineUser).values({
-      id: userId,
-      lineUserId: identity.lineUserId,
-      displayName: identity.displayName,
-      pictureUrl: identity.pictureUrl,
-    });
-    // A brand-new account starts with its own empty personal workspace.
-    // Prototype localStorage is never imported into a real account.
-    const workspaceId = crypto.randomUUID();
-    // Personal: "no group" — only this person ever sees its tasks.
-    await db().insert(workspace).values({
-      id: workspaceId,
-      name: 'งานของฉัน',
-      kind: 'personal',
-      createdByUserId: userId,
-      monthlyMessageCap: PERSONAL_MESSAGE_CAP,
-    });
-    await db().insert(workspaceMember).values({
-      workspaceId,
-      userId,
-      role: MANAGER,
-      nickname: identity.displayName,
-    });
-  } else {
-    await db()
-      .update(lineUser)
-      .set({ displayName: identity.displayName, pictureUrl: identity.pictureUrl, updatedAt: new Date() })
-      .where(eq(lineUser.id, userId));
-  }
+  const userId = await upsertLineUserOnSignIn(identity);
 
   await syncGroupMemberships(userId);
   await createSession(userId);

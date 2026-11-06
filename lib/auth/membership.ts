@@ -226,6 +226,58 @@ export async function grantWorkspaceToGroup(
 }
 
 /**
+ * Sign-in: the person's row, made or refreshed, and on first sign-in their
+ * personal workspace (2026-11-06).
+ *
+ * One transaction, keyed on the LINE id. It used to be three separate
+ * inserts after a select, in two copies (the LIFF route and the web
+ * callback): two first sign-ins at once both inserted and one hit the
+ * unique index (a 500), and a crash between inserts left a person with no
+ * personal workspace. Now the loser of the insert race does nothing and
+ * refreshes the row the winner made.
+ */
+export async function upsertLineUserOnSignIn(identity: {
+  lineUserId: string;
+  displayName: string;
+  pictureUrl?: string | null;
+}): Promise<string> {
+  return db().transaction(async (tx) => {
+    const id = crypto.randomUUID();
+    const inserted = await tx
+      .insert(lineUser)
+      .values({
+        id,
+        lineUserId: identity.lineUserId,
+        displayName: identity.displayName,
+        pictureUrl: identity.pictureUrl ?? null,
+      })
+      .onConflictDoNothing({ target: lineUser.lineUserId })
+      .returning({ id: lineUser.id });
+    if (inserted.length) {
+      // A brand-new account starts with its own empty personal workspace —
+      // "no group", only this person ever sees its tasks. Prototype
+      // localStorage is never imported into a real account.
+      const workspaceId = crypto.randomUUID();
+      await tx.insert(workspace).values({
+        id: workspaceId,
+        name: 'งานของฉัน',
+        kind: 'personal',
+        createdByUserId: id,
+        monthlyMessageCap: PERSONAL_MESSAGE_CAP,
+      });
+      await tx.insert(workspaceMember).values({ workspaceId, userId: id, role: MANAGER, nickname: identity.displayName });
+      return id;
+    }
+    const [existing] = await tx
+      .update(lineUser)
+      .set({ displayName: identity.displayName, pictureUrl: identity.pictureUrl ?? null, updatedAt: new Date() })
+      .where(eq(lineUser.lineUserId, identity.lineUserId))
+      .returning({ id: lineUser.id });
+    return existing.id;
+  });
+}
+
+/**
  * A personal workspace's share of the LINE account's quota (2026-11-06).
  * Its own reminders and private events push; its tasks get no automatic
  * pushes. Every signed-in person has one, so 300 each was a promise the
