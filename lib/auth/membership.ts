@@ -214,6 +214,14 @@ export async function grantWorkspaceToGroup(
 }
 
 /**
+ * A personal workspace's share of the LINE account's quota (2026-11-06).
+ * Its own reminders and private events push; its tasks get no automatic
+ * pushes. Every signed-in person has one, so 300 each was a promise the
+ * shared account could never keep.
+ */
+export const PERSONAL_MESSAGE_CAP = 50;
+
+/**
  * The person's own workspace — "no group" (2026-10-17). Tasks they make for
  * themselves in a private chat with the bot live here, seen by nobody else.
  * Made on first need, so someone who has never opened the app can still keep
@@ -233,7 +241,7 @@ export async function ensurePersonalWorkspace(userId: string): Promise<string> {
     .where(eq(lineUser.id, userId))
     .limit(1);
   const id = crypto.randomUUID();
-  await db().insert(workspace).values({ id, name: 'งานของฉัน', kind: 'personal', createdByUserId: userId });
+  await db().insert(workspace).values({ id, name: 'งานของฉัน', kind: 'personal', createdByUserId: userId, monthlyMessageCap: PERSONAL_MESSAGE_CAP });
   await db()
     .insert(workspaceMember)
     .values({ workspaceId: id, userId, role: MANAGER, nickname: profile?.displayName ?? '' });

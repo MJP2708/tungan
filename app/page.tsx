@@ -4351,12 +4351,17 @@ export default function Home() {
             <div className="connection-row">
               <span>
                 <Bell />
-                {t('โควตาข้อความเดือนนี้')}
+                {t('ส่วนแบ่งข้อความเดือนนี้')}
               </span>
               <Badge variant="outline">
                 {usage.used}/{usage.cap} {t('· เหลือ')} {usage.remaining}
               </Badge>
             </div>
+          )}
+          {usage && (
+            <p className="connection-notice">
+              {t('นี่คือส่วนแบ่งของพื้นที่งานนี้ · ทุกทีมใช้โควตาข้อความรวมของบัญชี LINE เดียวกัน จึงไม่ได้รับประกันว่าจะส่งได้ครบ')}
+            </p>
           )}
           <p className="connection-notice">
             {usage?.ai?.enabled
@@ -4608,12 +4613,17 @@ export default function Home() {
             <div className="connection-row">
               <span>
                 <Bell />
-                {t('โควตาข้อความเดือนนี้')}
+                {t('ส่วนแบ่งข้อความเดือนนี้')}
               </span>
               <Badge variant="outline">
                 {usage.used}/{usage.cap} {t('· เหลือ')} {usage.remaining}
               </Badge>
             </div>
+          )}
+          {usage && (
+            <p className="connection-notice">
+              {t('นี่คือส่วนแบ่งของพื้นที่งานนี้ · ทุกทีมใช้โควตาข้อความรวมของบัญชี LINE เดียวกัน จึงไม่ได้รับประกันว่าจะส่งได้ครบ')}
+            </p>
           )}
           <p className="connection-notice">
             {lineGroups.length === 0

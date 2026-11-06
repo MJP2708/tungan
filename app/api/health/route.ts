@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/index.ts';
 import { sql } from 'drizzle-orm';
+import { cachedOaQuota } from '@/lib/line/quota.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -49,6 +50,10 @@ export async function GET() {
   // LINE messages left unfinished for 10 minutes: the recovery pass should
   // have picked them up, so a number here that stays up means it is not.
   let webhookUnprocessed: number | null = null;
+  // The LINE account's own quota, shared by every workspace, as last read
+  // from LINE (never fetched here).
+  let oaQuotaUsed: number | null = null;
+  let oaQuotaLimit: number | null = null;
   if (env.DATABASE_URL && database === 'ok') {
     try {
       const rows = await db().execute(
@@ -67,6 +72,9 @@ export async function GET() {
       webhookUnprocessed = Number(
         (pending as unknown as { rows: { n: number }[] }).rows?.[0]?.n ?? 0,
       );
+      const quota = await cachedOaQuota();
+      oaQuotaUsed = quota?.used ?? null;
+      oaQuotaLimit = quota?.limit ?? null;
     } catch {
       // Non-fatal: readiness does not depend on it.
     }
@@ -74,7 +82,7 @@ export async function GET() {
 
   const ready = Object.values(env).every(Boolean) && database === 'ok' && tables >= 14;
   return NextResponse.json(
-    { ready, env, database, tables, remindersLastSentAt, remindersDueNow, webhookUnprocessed },
+    { ready, env, database, tables, remindersLastSentAt, remindersDueNow, webhookUnprocessed, oaQuotaUsed, oaQuotaLimit },
     { status: ready ? 200 : 503 },
   );
 }

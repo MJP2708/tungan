@@ -30,6 +30,7 @@ describe('reminder dispatch', { skip: !URL_ ? 'TEST_DATABASE_URL not set' : fals
   let schema: typeof import('../lib/db/schema.ts');
   let dispatchDueReminders: typeof import('../lib/reminders/dispatch.ts').dispatchDueReminders;
   let eq: typeof import('drizzle-orm').eq;
+  let billingMonthNow: () => string;
 
   const ws = 'ws-1';
   const boss = 'u-boss';
@@ -41,16 +42,31 @@ describe('reminder dispatch', { skip: !URL_ ? 'TEST_DATABASE_URL not set' : fals
    * profile endpoint — which is how "have they added the OA?" is checked.
    * U-stranger really has not: LINE answers 404 for them.
    */
-  function recordingFetch(status = 200) {
+  function recordingFetch(
+    status = 200,
+    // LINE's answer about the account's monthly quota; null = LINE does not answer.
+    quota: { limit: number | null; used: number } | null = { limit: null, used: 0 },
+    pushBody: Record<string, unknown> = {},
+  ) {
     const calls: Array<{ to: string; text: string }> = [];
     const impl = (async (url: string, init?: { body?: string }) => {
+      if (String(url).endsWith('/v2/bot/message/quota')) {
+        return quota
+          ? { ok: true, status: 200, json: async () => (quota.limit === null ? { type: 'none' } : { type: 'limited', value: quota.limit }) }
+          : { ok: false, status: 500, json: async () => ({}) };
+      }
+      if (String(url).endsWith('/v2/bot/message/quota/consumption')) {
+        return quota
+          ? { ok: true, status: 200, json: async () => ({ totalUsage: quota.used }) }
+          : { ok: false, status: 500, json: async () => ({}) };
+      }
       if (String(url).includes('/v2/bot/profile/')) {
         const known = !String(url).endsWith('U-stranger');
         return { ok: known, status: known ? 200 : 404, json: async () => ({}) };
       }
       const body = JSON.parse(init?.body ?? '{}') as { to: string; messages: Array<{ text: string }> };
       calls.push({ to: body.to, text: (body.messages ?? []).map((m) => m.text).join('\n') });
-      return { ok: status < 400, status, json: async () => ({}) };
+      return { ok: status < 400, status, json: async () => pushBody };
     }) as unknown as typeof fetch;
     return { calls, impl };
   }
@@ -77,10 +93,12 @@ describe('reminder dispatch', { skip: !URL_ ? 'TEST_DATABASE_URL not set' : fals
     pool = new pg.Pool({ connectionString: URL_ });
     dbModule.__setDb(drizzle(pool, { schema }) as never);
     ({ dispatchDueReminders } = await import('../lib/reminders/dispatch.ts'));
+    const { billingMonth } = await import('../lib/line/messaging.ts');
+    billingMonthNow = () => billingMonth();
   });
 
   beforeEach(async () => {
-    for (const t of [schema.messageUsage, schema.reminder, schema.task, schema.workspaceMember, schema.workspace, schema.lineUser]) {
+    for (const t of [schema.lineQuota, schema.messageUsage, schema.reminder, schema.task, schema.workspaceMember, schema.workspace, schema.lineUser]) {
       await db().delete(t);
     }
     await db().insert(schema.lineUser).values([
@@ -220,6 +238,67 @@ describe('reminder dispatch', { skip: !URL_ ? 'TEST_DATABASE_URL not set' : fals
     const [row] = await db().select().from(schema.reminder).where(eq(schema.reminder.id, 'r-1'));
     assert.equal(row.state, 'failed');
     assert.match(row.failureReason ?? '', /โควตา/);
+  });
+
+  // P0-3 (2026-11-06): every workspace sends from ONE LINE account.
+  test('the account quota stops a push even when every workspace is under its own cap', async () => {
+    await addReminder('r-1', worker, 't-1');
+    // 300 a month, 95% held to the reserve: 285 is the most we spend.
+    const { calls, impl } = recordingFetch(200, { limit: 300, used: 285 });
+
+    const result = await dispatchDueReminders({ fetchImpl: impl });
+
+    assert.equal(calls.length, 0, 'nothing pushed');
+    assert.equal(result.skippedOverCap, 1);
+    const [row] = await db().select().from(schema.reminder).where(eq(schema.reminder.id, 'r-1'));
+    assert.equal(row.state, 'failed');
+    assert.match(row.failureReason ?? '', /บัญชี LINE/, 'and it says the account ran out, not the team');
+  });
+
+  test('pushes made since LINE last counted are added to its count', async () => {
+    await db().insert(schema.lineQuota).values({ id: 'oa', monthlyLimit: 300, used: 270, checkedAt: new Date(Date.now() - 60_000) });
+    await db().insert(schema.messageUsage).values(Array.from({ length: 15 }, (_, i) => ({
+      id: `mu-${i}`, workspaceId: ws, channel: 'push', recipientCount: 1, billingMonth: billingMonthNow(),
+    })));
+    await addReminder('r-1', worker, 't-1');
+    const { calls, impl } = recordingFetch(200, null);
+
+    await dispatchDueReminders({ fetchImpl: impl });
+
+    assert.equal(calls.length, 0, '270 + 15 reaches the limit less the reserve');
+  });
+
+  test('when LINE cannot say, the push still goes (the workspace cap still applies)', async () => {
+    await addReminder('r-1', worker, 't-1');
+    const { calls, impl } = recordingFetch(200, null);
+    const result = await dispatchDueReminders({ fetchImpl: impl });
+    assert.equal(result.sent, 1);
+    assert.equal(calls.length, 1);
+  });
+
+  test("LINE's monthly-limit 429 fails the reminder once, and stops every push this month", async () => {
+    await addReminder('r-1', worker, 't-1');
+    const first = recordingFetch(429, { limit: null, used: 0 }, { message: 'You have reached your monthly limit.' });
+    await dispatchDueReminders({ fetchImpl: first.impl });
+
+    const [row] = await db().select().from(schema.reminder).where(eq(schema.reminder.id, 'r-1'));
+    assert.equal(row.state, 'failed', 'not retried');
+    assert.equal(row.attempts, 1);
+    assert.match(row.failureReason ?? '', /บัญชี LINE/);
+
+    await addReminder('r-2', boss, 't-2');
+    const second = recordingFetch(200, { limit: null, used: 0 });
+    await dispatchDueReminders({ fetchImpl: second.impl });
+    assert.equal(second.calls.length, 0, 'LINE is not asked again this month');
+  });
+
+  test("LINE's rate-limit 429 backs off and tries again", async () => {
+    await addReminder('r-1', worker, 't-1');
+    const { impl } = recordingFetch(429, { limit: null, used: 0 }, { message: 'The API rate limit has been exceeded. Try again later.' });
+    await dispatchDueReminders({ fetchImpl: impl });
+    const [row] = await db().select().from(schema.reminder).where(eq(schema.reminder.id, 'r-1'));
+    assert.equal(row.state, 'pending');
+    assert.ok(row.claimedUntil && row.claimedUntil.getTime() > Date.now(), 'held back for a while');
   });
 
   test('a reminder that is not due yet is left alone', async () => {

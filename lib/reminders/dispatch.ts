@@ -183,8 +183,10 @@ export async function dispatchDueReminders(
     const reason =
       outcome.reason === 'not_friend'
         ? 'ยังไม่ได้แอดบอทเป็นเพื่อน จึงส่งข้อความไม่ได้'
-        : outcome.reason === 'over_cap'
-          ? 'ใช้โควตาข้อความของเดือนนี้ครบแล้ว'
+        : outcome.reason === 'over_cap' && outcome.scope === 'account'
+          ? 'โควตาข้อความของบัญชี LINE เดือนนี้หมดแล้ว (ทุกทีมใช้โควตาเดียวกัน)'
+          : outcome.reason === 'over_cap'
+            ? 'ใช้โควตาข้อความของเดือนนี้ครบแล้ว'
           : `ส่งไม่สำเร็จ${outcome.status ? ` (${outcome.status})` : ''}`;
 
     if (outcome.reason === 'not_friend') result.notFriend += 1;

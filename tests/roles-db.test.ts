@@ -291,6 +291,15 @@ describe('roles, permissions, personal tasks, งานฉัน', { skip: !URL_
   });
 
   // ── งานฉัน ────────────────────────────────────────────────────────────
+  test('a new personal workspace gets a 50-message share of the account, not 300', async () => {
+    const { ensurePersonalWorkspace } = await import('../lib/auth/membership.ts');
+    await db().insert(schema.lineUser).values({ id: 'u-new', lineUserId: 'U-new', displayName: 'ใหม่' });
+    const id = await ensurePersonalWorkspace('u-new');
+    const [ws] = await db().select().from(schema.workspace).where(eq(schema.workspace.id, id));
+    assert.equal(ws.kind, 'personal');
+    assert.equal(ws.monthlyMessageCap, 50);
+  });
+
   test('งานฉัน never returns a task from a workspace I am not in', async () => {
     // Assigned to stranger in A, but stranger never joined A.
     await addTask('x', { assigneeUserId: stranger, status: 'progress', reviewState: 'working' });

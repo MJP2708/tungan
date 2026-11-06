@@ -459,6 +459,23 @@ export const lineEvent = pgTable(
 );
 
 /** Metered by actual recipient count, not API call count. */
+/**
+ * The LINE Official Account's own monthly quota (2026-11-06). One row, id
+ * 'oa': every workspace sends from the same account, so this — not the sum
+ * of the workspace caps — is what can actually run out. Read from LINE's
+ * quota endpoints at most every few minutes (lib/line/quota.ts).
+ */
+export const lineQuota = pgTable('line_quota', {
+  id: text('id').primaryKey(),
+  /** Messages the plan allows this month; null when LINE says unlimited. */
+  monthlyLimit: integer('monthly_limit'),
+  /** What LINE counted as used this month when last asked. */
+  used: integer('used').notNull().default(0),
+  checkedAt: timestamp('checked_at', { withTimezone: true }).notNull(),
+  /** YYYY-MM of a month LINE refused a push for ("monthly limit"). */
+  exhaustedMonth: text('exhausted_month'),
+});
+
 export const messageUsage = pgTable(
   'message_usage',
   {

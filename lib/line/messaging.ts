@@ -3,6 +3,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import { messageUsage, lineUser } from '../db/schema.ts';
 import { zonedDateParts } from '../deadline.ts';
+import { accountFull, markAccountExhausted, oaQuota } from './quota.ts';
 
 const REPLY_ENDPOINT = 'https://api.line.me/v2/bot/message/reply';
 const PUSH_ENDPOINT = 'https://api.line.me/v2/bot/message/push';
@@ -57,7 +58,15 @@ export async function replyMessage(
 
 export type PushOutcome =
   | { ok: true; counted: number }
-  | { ok: false; reason: 'not_friend' | 'over_cap' | 'line_error'; counted: 0; status?: number };
+  | {
+      ok: false;
+      reason: 'not_friend' | 'over_cap' | 'line_error';
+      counted: 0;
+      status?: number;
+      /** Whose quota ran out: this workspace's share, or the whole LINE
+       *  account that every workspace sends from. */
+      scope?: 'workspace' | 'account';
+    };
 
 /**
  * Push a DM to ONE person.
@@ -94,7 +103,12 @@ export async function pushToUser(
   }
 
   if (await isOverCap(params.workspaceId, month)) {
-    return { ok: false, reason: 'over_cap', counted: 0 };
+    return { ok: false, reason: 'over_cap', counted: 0, scope: 'workspace' };
+  }
+  // The workspace cap is a share. The account's quota is what really runs out.
+  const account = await oaQuota(month, { fetchImpl: options.fetchImpl, now, monthOf: billingMonth });
+  if (accountFull(account, month)) {
+    return { ok: false, reason: 'over_cap', counted: 0, scope: 'account' };
   }
 
   const doFetch = options.fetchImpl ?? fetch;
@@ -107,6 +121,20 @@ export async function pushToUser(
     body: JSON.stringify({ to: recipient.lineUserId, messages: params.messages }),
   });
 
+  if (res.status === 429) {
+    // Two different 429s. The monthly limit is final until the month turns,
+    // so it stops here instead of burning retries; a rate limit backs off.
+    let message = '';
+    try {
+      message = String(((await res.json()) as { message?: unknown })?.message ?? '');
+    } catch {
+      // No body: treat it as a rate limit and retry later.
+    }
+    if (/monthly limit/i.test(message)) {
+      await markAccountExhausted(month, now);
+      return { ok: false, reason: 'over_cap', counted: 0, status: 429, scope: 'account' };
+    }
+  }
   if (!res.ok) return { ok: false, reason: 'line_error', counted: 0, status: res.status };
 
   await db().insert(messageUsage).values({
