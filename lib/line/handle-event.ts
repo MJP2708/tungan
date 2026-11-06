@@ -738,6 +738,16 @@ async function handlePostback(event: LineEventPayload) {
     if (item.state !== 'pending') return;
     const userId = params.get('user');
     if (!userId) return;
+    // The id comes from the postback, which anyone can forge: it must be
+    // someone in the draft's workspace, or a confirm would hand the task —
+    // and its reminders — to a person from another team.
+    if (!(await isAssignable(item.workspaceId, userId))) {
+      if (event.replyToken) {
+        await replyMessage(event.replyToken, [{ type: 'text', text: 'คนนี้ไม่ได้อยู่ในพื้นที่งานนี้' }],
+          { workspaceId: item.workspaceId }).catch(() => {});
+      }
+      return;
+    }
     // Picking one person replaces ทุกคน: the draft is now theirs alone.
     await db().update(inboxItem).set({ suggestedAssigneeUserId: userId, assignAll: false })
       .where(and(eq(inboxItem.id, inboxId), eq(inboxItem.state, 'pending')));

@@ -294,6 +294,25 @@ describe('LINE flow: message to draft to task', { skip: !URL_ ? 'TEST_DATABASE_U
     assert.match(replyText(), /เฉพาะคนในทีม/);
   });
 
+  test('a forged postback cannot hand a draft to someone outside the team', async () => {
+    // P1-2 (2026-11-06): the tapper was checked, the person they named was not.
+    await db().insert(schema.lineUser).values({ id: 'u-outsider', lineUserId: 'U-outsider', displayName: 'คนนอก' });
+    await handleEvent(message('@ทันงาน ส่งใบเสนอราคา วันนี้'));
+    const [draft] = await db().select().from(schema.inboxItem);
+
+    await handleEvent(event({ type: 'postback', postback: { data: `action=setassignee&inbox=${draft.id}&user=u-outsider` } }));
+    const [after_] = await db().select().from(schema.inboxItem);
+    assert.notEqual(after_.suggestedAssigneeUserId, 'u-outsider');
+    assert.match(replyText(), /ไม่ได้อยู่ในพื้นที่งานนี้/);
+
+    // And however a draft came to hold one, confirming does not make the task.
+    await db().update(schema.inboxItem).set({ suggestedAssigneeUserId: 'u-outsider' });
+    await handleEvent(event({ type: 'postback', postback: { data: `action=confirm&inbox=${draft.id}` } })).catch(() => {});
+    assert.equal((await db().select().from(schema.task)).length, 0);
+    const [still] = await db().select().from(schema.inboxItem);
+    assert.equal(still.state, 'pending', 'the draft is handed back, not lost');
+  });
+
   test('taking a message back in LINE removes what was stored', async () => {
     await handleEvent(message('@ทันงาน ส่งใบเสนอราคา วันนี้', 'msg-unsend'));
     const before_ = await db().select().from(schema.inboxItem);

@@ -1,4 +1,5 @@
 import 'server-only';
+import { assertAssignable } from '../auth/assignable.ts';
 import { inArray } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import { task, taskEvent } from '../db/schema.ts';
@@ -27,6 +28,10 @@ export async function createTasks(params: {
   eventDetail: string;
 }): Promise<{ ids: string[]; batchId: string | null }> {
   const assignees = params.assignees.length ? params.assignees : [null];
+  // Every way a task is made comes through here, so this is the last place
+  // a person from another workspace can be stopped — whatever a route or a
+  // postback let through. Their reminders would DM them the title.
+  for (const assigneeUserId of new Set(assignees)) await assertAssignable(params.workspaceId, assigneeUserId);
   const batchId = assignees.length > 1 ? crypto.randomUUID() : null;
   const ids: string[] = [];
   try {
