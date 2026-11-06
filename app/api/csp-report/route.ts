@@ -18,13 +18,13 @@ export async function POST(req: Request) {
       try {
         return new URL(String(value)).origin;
       } catch {
-        return String(value ?? '').slice(0, 40);
+        return typeof value === 'string' ? value.slice(0, 40) : '';
       }
     };
     console.warn(
       '[csp]',
       JSON.stringify({
-        directive: String(r['effective-directive'] ?? r['violated-directive'] ?? '').slice(0, 60),
+        directive: [r['effective-directive'], r['violated-directive']].find((d) => typeof d === 'string')?.toString().slice(0, 60) ?? '',
         blocked: origin(r['blocked-uri']),
         page: (() => {
           try {

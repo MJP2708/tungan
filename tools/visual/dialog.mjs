@@ -11,7 +11,6 @@ for (const [w, h] of [[320, 640], [360, 740], [390, 844], [430, 932], [1440, 900
   await page.getByRole('button', { name: /สร้างงาน/ }).first().click();
   const d = page.locator('.task-entry-dialog'); await d.waitFor(); await page.waitForTimeout(500);
   const r = await d.evaluate((el) => { const cs = getComputedStyle(el); const b = el.getBoundingClientRect();
-    const cal = el.querySelector('[style*="repeat(7"], .calendar-grid, [role=grid]'); 
     return { transform: cs.transform, translate: cs.translate, scale: cs.scale, top: b.top, bottom: b.bottom, left: b.left, right: b.right, vw: innerWidth, vh: innerHeight }; });
   const phone = w <= 760;
   const ok = phone ? (r.transform === 'none' && (r.translate === 'none' || r.translate === '0px') && r.top >= -1 && r.bottom <= r.vh + 1 && r.left >= -1 && r.right <= r.vw + 1)

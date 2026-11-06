@@ -135,7 +135,8 @@ export async function pushToUser(
     // so it stops here instead of burning retries; a rate limit backs off.
     let message = '';
     try {
-      message = String(((await res.json()) as { message?: unknown })?.message ?? '');
+      const body = (await res.json()) as { message?: unknown };
+      message = typeof body?.message === 'string' ? body.message : '';
     } catch {
       // No body: treat it as a rate limit and retry later.
     }

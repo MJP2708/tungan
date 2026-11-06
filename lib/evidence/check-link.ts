@@ -26,7 +26,7 @@ export type LinkCheck = {
 const TIMEOUT_MS = 4000;
 
 type Lookup = (host: string) => Promise<Array<{ address: string }>>;
-const lookupAll: Lookup = (host) => lookup(host, { all: true, verbatim: true });
+const lookupAll: Lookup = (host) => lookup(host, { all: true, order: 'verbatim' });
 
 export async function checkEvidenceLink(
   url: string,
