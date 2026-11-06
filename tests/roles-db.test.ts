@@ -318,6 +318,20 @@ describe('roles, permissions, personal tasks, งานฉัน', { skip: !URL_
     assert.equal((await db().select().from(schema.workspace).where(eq(schema.workspace.createdByUserId, ids[0]))).length, 1);
   });
 
+  test('retention deletes expired sessions and keeps live ones', async () => {
+    // P2-5 (2026-11-06): they used to go only when someone presented one.
+    const { purgeExpiredContent } = await import('../lib/retention.ts');
+    await db().insert(schema.session).values([
+      { id: 's-old', userId: may, expiresAt: new Date(Date.now() - 86400000) },
+      { id: 's-live', userId: may, expiresAt: new Date(Date.now() + 86400000) },
+    ]);
+    const result = await purgeExpiredContent();
+    assert.ok(result.sessionsDeleted >= 1);
+    const left = (await db().select().from(schema.session)).map((r) => r.id);
+    assert.ok(!left.includes('s-old'));
+    assert.ok(left.includes('s-live'));
+  });
+
   test('งานฉัน never returns a task from a workspace I am not in', async () => {
     // Assigned to stranger in A, but stranger never joined A.
     await addTask('x', { assigneeUserId: stranger, status: 'progress', reviewState: 'working' });

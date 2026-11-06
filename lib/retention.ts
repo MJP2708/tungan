@@ -1,7 +1,7 @@
 import 'server-only';
 import { and, isNotNull, lt, or, sql } from 'drizzle-orm';
 import { db } from './db/index.ts';
-import { aiUsage, inboxItem, lineEvent } from './db/schema.ts';
+import { aiUsage, inboxItem, lineEvent, session } from './db/schema.ts';
 
 /**
  * Throw away message content we no longer need.
@@ -61,6 +61,7 @@ export type RetentionResult = {
   payloadsCleared: number;
   answersCleared: number;
   eventsDeleted: number;
+  sessionsDeleted: number;
 };
 
 export async function purgeExpiredContent(now = new Date()): Promise<RetentionResult> {
@@ -102,10 +103,19 @@ export async function purgeExpiredContent(now = new Date()): Promise<RetentionRe
     .where(lt(lineEvent.receivedAt, rowsBefore))
     .returning({ id: lineEvent.webhookEventId });
 
+  // Sessions past their expiry (2026-11-06). They were only deleted when
+  // someone presented one, so a phone never used again kept its row — who,
+  // and since when — forever.
+  const sessionsDeleted = await db()
+    .delete(session)
+    .where(lt(session.expiresAt, now))
+    .returning({ id: session.id });
+
   return {
     inboxCleared: inboxCleared.length,
     payloadsCleared: payloadsCleared.length,
     answersCleared: answersCleared.length,
     eventsDeleted: eventsDeleted.length,
+    sessionsDeleted: sessionsDeleted.length,
   };
 }
