@@ -301,6 +301,48 @@ describe('reminder dispatch', { skip: !URL_ ? 'TEST_DATABASE_URL not set' : fals
     assert.ok(row.claimedUntil && row.claimedUntil.getTime() > Date.now(), 'held back for a while');
   });
 
+  // P0-4 (2026-11-06): LINE accepted the push, then the run died before
+  // marking the reminder sent. The next run must not deliver it again.
+  test('a push LINE accepted before a crash is delivered once across two runs', async () => {
+    await addReminder('r-1', worker, 't-1');
+    const delivered: string[] = [];
+    const keys = new Set<string>();
+    // Like LINE: a second request under a key it has seen is refused with 409.
+    const line = (async (url: string, init?: { body?: string; headers?: Record<string, string> }) => {
+      if (String(url).includes('/message/quota')) return { ok: false, status: 500, json: async () => ({}) };
+      const key = init?.headers?.['X-Line-Retry-Key'];
+      if (key && keys.has(key)) return { ok: false, status: 409, json: async () => ({ message: 'The retry key is already accepted' }) };
+      if (key) keys.add(key);
+      delivered.push(String(init?.body));
+      return { ok: true, status: 200, json: async () => ({}) };
+    }) as unknown as typeof fetch;
+
+    await dispatchDueReminders({ fetchImpl: line });
+    // What a run that died after the push leaves behind: still pending,
+    // lease over, nothing recorded.
+    await db().update(schema.reminder)
+      .set({ state: 'pending', sentAt: null, claimedUntil: new Date(Date.now() - 60_000) })
+      .where(eq(schema.reminder.id, 'r-1'));
+    await db().delete(schema.messageUsage);
+
+    const second = await dispatchDueReminders({ fetchImpl: line });
+
+    assert.equal(delivered.length, 1, 'delivered once');
+    assert.equal(second.sent, 1, 'the second run counts it as sent');
+    const [row] = await db().select().from(schema.reminder).where(eq(schema.reminder.id, 'r-1'));
+    assert.equal(row.state, 'sent');
+    assert.equal((await db().select().from(schema.messageUsage)).length, 1, 'and records it once');
+  });
+
+  test('a snoozed or re-opened reminder goes out under a new key, not the old one', async () => {
+    // Its old key would make LINE refuse the new message as a repeat (409),
+    // and it would be marked sent without arriving. The route needs a
+    // session, so the rule is checked where it lives.
+    const fs = await import('node:fs');
+    const src = fs.readFileSync(new URL('../app/api/reminders/[id]/route.ts', import.meta.url), 'utf8');
+    assert.match(src, /if \(patch\.state === 'pending' \|\| patch\.sendAt\) patch\.pushKey = null;/);
+  });
+
   test('a reminder that is not due yet is left alone', async () => {
     await addReminder('r-1', worker, 't-1', at(30));
     const { calls, impl } = recordingFetch();

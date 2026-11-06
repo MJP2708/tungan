@@ -4,6 +4,7 @@ import { db } from '../db/index.ts';
 import { messageUsage, lineUser } from '../db/schema.ts';
 import { zonedDateParts } from '../deadline.ts';
 import { accountFull, markAccountExhausted, oaQuota } from './quota.ts';
+import { lineFetch } from './fetch.ts';
 
 const REPLY_ENDPOINT = 'https://api.line.me/v2/bot/message/reply';
 const PUSH_ENDPOINT = 'https://api.line.me/v2/bot/message/push';
@@ -12,12 +13,6 @@ const PUSH_ENDPOINT = 'https://api.line.me/v2/bot/message/push';
 export function billingMonth(now: Date = new Date()): string {
   const p = zonedDateParts(now);
   return `${p.year}-${String(p.month).padStart(2, '0')}`;
-}
-
-function accessToken() {
-  const token = process.env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN;
-  if (!token) throw new Error('LINE_MESSAGING_CHANNEL_ACCESS_TOKEN is not configured');
-  return token;
 }
 
 /**
@@ -33,15 +28,11 @@ export async function replyMessage(
   messages: Array<Record<string, unknown>>,
   options: { workspaceId?: string; fetchImpl?: typeof fetch } = {},
 ): Promise<{ ok: boolean; status: number }> {
-  const doFetch = options.fetchImpl ?? fetch;
-  const res = await doFetch(REPLY_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${accessToken()}`,
-    },
-    body: JSON.stringify({ replyToken, messages }),
-  });
+  const res = await lineFetch(
+    REPLY_ENDPOINT,
+    { method: 'POST', body: JSON.stringify({ replyToken, messages }) },
+    options.fetchImpl,
+  );
   if (options.workspaceId) {
     // Recorded with recipientCount 0: replies cost nothing against quota, but
     // we still want them in the ledger to explain traffic.
@@ -81,6 +72,8 @@ export async function pushToUser(
     recipientUserId: string;
     messages: Array<Record<string, unknown>>;
     taskId?: string;
+    /** A UUID that names this one message. Sent as X-Line-Retry-Key. */
+    retryKey?: string;
   },
   options: { fetchImpl?: typeof fetch; now?: Date } = {},
 ): Promise<PushOutcome> {
@@ -111,15 +104,31 @@ export async function pushToUser(
     return { ok: false, reason: 'over_cap', counted: 0, scope: 'account' };
   }
 
-  const doFetch = options.fetchImpl ?? fetch;
-  const res = await doFetch(PUSH_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${accessToken()}`,
-    },
-    body: JSON.stringify({ to: recipient.lineUserId, messages: params.messages }),
-  });
+  let res: Response;
+  try {
+    res = await lineFetch(
+      PUSH_ENDPOINT,
+      {
+        method: 'POST',
+        body: JSON.stringify({ to: recipient.lineUserId, messages: params.messages }),
+        // LINE refuses a second request with the same key for 24 hours (409),
+        // so a push repeated after a crash is delivered once.
+        headers: params.retryKey ? { 'X-Line-Retry-Key': params.retryKey } : undefined,
+      },
+      options.fetchImpl,
+    );
+  } catch {
+    // Timed out or never connected: whether LINE took it is unknown. The
+    // retry key makes trying again safe.
+    return { ok: false, reason: 'line_error', counted: 0 };
+  }
+
+  if (res.status === 409 && params.retryKey) {
+    // Accepted earlier under this key, by a run that died before recording
+    // it. Delivered; recorded now, once.
+    await recordPush(params, month);
+    return { ok: true, counted: 1 };
+  }
 
   if (res.status === 429) {
     // Two different 429s. The monthly limit is final until the month turns,
@@ -137,15 +146,23 @@ export async function pushToUser(
   }
   if (!res.ok) return { ok: false, reason: 'line_error', counted: 0, status: res.status };
 
-  await db().insert(messageUsage).values({
-    id: crypto.randomUUID(),
-    workspaceId: params.workspaceId,
-    channel: 'push',
-    recipientCount: 1,
-    billingMonth: month,
-    taskId: params.taskId,
-  });
+  await recordPush(params, month);
   return { ok: true, counted: 1 };
+}
+
+/** One ledger row per delivered push; a retry key makes it one per key. */
+async function recordPush(params: { workspaceId: string; taskId?: string; retryKey?: string }, month: string) {
+  await db()
+    .insert(messageUsage)
+    .values({
+      id: params.retryKey ? `push:${params.retryKey}` : crypto.randomUUID(),
+      workspaceId: params.workspaceId,
+      channel: 'push',
+      recipientCount: 1,
+      billingMonth: month,
+      taskId: params.taskId,
+    })
+    .onConflictDoNothing();
 }
 
 /**
@@ -159,11 +176,11 @@ export async function isFriendOfOa(
   lineUserId: string,
   options: { fetchImpl?: typeof fetch } = {},
 ): Promise<boolean | null> {
-  const doFetch = options.fetchImpl ?? fetch;
   try {
-    const res = await doFetch(
+    const res = await lineFetch(
       `https://api.line.me/v2/bot/profile/${encodeURIComponent(lineUserId)}`,
-      { headers: { authorization: `Bearer ${accessToken()}` } },
+      { method: 'GET' },
+      options.fetchImpl,
     );
     if (res.ok) return true;
     // 404 is LINE's answer for "not a friend, or blocked". Anything else
@@ -229,9 +246,7 @@ export type LineProfile = { displayName: string; pictureUrl: string | null };
 
 async function getJson<T>(url: string, fetchImpl?: typeof fetch): Promise<T | null> {
   try {
-    const res = await (fetchImpl ?? fetch)(url, {
-      headers: { authorization: `Bearer ${accessToken()}` },
-    });
+    const res = await lineFetch(url, { method: 'GET' }, fetchImpl);
     return res.ok ? ((await res.json()) as T) : null;
   } catch {
     return null;

@@ -45,11 +45,11 @@ async function claimDue(now: Date) {
         limit ${BATCH}
         for update skip locked
      )
-    returning id, workspace_id, task_id, event_id, recipient_user_id, send_at, attempts, kind, note
+    returning id, workspace_id, task_id, event_id, recipient_user_id, send_at, attempts, kind, note, push_key
   `);
   return (rows as unknown as { rows: Array<{
     id: string; workspace_id: string; task_id: string | null; event_id: string | null; note: string | null;
-    recipient_user_id: string; send_at: string; attempts: number; kind: string;
+    recipient_user_id: string; send_at: string; attempts: number; kind: string; push_key: string | null;
   }> }).rows ?? [];
 }
 
@@ -97,21 +97,32 @@ export async function dispatchDueReminders(
     }
   }
 
-  // One message per person per workspace.
+  // One message per person per workspace. Rows an earlier run already put
+  // in a message stay together under that message's key: it may have been
+  // delivered, and only the same key lets LINE say so.
   const groups = new Map<string, typeof claimed>();
   for (const row of claimed) {
-    const key = `${row.workspace_id}::${row.recipient_user_id}`;
+    const key = row.push_key ? `key::${row.push_key}` : `${row.workspace_id}::${row.recipient_user_id}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(row);
   }
-  result.recipients = groups.size;
+  result.recipients = new Set(claimed.map((r) => `${r.workspace_id}::${r.recipient_user_id}`)).size;
 
   const titles = await titlesFor(claimed.map((c) => c.task_id).filter(Boolean) as string[]);
   const events = await eventsForMessages(claimed.map((c) => c.event_id).filter(Boolean) as string[]);
 
-  for (const [key, rows] of groups) {
-    const [workspaceId, recipientUserId] = key.split('::');
+  for (const rows of groups.values()) {
+    const workspaceId = rows[0].workspace_id;
+    const recipientUserId = rows[0].recipient_user_id;
     const ids = rows.map((r) => r.id);
+
+    // Name this message before sending it, so a run that dies after LINE
+    // accepted it leaves the key behind for the next run to send under.
+    let pushKey = rows[0].push_key;
+    if (!pushKey) {
+      pushKey = crypto.randomUUID();
+      await db().update(reminder).set({ pushKey }).where(inArray(reminder.id, ids));
+    }
 
     // Work you have to do and work you have to check are different requests.
     // Merging them under one heading would make the reviewer read their own
@@ -165,7 +176,7 @@ export async function dispatchDueReminders(
       openLine;
 
     const outcome = await pushToUser(
-      { workspaceId, recipientUserId, messages: [{ type: 'text', text }], taskId: rows[0].task_id ?? undefined },
+      { workspaceId, recipientUserId, messages: [{ type: 'text', text }], taskId: rows[0].task_id ?? undefined, retryKey: pushKey },
       { fetchImpl: options.fetchImpl, now },
     );
 

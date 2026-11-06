@@ -57,6 +57,9 @@ export async function PATCH(
       patch.sendAt = at;
       patch.snoozeCount = found.snoozeCount + 1;
     }
+    // Going out again is a new message: the key of the one it went out in
+    // would make LINE refuse it as a repeat (lib/reminders/dispatch.ts).
+    if (patch.state === 'pending' || patch.sendAt) patch.pushKey = null;
     await db().update(reminder).set(patch).where(eq(reminder.id, id));
     return NextResponse.json({ ok: true });
   } catch (error) {

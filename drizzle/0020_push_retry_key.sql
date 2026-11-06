@@ -1,0 +1,1 @@
+ALTER TABLE "reminder" ADD COLUMN "push_key" text;

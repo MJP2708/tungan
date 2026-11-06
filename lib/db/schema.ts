@@ -383,6 +383,11 @@ export const reminder = pgTable(
     snoozeCount: integer('snooze_count').notNull().default(0),
     /** Lease for the future scheduler, so two runners cannot both claim it. */
     claimedUntil: timestamp('claimed_until', { withTimezone: true }),
+    /** The X-Line-Retry-Key of the message this row went out in, written
+     *  before the push (2026-11-06). A run that dies after LINE accepted it
+     *  leaves the row pending; the next run sends the same rows under the
+     *  same key, LINE answers 409, and nobody gets it twice. */
+    pushKey: text('push_key'),
     /** Set for a calendar event's notification (kind 'event'). Deleting the
      *  event deletes its notifications. */
     eventId: text('event_id').references((): AnyPgColumn => calendarEvent.id, { onDelete: 'cascade' }),

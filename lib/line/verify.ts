@@ -1,6 +1,8 @@
 import 'server-only';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
+import { LINE_TIMEOUT_MS } from './fetch.ts';
+
 const LINE_VERIFY_ENDPOINT = 'https://api.line.me/oauth2/v2.1/verify';
 const LINE_TOKEN_ENDPOINT = 'https://api.line.me/oauth2/v2.1/token';
 const LINE_AUTHORIZE_ENDPOINT = 'https://access.line.me/oauth2/v2.1/authorize';
@@ -38,6 +40,8 @@ export async function verifyLineIdToken(
   const doFetch = options.fetchImpl ?? fetch;
   const res = await doFetch(LINE_VERIFY_ENDPOINT, {
     method: 'POST',
+    // Sign-in waits on this; a LINE that hangs must not hang the login.
+    signal: AbortSignal.timeout(LINE_TIMEOUT_MS),
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
   });
@@ -130,6 +134,8 @@ export async function exchangeCode(params: {
   const doFetch = params.fetchImpl ?? fetch;
   const res = await doFetch(LINE_TOKEN_ENDPOINT, {
     method: 'POST',
+    // Sign-in waits on this; a LINE that hangs must not hang the login.
+    signal: AbortSignal.timeout(LINE_TIMEOUT_MS),
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       grant_type: 'authorization_code',
