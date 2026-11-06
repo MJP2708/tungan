@@ -1,4 +1,5 @@
 import 'server-only';
+import { audit } from '../audit.ts';
 import { and, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import {
@@ -111,7 +112,7 @@ export async function admitToGroupWorkspace(
   lineGroupRowId: string,
   userId: string,
   options: { mayOwn?: boolean } = {},
-): Promise<string> {
+): Promise<{ workspaceId: string; claimed: boolean }> {
   const workspaceId = await ensureGroupWorkspace(lineGroupRowId);
   const [profile] = await db()
     .select({ displayName: lineUser.displayName })
@@ -122,8 +123,8 @@ export async function admitToGroupWorkspace(
     .insert(workspaceMember)
     .values({ workspaceId, userId, role: MEMBER, nickname: profile?.displayName ?? '' })
     .onConflictDoNothing();
-  if (options.mayOwn) await claimOwnershipIfNone(workspaceId, userId);
-  return workspaceId;
+  const claimed = options.mayOwn ? await claimOwnershipIfNone(workspaceId, userId) : false;
+  return { workspaceId, claimed };
 }
 
 /**
@@ -135,7 +136,7 @@ export async function admitToGroupWorkspace(
  * leaves, the group waits for its creator to name one (lib/auth/roles.ts),
  * rather than whoever happens to speak next taking over.
  */
-async function claimOwnershipIfNone(workspaceId: string, userId: string): Promise<void> {
+async function claimOwnershipIfNone(workspaceId: string, userId: string): Promise<boolean> {
   // Never set up: no creator recorded AND no Manager at all. Both, because a
   // creator's account can be deleted (the column then empties) while the
   // group still has Managers — that is not an unclaimed group.
@@ -151,11 +152,22 @@ async function claimOwnershipIfNone(workspaceId: string, userId: string): Promis
       ),
     )
     .returning({ id: workspace.id });
-  if (!claimed.length) return;
+  if (!claimed.length) return false;
   await db()
     .update(workspaceMember)
     .set({ role: MANAGER })
     .where(and(eq(workspaceMember.workspaceId, workspaceId), eq(workspaceMember.userId, userId)));
+  // Recorded, because nobody chose this person: the first to tag the bot
+  // could be a client or a freelancer as easily as the team lead.
+  await audit({
+    actorUserId: userId,
+    action: 'manager_claimed',
+    workspaceId,
+    targetUserId: userId,
+    before: { role: MEMBER },
+    after: { role: MANAGER },
+  });
+  return true;
 }
 
 async function boundWorkspaceOf(lineGroupRowId: string): Promise<string | null> {

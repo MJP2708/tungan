@@ -27,7 +27,7 @@ import { fromZonedWallClock } from '../deadline.ts';
 import { isHelpRequest, helpMessage, joinMessage } from './help.ts';
 import { confirmMessage, confirmCarousel, assigneePicker } from './confirm-message.ts';
 import {
-  replyMessage,
+  replyMessage as sendReply,
   isFriendOfOa,
   groupMemberProfile,
   groupName,
@@ -86,6 +86,32 @@ export type LineEventPayload = {
   joined?: { members?: Array<{ userId?: string }> };
   left?: { members?: Array<{ userId?: string }> };
 };
+
+/**
+ * Notices that ride along with an event's reply (2026-11-06). The reply token
+ * works once, and the event's own answer (a draft card, help, an
+ * announcement) needs it, so a notice is added to that same reply rather
+ * than sent separately — a push would be counted against the quota.
+ */
+const replyNotices = new Map<string, Array<Record<string, unknown>>>();
+
+function queueReplyNotice(replyToken: string, message: Record<string, unknown>) {
+  replyNotices.set(replyToken, [...(replyNotices.get(replyToken) ?? []), message]);
+}
+
+/** Every reply in this file goes through here, so queued notices go with it. */
+function replyMessage(...[token, messages, options]: Parameters<typeof sendReply>) {
+  const notices = replyNotices.get(token) ?? [];
+  replyNotices.delete(token);
+  // LINE takes at most five messages in one reply.
+  return sendReply(token, [...messages, ...notices].slice(0, 5), options);
+}
+
+/** A notice still queued when the event is done is sent on its own. */
+async function flushReplyNotices(event: LineEventPayload) {
+  if (!event.replyToken || !replyNotices.has(event.replyToken)) return;
+  await replyMessage(event.replyToken, []).catch(() => {});
+}
 
 /** The id of whatever the event came from, whichever kind it is. */
 function sourceIdOf(source: LineSource | undefined) {
@@ -185,8 +211,24 @@ export async function recordEventError(webhookEventId: string, error: unknown) {
  */
 export async function processEvent(event: LineEventPayload) {
   const eventId = event.webhookEventId;
-  const source = event.source;
 
+  try {
+    await dispatchEvent(event);
+    await flushReplyNotices(event);
+  } finally {
+    if (event.replyToken) replyNotices.delete(event.replyToken);
+  }
+
+  if (eventId) {
+    await db()
+      .update(lineEvent)
+      .set({ processedAt: new Date(), claimedUntil: null })
+      .where(eq(lineEvent.webhookEventId, eventId));
+  }
+}
+
+async function dispatchEvent(event: LineEventPayload) {
+  const source = event.source;
   switch (event.type) {
     case 'message':
       await handleMessage(event);
@@ -220,13 +262,6 @@ export async function processEvent(event: LineEventPayload) {
       break;
     default:
       break;
-  }
-
-  if (eventId) {
-    await db()
-      .update(lineEvent)
-      .set({ processedAt: new Date(), claimedUntil: null })
-      .where(eq(lineEvent.webhookEventId, eventId));
   }
 }
 
@@ -314,7 +349,7 @@ async function fillGroupName(rowId: string, lineGroupId: string) {
 async function noteGroupMember(
   lineGroupId: string,
   lineUserId: string,
-  options: { mayOwn?: boolean } = {},
+  options: { mayOwn?: boolean; replyToken?: string } = {},
 ): Promise<string> {
   const groupRowId = await ensureGroupKnown(lineGroupId);
   const userRowId = await ensureUserKnown(lineUserId, { groupOrRoomId: lineGroupId });
@@ -328,7 +363,24 @@ async function noteGroupMember(
   // Seen in the group means let into the group's workspace, now — not at
   // their next sign-in, and without anyone pressing "link team". (A group
   // the bot joined before this existed gets its workspace here.)
-  await admitToGroupWorkspace(groupRowId, userRowId, options);
+  const { claimed } = await admitToGroupWorkspace(groupRowId, userRowId, options);
+  if (claimed && options.replyToken) {
+    const [who] = await db()
+      .select({ name: lineUser.displayName })
+      .from(lineUser)
+      .where(eq(lineUser.id, userRowId))
+      .limit(1);
+    // Said in the group, so a client who tagged first is noticed by the
+    // team the same minute, not when they approve something.
+    const name = who?.name || 'คนนี้';
+    queueReplyNotice(options.replyToken, {
+      type: 'text',
+      text:
+        `${name} เป็นผู้จัดการของกลุ่มนี้ เพราะแท็ก @ทันงาน เป็นคนแรก` +
+        `\nถ้าไม่ใช่คนที่ควรเป็น ให้${name}มอบสิทธิ์ผู้จัดการให้คนที่ถูกต้องในแอป (ทีม → สมาชิก)` +
+        (appLink() ? `\n${appLink()}` : ''),
+    });
+  }
   return userRowId;
 }
 
@@ -850,7 +902,7 @@ async function handleMessage(event: LineEventPayload) {
       const tagsBot =
         /@ทันงาน|@tungan/i.test(text) ||
         (event.message?.mention?.mentionees ?? []).some((m) => m.isSelf);
-      await noteGroupMember(groupId, event.source.userId, { mayOwn: tagsBot });
+      await noteGroupMember(groupId, event.source.userId, { mayOwn: tagsBot, replyToken: event.replyToken });
     } else {
       await ensureUserKnown(event.source.userId);
       // A person who can message the OA in a 1:1 chat has added it, so this

@@ -246,7 +246,12 @@ named after the group and bound to it (`ensureGroupWorkspace` in
 `lib/auth/membership.ts`) — nobody presses "link team". Everyone seen in the
 group is let in as a member as they appear (`admitToGroupWorkspace`). The
 workspace has no owner until the first person who **tags @ทันงาน** (or opens
-the app from the group) claims it; chatting never makes anyone owner. Groups
+the app from the group) claims it; chatting never makes anyone owner.
+A claim by tagging is said in the group, in the same free reply as the
+bot's answer ("<name> เป็นผู้จัดการของกลุ่มนี้ …"), and written to
+`audit_log` as `manager_claimed` (2026-11-06): the first to tag could be a
+client. Requiring the claim to be confirmed in the app is the next step if
+that is not enough; it is not built. Groups
 joined before this get their workspace at their next message. The bot
 leaving no longer removes the binding, so coming back reuses the same
 workspace; unlinking on purpose is still in ตั้งค่า.

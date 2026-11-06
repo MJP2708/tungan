@@ -213,11 +213,22 @@ describe('LINE flow: message to draft to task', { skip: !URL_ ? 'TEST_DATABASE_U
     await handleEvent(inNewGroup({ type: 'message', message: { id: 'chat-1', type: 'text', text: 'สวัสดีทุกคน' } }, worker.lineUserId));
     assert.equal(await roleIn(workspaceId, worker.id), 'member', 'seen in the group → in the workspace');
 
+    sent = [];
     await handleEvent(inNewGroup({ type: 'message', message: { id: 'tag-1', type: 'text', text: '@ทันงาน ส่งรายงาน พรุ่งนี้' } }));
     assert.equal(await roleIn(workspaceId, boss.id), 'manager', 'the first to tag the bot sets it up: its first Manager');
+    // P1-1 (2026-11-06): the group is told who that is, in the same free
+    // reply as the draft card, and it is on the record.
+    const replyCalls = sent.filter((c) => c.url.includes('/message/reply'));
+    assert.equal(replyCalls.length, 1, 'one reply: the card and the notice together');
+    assert.match(replyText(), /หัวหน้า เป็นผู้จัดการของกลุ่มนี้/);
+    assert.equal(sent.filter((c) => c.url.includes('/message/push')).length, 0, 'never a push');
+    const logged = await db().select().from(schema.auditLog).where(eq(schema.auditLog.workspaceId, workspaceId));
+    assert.deepEqual(logged.map((r) => [r.action, r.targetUserId]), [['manager_claimed', boss.id]]);
 
+    sent = [];
     await handleEvent(inNewGroup({ type: 'message', message: { id: 'tag-2', type: 'text', text: '@ทันงาน โทรหาลูกค้า พรุ่งนี้' } }, worker.lineUserId));
     assert.equal(await roleIn(workspaceId, worker.id), 'member', 'tagging later does not take it over');
+    assert.doesNotMatch(replyText(), /เป็นผู้จัดการของกลุ่มนี้/, 'and nothing is announced');
   });
 
   test('a group the bot joined before this existed is set up at its next message', async () => {

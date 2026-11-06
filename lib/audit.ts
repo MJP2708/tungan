@@ -9,6 +9,8 @@ import { auditLog } from './db/schema.ts';
  */
 export type AuditAction =
   | 'role_changed'
+  /** Became a group's first Manager by tagging the bot (2026-11-06). */
+  | 'manager_claimed'
   | 'manager_left'
   | 'task_approved'
   | 'revision_requested'
