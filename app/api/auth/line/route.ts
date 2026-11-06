@@ -6,6 +6,7 @@ import { verifyLineIdToken } from '@/lib/line/verify.ts';
 import { createSession } from '@/lib/auth/session.ts';
 import { PERSONAL_MESSAGE_CAP, syncGroupMemberships } from '@/lib/auth/membership.ts';
 import { MANAGER } from '@/lib/permissions.ts';
+import { safeErrorMessage } from '@/lib/log.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,7 +31,7 @@ export async function POST(req: NextRequest) {
   try {
     identity = await verifyLineIdToken(idToken);
   } catch (error) {
-    console.warn('[auth] id token rejected:', (error as Error).message);
+    console.warn('[auth] id token rejected:', safeErrorMessage(error));
     return NextResponse.json({ error: 'ยืนยันตัวตนกับ LINE ไม่สำเร็จ' }, { status: 401 });
   }
 

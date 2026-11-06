@@ -2,6 +2,7 @@ import 'server-only';
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import { aiTrainingExample, inboxItem, workspace } from '../db/schema.ts';
+import { safeErrorMessage } from '../log.ts';
 
 /**
  * Training data (approved 2026-10-25). The policy, in code:
@@ -116,7 +117,7 @@ export async function recordConfirmedDraft(params: {
     });
     return true;
   } catch (error) {
-    console.error('[ai][training] could not record an example', error);
+    console.error('[ai][training] could not record an example', safeErrorMessage(error));
     return false;
   }
 }

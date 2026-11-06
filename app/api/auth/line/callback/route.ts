@@ -9,6 +9,7 @@ import { createSession } from '@/lib/auth/session.ts';
 import { syncGroupMemberships } from '@/lib/auth/membership.ts';
 import { callbackUrl, NEXT_COOKIE } from '../start/route.ts';
 import { safeNextPath } from '@/lib/deep-link.ts';
+import { safeErrorMessage } from '@/lib/log.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -61,7 +62,7 @@ export async function GET(req: Request) {
     });
     identity = await verifyLineIdToken(idToken, { nonce: expectedNonce });
   } catch (error) {
-    console.warn('[auth callback]', (error as Error).message);
+    console.warn('[auth callback]', safeErrorMessage(error));
     return backToLogin(req, 'ยืนยันตัวตนกับ LINE ไม่สำเร็จ');
   }
 
@@ -71,7 +72,7 @@ export async function GET(req: Request) {
     await upsertUserAndSession(identity);
   } catch (error) {
     const message = (error as Error).message ?? '';
-    console.error('[auth callback] could not create the session:', message);
+    console.error('[auth callback] could not create the session:', safeErrorMessage(error));
     const reason = /DATABASE_URL/.test(message)
       ? 'db_not_configured'
       : /ECONNREFUSED|ENOTFOUND|timeout|terminating connection|SSL/i.test(message)

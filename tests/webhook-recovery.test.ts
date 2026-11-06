@@ -192,6 +192,19 @@ describe('webhook: nothing lost, nothing done twice', { skip: !URL_ ? 'TEST_DATA
     assert.match(row.processingError ?? '', /57P01/);
   });
 
+  test('a stored error is cleared with the payload after seven days', async () => {
+    // P1-7: the error is about someone's message, so it follows the 7-day rule.
+    const { purgeExpiredContent } = await import('../lib/retention.ts');
+    const e = message('@ทันงาน เก่า');
+    await leftUnfinished(e, minutesAgo(8 * 24 * 60), null);
+    await db().update(schema.lineEvent).set({ processingError: '[57P01] terminating connection' })
+      .where(eq(schema.lineEvent.webhookEventId, e.webhookEventId!));
+    await purgeExpiredContent();
+    const row = await eventRow(e.webhookEventId!);
+    assert.equal(row.payload, null);
+    assert.equal(row.processingError, null);
+  });
+
   test('re-running a split message or an announcement adds nothing', async () => {
     const split = message('@ทันงาน ส่งรายงานพรุ่งนี้ แล้วก็โทรหาลูกค้าบ่าย 3');
     await events.handleEvent(split);

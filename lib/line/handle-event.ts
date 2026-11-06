@@ -304,7 +304,7 @@ async function handleJoin(event: LineEventPayload) {
       event.replyToken,
       [{ type: 'text', text: joinMessage({ appUrl: appLink(), privacyUrl: `${base}/privacy` }) }],
       {},
-    ).catch((error) => console.error('[webhook][processing-error] join reply failed', error));
+    ).catch((error) => console.error('[webhook][processing-error] join reply failed', safeErrorMessage(error)));
   }
 }
 
@@ -941,7 +941,7 @@ async function handleMessage(event: LineEventPayload) {
         }),
       }],
       { workspaceId: resolved?.workspaceId },
-    ).catch((error) => console.error('[webhook][processing-error] help reply failed', error));
+    ).catch((error) => console.error('[webhook][processing-error] help reply failed', safeErrorMessage(error)));
     return;
   }
   // "งานฉัน", on the free reply token (2026-10-17). In a group: only a short
@@ -966,7 +966,7 @@ async function handleMessage(event: LineEventPayload) {
       });
     }
     await replyMessage(event.replyToken, [message] as never, { workspaceId: resolved?.workspaceId })
-      .catch((error) => console.error('[webhook][processing-error] my-work reply failed', error));
+      .catch((error) => console.error('[webhook][processing-error] my-work reply failed', safeErrorMessage(error)));
     return;
   }
 
@@ -1241,7 +1241,7 @@ async function handleMessage(event: LineEventPayload) {
         ),
       ],
       { workspaceId: resolved.workspaceId },
-    ).catch((error) => console.error('[webhook][processing-error] reply failed', error));
+    ).catch((error) => console.error('[webhook][processing-error] reply failed', safeErrorMessage(error)));
   }
 }
 

@@ -5,6 +5,7 @@ import { db } from '../db/index.ts';
 import { idempotencyKey } from '../db/schema.ts';
 import { HttpError } from '../auth/session.ts';
 import { isUniqueViolation } from '../db/errors.ts';
+import { safeErrorMessage } from '../log.ts';
 
 export { isUniqueViolation };
 
@@ -13,7 +14,9 @@ export function errorResponse(error: unknown) {
   if (error instanceof HttpError) {
     return NextResponse.json({ error: error.message }, { status: error.status });
   }
-  console.error('[api]', error);
+  // The message only: Drizzle's wrapper quotes the query's values, and
+  // those are titles, names and LINE ids.
+  console.error('[api]', safeErrorMessage(error));
   return NextResponse.json({ error: 'เกิดข้อผิดพลาดในระบบ' }, { status: 500 });
 }
 

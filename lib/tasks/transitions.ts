@@ -15,6 +15,7 @@ import { assertAssignable } from '../auth/assignable.ts';
 import { groupFacts, assertCan } from '../auth/roles.ts';
 import { MANAGER, type Action } from '../permissions.ts';
 import { audit } from '../audit.ts';
+import { safeErrorMessage } from '../log.ts';
 
 /**
  * Every way a task can move, in one place.
@@ -469,7 +470,7 @@ export async function applyTransition(params: {
           `\n${waiting.map((w) => `• ${w.title}`).join('\n')}` +
           `\n\nกดรับหรือปฏิเสธในแอป: ${waiting.length > 1 ? appLink() : appLink({ task: taskId })}`,
       }],
-    }).catch((error) => console.error('[handoff] notify failed', error));
+    }).catch((error) => console.error('[handoff] notify failed', safeErrorMessage(error)));
   }
 
   // Acting on a task is evidence of when this person is at work.

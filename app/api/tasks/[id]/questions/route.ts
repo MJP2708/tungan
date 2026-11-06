@@ -10,6 +10,7 @@ import { planRemindersForTask } from '@/lib/reminders/plan.ts';
 import { nextWorkingMorning } from '@/lib/reminders/policy.ts';
 import { appLink } from '@/lib/deep-link.ts';
 import { assertAssignable } from '@/lib/auth/assignable.ts';
+import { safeErrorMessage } from '@/lib/log.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -165,7 +166,7 @@ export async function POST(
             `\n${lines.join('\n')}\n\nตอบในแอป: ${pending.length > 1 ? appLink() : appLink({ task: id })}`,
         }],
       },
-    ).catch((error) => console.error('[questions] notify failed', error));
+    ).catch((error) => console.error('[questions] notify failed', safeErrorMessage(error)));
 
     return NextResponse.json({ id: questionId }, { status: 201 });
   } catch (error) {

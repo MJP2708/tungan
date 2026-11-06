@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, isNotNull, lt, or, sql } from 'drizzle-orm';
 import { db } from './db/index.ts';
 import { aiUsage, inboxItem, lineEvent } from './db/schema.ts';
 
@@ -64,11 +64,18 @@ export async function purgeExpiredContent(now = new Date()): Promise<RetentionRe
     .where(and(isNotNull(aiUsage.answer), lt(aiUsage.createdAt, contentBefore)))
     .returning({ id: aiUsage.id });
 
-  // The event body, which holds the message text verbatim.
+  // The event body, which holds the message text verbatim, and the error a
+  // failed run stored: errors are reduced before they are stored
+  // (lib/log.ts), but an error is still about someone's message.
   const payloadsCleared = await db()
     .update(lineEvent)
-    .set({ payload: sql`null` })
-    .where(and(isNotNull(lineEvent.payload), lt(lineEvent.receivedAt, contentBefore)))
+    .set({ payload: sql`null`, processingError: sql`null` })
+    .where(
+      and(
+        or(isNotNull(lineEvent.payload), isNotNull(lineEvent.processingError)),
+        lt(lineEvent.receivedAt, contentBefore),
+      ),
+    )
     .returning({ id: lineEvent.webhookEventId });
 
   const eventsDeleted = await db()
