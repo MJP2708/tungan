@@ -3,6 +3,10 @@
 Thai, LINE-first task app. This file loads at the start of every session. The
 constraints below are decided, not open questions. Do not relitigate them.
 
+**Catch up first:** @docs/SESSION-LOG.md says what is live, what is waiting
+on the user, and how to work on this machine. Update it at the end of a
+session that changed any of that.
+
 ## Shape of the project
 
 **One plain Next.js App Router project.** No Vite, no vinext, no Wrangler, no
