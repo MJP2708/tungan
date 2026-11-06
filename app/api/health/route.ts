@@ -46,6 +46,9 @@ export async function GET() {
   // system goes unnoticed for a month.
   let remindersLastSentAt: string | null = null;
   let remindersDueNow: number | null = null;
+  // LINE messages left unfinished for 10 minutes: the recovery pass should
+  // have picked them up, so a number here that stays up means it is not.
+  let webhookUnprocessed: number | null = null;
   if (env.DATABASE_URL && database === 'ok') {
     try {
       const rows = await db().execute(
@@ -56,6 +59,14 @@ export async function GET() {
       const row = (rows as unknown as { rows: { last_sent: string | null; due_now: number }[] }).rows?.[0];
       remindersLastSentAt = row?.last_sent ?? null;
       remindersDueNow = Number(row?.due_now ?? 0);
+      const pending = await db().execute(
+        sql`select count(*)::int as n from line_event
+             where processed_at is null and received_at < now() - interval '10 minutes'
+               and received_at > now() - interval '7 days'`,
+      );
+      webhookUnprocessed = Number(
+        (pending as unknown as { rows: { n: number }[] }).rows?.[0]?.n ?? 0,
+      );
     } catch {
       // Non-fatal: readiness does not depend on it.
     }
@@ -63,7 +74,7 @@ export async function GET() {
 
   const ready = Object.values(env).every(Boolean) && database === 'ok' && tables >= 14;
   return NextResponse.json(
-    { ready, env, database, tables, remindersLastSentAt, remindersDueNow },
+    { ready, env, database, tables, remindersLastSentAt, remindersDueNow, webhookUnprocessed },
     { status: ready ? 200 : 503 },
   );
 }

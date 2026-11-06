@@ -442,6 +442,13 @@ export const lineEvent = pgTable(
      *  visible instead of looking identical to a successful one. */
     processedAt: timestamp('processed_at', { withTimezone: true }),
     processingError: text('processing_error'),
+    /** Runs that took this event on (2026-11-06). A run that dies leaves
+     *  processed_at null; the redelivery path and the cron recovery pass
+     *  take it over, at most three runs in all. */
+    attempts: integer('attempts').notNull().default(0),
+    /** Lease: a run owns the event until then, so two runs never do the
+     *  same work at once. */
+    claimedUntil: timestamp('claimed_until', { withTimezone: true }),
     payload: jsonb('payload'),
     receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -538,9 +545,15 @@ export const announcement = pgTable(
     body: text('body').notNull().default(''),
     /** Optional link to join (Meet, Zoom, a LINE call). lib/meeting-link.ts. */
     link: text('link'),
+    /** The LINE message it was typed in, so a re-run event cannot post it
+     *  twice. Null for announcements made in the app. */
+    sourceMessageId: text('source_message_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('announcement_workspace_idx').on(t.workspaceId, t.createdAt)],
+  (t) => [
+    index('announcement_workspace_idx').on(t.workspaceId, t.createdAt),
+    uniqueIndex('announcement_source_message_key').on(t.sourceMessageId),
+  ],
 );
 
 /** Who has closed which announcement, so it shows once per person, on any device. */

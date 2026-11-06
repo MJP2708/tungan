@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { recoverWebhookEvents } from '@/lib/line/recover.ts';
+import { safeErrorMessage } from '@/lib/log.ts';
 import { timingSafeEqual } from 'node:crypto';
 import { dispatchDueReminders } from '@/lib/reminders/dispatch.ts';
 import { purgeExpiredContent } from '@/lib/retention.ts';
@@ -44,13 +46,26 @@ async function run(req: Request) {
     retention = await purgeExpiredContent();
   } catch (error) {
     // Never let housekeeping stop a reminder going out.
-    console.error('[cron] retention failed', (error as Error).message);
+    console.error('[cron] retention failed', safeErrorMessage(error));
+  }
+
+  // LINE messages whose work was cut off. Same reason as retention: never
+  // let it stop a reminder.
+  let webhook: Awaited<ReturnType<typeof recoverWebhookEvents>> | null = null;
+  try {
+    webhook = await recoverWebhookEvents();
+  } catch (error) {
+    console.error('[cron] webhook recovery failed', safeErrorMessage(error));
   }
 
   // Logged so a run that sends nothing is distinguishable from one that
   // never happened.
-  console.log('[cron] reminders', JSON.stringify(result), 'retention', JSON.stringify(retention));
-  return NextResponse.json({ ok: true, ...result, retention });
+  console.log(
+    '[cron] reminders', JSON.stringify(result),
+    'retention', JSON.stringify(retention),
+    'webhook', JSON.stringify(webhook),
+  );
+  return NextResponse.json({ ok: true, ...result, retention, webhook });
 }
 
 export const GET = run;

@@ -7,7 +7,7 @@
 // the raw body, and after() to outlive the response.
 
 import 'server-only';
-import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import {
   lineEvent,
@@ -56,6 +56,9 @@ import { checkMessageWithJev, readMessageWithModel } from '../ai/assist.ts';
 import { routeReading } from '../ai/route.ts';
 import { forgetMessage, recordConfirmedDraft } from '../ai/training.ts';
 import { DRAFT_CONTENT_CLEARED } from '../retention.ts';
+import { isUniqueViolation } from '../db/errors.ts';
+import { safeErrorMessage } from '../log.ts';
+import { stableUuid } from '../stable-id.ts';
 
 export type LineSource = {
   type?: 'user' | 'group' | 'room';
@@ -89,31 +92,100 @@ function sourceIdOf(source: LineSource | undefined) {
   return source?.groupId ?? source?.roomId ?? source?.userId ?? null;
 }
 
-export async function handleEvent(event: LineEventPayload) {
-  const source = event.source;
-  const eventId = event.webhookEventId;
+/** How long one run owns an event before another may take it over. */
+const EVENT_LEASE_MS = 2 * 60_000;
+/** Runs in all: the first, then at most two take-overs. */
+export const MAX_EVENT_ATTEMPTS = 3;
 
-  // Dedup on the event id. The primary key enforces it, so a concurrent retry
-  // loses the insert race rather than creating a second task.
-  if (eventId) {
-    try {
-      await db().insert(lineEvent).values({
-        webhookEventId: eventId,
-        type: event.type,
-        sourceType: source?.type ?? null,
-        sourceId: sourceIdOf(source),
-        senderUserId: source?.userId ?? null,
-        isRedelivery: Boolean(event.deliveryContext?.isRedelivery),
-        // The dedup row always; the text only when the message was for us.
-        payload: mayStoreEventPayload(event)
-          ? (event as unknown as Record<string, unknown>)
-          : null,
-      });
-    } catch {
-      // Already seen: a duplicate is a no-op, never a second task.
-      return;
+export async function handleEvent(event: LineEventPayload) {
+  if (event.webhookEventId && !(await claimEvent(event))) return;
+  await processEvent(event);
+}
+
+/**
+ * Take an event on, exactly once.
+ *
+ * The primary key is the dedup: a concurrent retry loses the insert race
+ * rather than creating a second task. Only that — a unique violation — means
+ * "seen before". Any other failure (a cold database, a dropped connection)
+ * used to be read the same way, so the message was lost with no log, no row
+ * and no retry: LINE had already been answered 200. Now it is thrown, so it
+ * is logged and recorded.
+ *
+ * Seen before is not always done: a run that died mid-way leaves
+ * processed_at null, and the redelivery would then be dropped forever. Once
+ * that run's lease has run out, this run takes the event over.
+ */
+async function claimEvent(event: LineEventPayload): Promise<boolean> {
+  const source = event.source;
+  const now = new Date();
+  try {
+    await db().insert(lineEvent).values({
+      webhookEventId: event.webhookEventId!,
+      type: event.type,
+      sourceType: source?.type ?? null,
+      sourceId: sourceIdOf(source),
+      senderUserId: source?.userId ?? null,
+      isRedelivery: Boolean(event.deliveryContext?.isRedelivery),
+      // The dedup row always; the text only when the message was for us.
+      payload: mayStoreEventPayload(event)
+        ? (event as unknown as Record<string, unknown>)
+        : null,
+      attempts: 1,
+      claimedUntil: new Date(now.getTime() + EVENT_LEASE_MS),
+    });
+    return true;
+  } catch (error) {
+    if (!isUniqueViolation(error)) {
+      console.error('[webhook][dedup-failed]', event.type, safeErrorMessage(error));
+      throw error;
     }
   }
+  return claimUnfinishedEvent(event.webhookEventId!, now);
+}
+
+/**
+ * Take over an event a previous run left unfinished. One conditional update,
+ * so of two runs trying at once exactly one wins: the same lease the reminder
+ * dispatcher uses.
+ */
+export async function claimUnfinishedEvent(webhookEventId: string, now = new Date()): Promise<boolean> {
+  const rows = await db()
+    .update(lineEvent)
+    .set({
+      attempts: sql`${lineEvent.attempts} + 1`,
+      claimedUntil: new Date(now.getTime() + EVENT_LEASE_MS),
+    })
+    .where(
+      and(
+        eq(lineEvent.webhookEventId, webhookEventId),
+        isNull(lineEvent.processedAt),
+        lt(lineEvent.attempts, MAX_EVENT_ATTEMPTS),
+        or(isNull(lineEvent.claimedUntil), lt(lineEvent.claimedUntil, now)),
+      ),
+    )
+    .returning({ id: lineEvent.webhookEventId });
+  return rows.length > 0;
+}
+
+/** Store why an event failed, without the message text Drizzle quotes. */
+export async function recordEventError(webhookEventId: string, error: unknown) {
+  await db()
+    .update(lineEvent)
+    .set({ processingError: safeErrorMessage(error), claimedUntil: null })
+    .where(eq(lineEvent.webhookEventId, webhookEventId))
+    .catch(() => {});
+}
+
+/**
+ * The work behind an event, once it is ours. Safe to run again for an event
+ * whose earlier run died: every branch either keys its writes (drafts on the
+ * message id, announcements on the message id, members on their pair) or
+ * checks state before acting.
+ */
+export async function processEvent(event: LineEventPayload) {
+  const eventId = event.webhookEventId;
+  const source = event.source;
 
   switch (event.type) {
     case 'message':
@@ -153,7 +225,7 @@ export async function handleEvent(event: LineEventPayload) {
   if (eventId) {
     await db()
       .update(lineEvent)
-      .set({ processedAt: new Date() })
+      .set({ processedAt: new Date(), claimedUntil: null })
       .where(eq(lineEvent.webhookEventId, eventId));
   }
 }
@@ -866,6 +938,7 @@ async function handleMessage(event: LineEventPayload) {
       title: announced.title,
       body: announced.body,
       link: announced.link,
+      sourceMessageId: event.message?.id ?? null,
     });
     await say(
       `ประกาศแล้ว: ${announced.title}${announced.link ? '\nพร้อมปุ่มเข้าร่วมจากลิงก์ที่แนบ' : ''}\nทุกคนในพื้นที่งานจะเห็นเป็นหน้าต่างแจ้งเตือนครั้งเดียวเมื่อเปิดแอป${
@@ -1011,7 +1084,9 @@ async function handleMessage(event: LineEventPayload) {
 
   const draftIds: string[] = [];
   for (const [i, d] of drafts.entries()) {
-    const rowId = crypto.randomUUID();
+    // Derived from the message, so a re-run of this event lands on the same
+    // rows and inserts nothing. Only the first row can carry line_message_id.
+    const rowId = event.message?.id ? stableUuid(`draft:${event.message.id}:${i}`) : crypto.randomUUID();
     draftIds.push(rowId);
     await db()
       .insert(inboxItem)

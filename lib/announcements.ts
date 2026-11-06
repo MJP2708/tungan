@@ -49,6 +49,8 @@ export async function postAnnouncement(params: {
   title: string;
   body: string;
   link?: string | null;
+  /** The LINE message it came from: posting it again does nothing. */
+  sourceMessageId?: string | null;
 }): Promise<{ id: string }> {
   const title = params.title.trim().slice(0, TITLE_MAX);
   const body = params.body.trim().slice(0, BODY_MAX);
@@ -60,14 +62,18 @@ export async function postAnnouncement(params: {
     throw new HttpError(400, (error as Error).message);
   }
   const id = crypto.randomUUID();
-  await db().insert(announcement).values({
-    id,
-    workspaceId: params.workspaceId,
-    authorUserId: params.authorUserId,
-    title,
-    body,
-    link,
-  });
+  await db()
+    .insert(announcement)
+    .values({
+      id,
+      workspaceId: params.workspaceId,
+      authorUserId: params.authorUserId,
+      title,
+      body,
+      link,
+      sourceMessageId: params.sourceMessageId ?? null,
+    })
+    .onConflictDoNothing();
   // The author sees it too, like everyone else: it is the same notice the
   // whole team gets before using the app, and it confirms what went out.
   return { id };

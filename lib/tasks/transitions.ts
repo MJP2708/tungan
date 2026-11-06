@@ -209,6 +209,11 @@ export async function applyTransition(params: {
     if (to === found.assigneeUserId) {
       throw new HttpError(400, 'งานนี้อยู่กับผู้รับคนนี้แล้ว');
     }
+    // Offered to them already: a second offer would DM them again, and that
+    // push is counted against the quota. (A re-run LINE event lands here.)
+    if (to === found.pendingAssigneeUserId) {
+      return { ok: true as const, alreadyApplied: true, warning: null, eventId: null, visibility: null, audienceNote: null };
+    }
     // Offered, not moved. The task stays with the sender until the receiver
     // accepts, so work cannot fall into the gap between two people who each
     // think the other has it.

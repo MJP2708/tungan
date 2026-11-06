@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse, after } from 'next/server';
-import { eq } from 'drizzle-orm';
-import { db } from '@/lib/db/index.ts';
-import { lineEvent } from '@/lib/db/schema.ts';
 import { verifyLineSignature } from '@/lib/line/verify.ts';
-import { handleEvent, type LineEventPayload } from '@/lib/line/handle-event.ts';
+import { handleEvent, recordEventError, type LineEventPayload } from '@/lib/line/handle-event.ts';
+import { safeErrorMessage } from '@/lib/log.ts';
 
 // Signature verification needs node crypto's timingSafeEqual.
 export const runtime = 'nodejs';
@@ -53,18 +51,10 @@ export async function POST(req: NextRequest) {
       try {
         await handleEvent(event);
       } catch (error) {
-        console.error(
-          '[webhook][processing-error]',
-          event.type,
-          (error as Error).message,
-        );
-        if (event.webhookEventId) {
-          await db()
-            .update(lineEvent)
-            .set({ processingError: String((error as Error).message).slice(0, 500) })
-            .where(eq(lineEvent.webhookEventId, event.webhookEventId))
-            .catch(() => {});
-        }
+        // The event stays unprocessed, so the cron recovery pass runs it
+        // again (lib/line/recover.ts). Logged without Drizzle's quoted values.
+        console.error('[webhook][processing-error]', event.type, safeErrorMessage(error));
+        if (event.webhookEventId) await recordEventError(event.webhookEventId, error);
       }
     }
   });
